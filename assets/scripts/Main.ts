@@ -432,7 +432,7 @@ export class Main extends Component {
         this.layoutNotice();
         this.layoutBackground();
         this.worldCamera.orthoHeight = Math.max(9.5, 9.5 * this.height / 1920);
-        if (this.sheet) this.sheet.setPosition(0, this.page === 'pet' ? -this.height / 2 + 350 : -this.height / 2 + 640, 0);
+        if (this.sheet) this.sheet.setPosition(0, this.page === 'pet' ? -this.height / 2 + 350 : this.page === 'shop' ? -this.height / 2 + 820 : -this.height / 2 + 640, 0);
     }
     private petAvatar(parent: Node, id: number, x: number, y: number, size: number, locked = false) {
         const b = BREEDS[id], s = size / 100;
@@ -669,6 +669,10 @@ export class Main extends Component {
         this.updateSelectionRing(); this.renderNav();
         this.layoutNotice();
         if (page === 'home') return;
+        if (page === 'shop') {
+            this.sheet = this.uiNode(this.ui, '商店摊位', 0, -this.height / 2 + 820, 1020, 1110);
+            this.intercept(this.sheet); this.renderShop(); return;
+        }
         if (page === 'pet') {
             this.sheet = this.uiNode(this.ui, '宠物状态', 0, -this.height / 2 + 350, 900, 300);
             this.headerArt(this.sheet, 'pet-status'); this.intercept(this.sheet);
@@ -684,7 +688,6 @@ export class Main extends Component {
         if (petBag) this.button(this.sheet, '返回主页', 0, -425, 220, 44, () => this.open('home'), C.pale, 23);
         if (page === 'recruit') this.renderRecruit();
         if (page === 'album') this.renderAlbum();
-        if (page === 'shop') this.renderShop();
         if (page === 'adventure') this.renderAdventure();
         if (page === 'bag') this.renderBag();
     }
@@ -764,19 +767,48 @@ export class Main extends Component {
             this.text(tile, b.name + '\n' + (owned ? (this.data.avatar === i ? '当前头像' : '设为头像') : '尚未相遇'), 66, 0, 278, 118, 29, C.ink);
         });
     }
+    private shopArt(parent: Node, key: string, x: number, y: number, w: number, h: number) {
+        const node = this.uiNode(parent, '商店素材-' + key, x, y, w, h);
+        const sprite = node.addComponent(Sprite); sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+        resources.load('art/shop/' + key + '/spriteFrame', SpriteFrame, (error, frame) => {
+            if (!error && frame && isValid(sprite, true)) sprite.spriteFrame = frame;
+        });
+        return node;
+    }
+
     private renderShop() {
-        this.text(this.sheet!, '用日常冒险获得的金币，换一份贴心照顾', 0, 268, 940, 55, 27, C.muted);
-        const goods: ['food' | 'soap' | 'toy', string, string, number][] = [['food', '营养餐', '饱腹 +40', 20], ['soap', '柔软清洁包', '洁净 +40', 15], ['toy', '彩色小球', '心情 +40', 25]];
-        goods.forEach(([key, name, info, cost], i) => {
-            const y = 125 - i * 170;
-            this.text(this.sheet!, name + '  ×' + this.data[key] + '\n' + info, -220, y, 450, 110, 30);
-            this.button(this.sheet!, cost + ' 金币 · 买 1 份', 270, y, 390, 100, () => {
+        const panel = this.sheet!;
+        this.shopArt(panel, 'stall', 0, 0, 1020, 1000);
+        this.headerText(panel, '庭院补给铺', 0, 390, 470, 60, 42);
+        const close = this.shopArt(panel, 'close', 423, 418, 68, 68);
+        this.intercept(close); close.on(Node.EventType.TOUCH_END, () => this.open('home'), this);
+        const goods: ['food' | 'soap' | 'toy', string, string, string, number][] = [
+            ['food', '营养餐', '饱腹 +40', 'feed', 20], ['soap', '清洁香皂', '洁净 +40', 'clean', 15], ['toy', '陪玩玩具', '心情 +40', 'play', 25]
+        ];
+        goods.forEach(([key, name, info, icon, cost], i) => {
+            const x = -300 + i * 300;
+            const card = this.uiNode(panel, '商品-' + key, x, -5, 280, 430);
+            this.shopArt(card, 'card', 0, 0, 280, 430);
+            const image = this.uiNode(card, '照顾图标', 0, 90, 136, 136).addComponent(Sprite);
+            image.sizeMode = Sprite.SizeMode.CUSTOM; void this.loadCareIcon(image, icon);
+            this.headerText(card, name, 0, -5, 240, 42, 29);
+            this.text(card, info, 0, -48, 230, 34, 23, C.ink);
+            const stock = this.text(card, '库存 ×' + this.data[key], 0, -83, 230, 32, 22, C.muted);
+            const buy = this.shopArt(card, 'buy', 0, -155, 238, 64);
+            this.headerText(buy, cost + ' 金币', 0, 0, 210, 42, 27);
+            this.intercept(buy);
+            buy.on(Node.EventType.TOUCH_START, () => buy.setScale(0.94, 0.94, 1), this);
+            buy.on(Node.EventType.TOUCH_CANCEL, () => buy.setScale(1, 1, 1), this);
+            buy.on(Node.EventType.TOUCH_END, () => {
+                buy.setScale(1, 1, 1);
                 if (this.data.coins < cost) { this.toast('金币不足，去林间寻宝吧'); return; }
                 if (this.data[key] >= 100000000) { this.toast('背包已经装满啦'); return; }
-                this.data.coins -= cost; this.data[key]++; this.persist(); this.renderHeader(); this.open('shop'); this.toast('已购买' + name);
-            });
+                this.data.coins -= cost; this.data[key]++;
+                stock.string = '库存 ×' + this.data[key];
+                this.persist(); this.renderHeader(); this.toast('已购买' + name);
+            }, this);
         });
-        this.button(this.sheet!, '打开背包', 0, -373, 680, 70, () => this.open('bag'), C.pale);
+        this.button(panel, '打开背包', 0, -375, 430, 70, () => this.open('bag'), C.pale, 28);
     }
     private renderBag() {
         this.text(this.sheet!, '庭院物资 · 点击宠物后使用补给', 0, 263, 920, 60, 29, C.muted);

@@ -31,3 +31,6 @@ funplay-cocos-mcp.zip
 
 # Intermediate image-processing downloads (runtime assets are under assets/resources)
 /processed_image_*.png
+
+# Generated design candidates stay local; adopted sprites live in assets/resources
+/art/generated/
