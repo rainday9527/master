@@ -28,3 +28,6 @@ node_modules/
 .workbuddy/
 funplay-cocos-mcp/
 funplay-cocos-mcp.zip
+
+# Intermediate image-processing downloads (runtime assets are under assets/resources)
+/processed_image_*.png

@@ -1,0 +1,134 @@
+{
+  "ver": "1.0.27",
+  "importer": "image",
+  "imported": true,
+  "uuid": "03cc72ed-0801-49f1-89fc-f82fd692a383",
+  "files": [
+    ".json",
+    ".png"
+  ],
+  "subMetas": {
+    "6c48a": {
+      "ver": "1.0.22",
+      "importer": "texture",
+      "uuid": "03cc72ed-0801-49f1-89fc-f82fd692a383@6c48a",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {},
+      "userData": {
+        "wrapModeS": "clamp-to-edge",
+        "wrapModeT": "clamp-to-edge",
+        "minfilter": "linear",
+        "magfilter": "linear",
+        "mipfilter": "none",
+        "isUuid": true,
+        "imageUuidOrDatabaseUri": "03cc72ed-0801-49f1-89fc-f82fd692a383",
+        "visible": false,
+        "anisotropy": 0
+      },
+      "displayName": "garden",
+      "id": "6c48a",
+      "name": "texture"
+    },
+    "f9941": {
+      "ver": "1.0.12",
+      "importer": "sprite-frame",
+      "uuid": "03cc72ed-0801-49f1-89fc-f82fd692a383@f9941",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {},
+      "userData": {
+        "trimType": "none",
+        "trimThreshold": 1,
+        "rotated": false,
+        "offsetX": 0,
+        "offsetY": 0,
+        "trimX": 0,
+        "trimY": 0,
+        "width": 2160,
+        "height": 3840,
+        "rawWidth": 2160,
+        "rawHeight": 3840,
+        "borderTop": 0,
+        "borderBottom": 0,
+        "borderLeft": 0,
+        "borderRight": 0,
+        "packable": false,
+        "pixelsToUnit": 100,
+        "pivotX": 0.5,
+        "pivotY": 0.5,
+        "meshType": 0,
+        "isUuid": true,
+        "imageUuidOrDatabaseUri": "03cc72ed-0801-49f1-89fc-f82fd692a383@6c48a",
+        "atlasUuid": "",
+        "vertices": {
+          "rawPosition": [
+            -1080,
+            -1920,
+            0,
+            1080,
+            -1920,
+            0,
+            -1080,
+            1920,
+            0,
+            1080,
+            1920,
+            0
+          ],
+          "indexes": [
+            0,
+            1,
+            2,
+            2,
+            1,
+            3
+          ],
+          "uv": [
+            0,
+            3840,
+            2160,
+            3840,
+            0,
+            0,
+            2160,
+            0
+          ],
+          "nuv": [
+            0,
+            0,
+            1,
+            0,
+            0,
+            1,
+            1,
+            1
+          ],
+          "minPos": [
+            -1080,
+            -1920,
+            0
+          ],
+          "maxPos": [
+            1080,
+            1920,
+            0
+          ]
+        }
+      },
+      "displayName": "garden",
+      "id": "f9941",
+      "name": "spriteFrame"
+    }
+  },
+  "userData": {
+    "type": "sprite-frame",
+    "redirect": "03cc72ed-0801-49f1-89fc-f82fd692a383@6c48a",
+    "hasAlpha": false,
+    "fixAlphaTransparencyArtifacts": false
+  }
+}
