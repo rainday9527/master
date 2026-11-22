@@ -665,7 +665,11 @@ export class Main extends Component {
         this.page = page; this.adventureLabel = null;
         if (page === 'pet') this.petSelected = true;
         if (page === 'home') { this.petSelected = false; this.careSelected = ''; }
-        if (this.sheet) { this.sheet.active = false; this.sheet.destroy(); this.sheet = null; }
+        if (this.sheet) {
+            this.sheet.active = false;
+            this.sheet.removeFromParent();
+            this.sheet.destroy(); this.sheet = null;
+        }
         this.updateSelectionRing(); this.renderNav();
         this.layoutNotice();
         if (page === 'home') return;
@@ -788,7 +792,7 @@ export class Main extends Component {
         goods.forEach(([key, name, info, icon, cost], i) => {
             const x = -300 + i * 300;
             const card = this.uiNode(panel, '商品-' + key, x, -5, 280, 430);
-            this.shopArt(card, 'card', 0, 0, 280, 430);
+            // The stall already supplies shelving; do not overlay the old card layout.
             const image = this.uiNode(card, '照顾图标', 0, 90, 136, 136).addComponent(Sprite);
             image.sizeMode = Sprite.SizeMode.CUSTOM; void this.loadCareIcon(image, icon);
             this.headerText(card, name, 0, -5, 240, 42, 29);
@@ -808,7 +812,6 @@ export class Main extends Component {
                 this.persist(); this.renderHeader(); this.toast('已购买' + name);
             }, this);
         });
-        this.button(panel, '打开背包', 0, -375, 430, 70, () => this.open('bag'), C.pale, 28);
     }
     private renderBag() {
         this.text(this.sheet!, '庭院物资 · 点击宠物后使用补给', 0, 263, 920, 60, 29, C.muted);
