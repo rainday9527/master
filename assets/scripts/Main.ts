@@ -782,23 +782,25 @@ export class Main extends Component {
 
     private renderShop() {
         const panel = this.sheet!;
-        this.shopArt(panel, 'stall', 0, 0, 1020, 1000);
-        this.headerText(panel, '庭院补给铺', 0, 390, 470, 60, 42);
-        const close = this.shopArt(panel, 'close', 423, 418, 68, 68);
+        this.shopArt(panel, 'stall', 0, 0, 820, 1228);
+        this.headerText(panel, '庭院补给铺', 0, 424, 470, 60, 42);
+        const tab = this.shopArt(panel, 'tab', 0, 328, 260, 88);
+        this.headerText(tab, '日常补给', 0, 0, 210, 42, 29);
+        const close = this.shopArt(panel, 'close', 327, 460, 68, 68);
         this.intercept(close); close.on(Node.EventType.TOUCH_END, () => this.open('home'), this);
         const goods: ['food' | 'soap' | 'toy', string, string, string, number][] = [
             ['food', '营养餐', '饱腹 +40', 'feed', 20], ['soap', '清洁香皂', '洁净 +40', 'clean', 15], ['toy', '陪玩玩具', '心情 +40', 'play', 25]
         ];
         goods.forEach(([key, name, info, icon, cost], i) => {
-            const x = -300 + i * 300;
-            const card = this.uiNode(panel, '商品-' + key, x, -5, 280, 430);
-            // The stall already supplies shelving; do not overlay the old card layout.
-            const image = this.uiNode(card, '照顾图标', 0, 90, 136, 136).addComponent(Sprite);
+            const x = 0;
+            const card = this.uiNode(panel, '商品-' + key, x, 170 - i * 252, 620, 232);
+            this.headerArt(card, 'currency-panel');
+            const image = this.uiNode(card, '照顾图标', -205, 0, 136, 136).addComponent(Sprite);
             image.sizeMode = Sprite.SizeMode.CUSTOM; void this.loadCareIcon(image, icon);
-            this.headerText(card, name, 0, -5, 240, 42, 29);
-            this.text(card, info, 0, -48, 230, 34, 23, C.ink);
-            const stock = this.text(card, '库存 ×' + this.data[key], 0, -83, 230, 32, 22, C.muted);
-            const buy = this.shopArt(card, 'buy', 0, -155, 238, 64);
+            this.headerText(card, name, 0, 57, 220, 42, 29);
+            this.text(card, info, 0, 12, 210, 34, 23, C.ink);
+            const stock = this.text(card, '库存 ×' + this.data[key], 0, -33, 210, 32, 22, C.muted);
+            const buy = this.shopArt(card, 'buy', 193, -36, 176, 64);
             this.headerText(buy, cost + ' 金币', 0, 0, 210, 42, 27);
             this.intercept(buy);
             buy.on(Node.EventType.TOUCH_START, () => buy.setScale(0.94, 0.94, 1), this);
