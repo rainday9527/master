@@ -657,6 +657,11 @@ export class Main extends Component {
         });
     }
     private open(page: Page) {
+        if (page === 'pet' && this.page === 'pet' && this.sheet?.name === '宠物状态' && isValid(this.sheet, true)) {
+            this.petSelected = true;
+            this.renderPet(); this.updateSelectionRing(); this.renderNav(); this.layoutNotice();
+            return;
+        }
         this.page = page; this.adventureLabel = null;
         if (page === 'pet') this.petSelected = true;
         if (page === 'home') { this.petSelected = false; this.careSelected = ''; }
@@ -667,7 +672,7 @@ export class Main extends Component {
         if (page === 'pet') {
             this.sheet = this.uiNode(this.ui, '宠物状态', 0, -this.height / 2 + 350, 900, 300);
             this.headerArt(this.sheet, 'pet-status'); this.intercept(this.sheet);
-            this.headerText(this.sheet, BREEDS[this.selected].name + ' · 小日常', 0, 84, 600, 36, 27);
+            this.headerText(this.sheet, BREEDS[this.selected].name + ' · 小日常', 0, 84, 600, 36, 27).node.name = '宠物标题';
             this.renderPet();
             return;
         }
@@ -686,8 +691,18 @@ export class Main extends Component {
 
     private renderPet() {
         const p = this.data.pets.find(v => v.id === this.selected)!;
+        const title = this.sheet!.getChildByName('宠物标题')?.getComponent(Label);
+        if (title) title.string = BREEDS[this.selected].name + ' · 小日常';
         const needs: [string, number][] = [['饱腹', p.hunger], ['洁净', p.clean], ['体力', p.energy], ['心情', p.joy]];
         needs.forEach(([name, value], i) => {
+            const existing = this.sheet!.getChildByName(name + '-进度')?.getComponent(Sprite);
+            if (existing) {
+                if (existing.spriteFrame) existing.fillRange = value / 100;
+                existing.color = this.color(value < 30 ? '#F0A68A' : '#FFFFFF');
+                const number = this.sheet!.getChildByName(name + '-数字')?.getComponent(Label);
+                if (number) number.string = String(Math.round(value));
+                return;
+            }
             const x = -185 + (i % 2) * 370, y = 13 - Math.floor(i / 2) * 69;
             this.headerText(this.sheet!, name, x - 125, y, 72, 34, 23);
             const bg = this.uiNode(this.sheet!, name + '-槽', x + 14, y, 192, 33);
@@ -697,10 +712,12 @@ export class Main extends Component {
             resources.load('art/header/xp-fit/spriteFrame', SpriteFrame, (error, frame) => {
                 if (error || !frame || !isValid(fill, true)) return;
                 fill.spriteFrame = frame; fill.type = Sprite.Type.FILLED;
-                fill.fillType = Sprite.FillType.HORIZONTAL; fill.fillStart = 0; fill.fillRange = value / 100;
-                if (value < 30) fill.color = this.color('#F0A68A');
+                const current = this.data.pets.find(pet => pet.id === this.selected)!;
+                const liveValue = [current.hunger, current.clean, current.energy, current.joy][i];
+                fill.fillType = Sprite.FillType.HORIZONTAL; fill.fillStart = 0; fill.fillRange = liveValue / 100;
+                fill.color = this.color(liveValue < 30 ? '#F0A68A' : '#FFFFFF');
             });
-            this.headerText(this.sheet!, String(Math.round(value)), x + 137, y, 58, 34, 23);
+            this.headerText(this.sheet!, String(Math.round(value)), x + 137, y, 58, 34, 23).node.name = name + '-数字';
         });
     }
     private care(item: 'food' | 'soap' | 'toy' | 'rest') {
