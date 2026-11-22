@@ -432,7 +432,7 @@ export class Main extends Component {
         this.layoutNotice();
         this.layoutBackground();
         this.worldCamera.orthoHeight = Math.max(9.5, 9.5 * this.height / 1920);
-        if (this.sheet) this.sheet.setPosition(0, this.page === 'pet' ? -this.height / 2 + 330 : -this.height / 2 + 640, 0);
+        if (this.sheet) this.sheet.setPosition(0, this.page === 'pet' ? -this.height / 2 + 350 : -this.height / 2 + 640, 0);
     }
     private petAvatar(parent: Node, id: number, x: number, y: number, size: number, locked = false) {
         const b = BREEDS[id], s = size / 100;
@@ -665,9 +665,9 @@ export class Main extends Component {
         this.layoutNotice();
         if (page === 'home') return;
         if (page === 'pet') {
-            this.sheet = this.uiNode(this.ui, '宠物状态', 0, -this.height / 2 + 330, 940, 240);
+            this.sheet = this.uiNode(this.ui, '宠物状态', 0, -this.height / 2 + 350, 900, 300);
             this.headerArt(this.sheet, 'pet-status'); this.intercept(this.sheet);
-            this.headerText(this.sheet, BREEDS[this.selected].name + ' · 小日常', 0, 65, 650, 36, 27);
+            this.headerText(this.sheet, BREEDS[this.selected].name + ' · 小日常', 0, 84, 600, 36, 27);
             this.renderPet();
             return;
         }
@@ -688,7 +688,7 @@ export class Main extends Component {
         const p = this.data.pets.find(v => v.id === this.selected)!;
         const needs: [string, number][] = [['饱腹', p.hunger], ['洁净', p.clean], ['体力', p.energy], ['心情', p.joy]];
         needs.forEach(([name, value], i) => {
-            const x = -202 + (i % 2) * 404, y = 5 - Math.floor(i / 2) * 59;
+            const x = -185 + (i % 2) * 370, y = 13 - Math.floor(i / 2) * 69;
             this.headerText(this.sheet!, name, x - 125, y, 72, 34, 23);
             const bg = this.uiNode(this.sheet!, name + '-槽', x + 14, y, 192, 33);
             this.headerArt(bg, 'xp-track');
@@ -795,7 +795,7 @@ export class Main extends Component {
     private layoutNotice() {
         const panel = this.notice?.node.parent;
         if (!panel) return;
-        panel.setPosition(0, -this.height / 2 + 525, 0);
+        panel.setPosition(0, -this.height / 2 + 555, 0);
         panel.setSiblingIndex(this.ui.children.length - 1);
     }
 
