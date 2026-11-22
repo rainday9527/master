@@ -429,7 +429,7 @@ export class Main extends Component {
         this.uiCamera.orthoHeight = this.height / 2;
         this.top.setPosition(0, this.height / 2 - 110, 0);
         this.bottom.setPosition(0, -this.height / 2 + 90, 0);
-        this.notice.node.parent!.setPosition(0, this.height / 2 - (this.page === 'pet' ? 426 : 195), 0);
+        this.layoutNotice();
         this.layoutBackground();
         this.worldCamera.orthoHeight = Math.max(9.5, 9.5 * this.height / 1920);
         if (this.sheet) this.sheet.setPosition(0, this.page === 'pet' ? -this.height / 2 + 330 : -this.height / 2 + 640, 0);
@@ -662,7 +662,7 @@ export class Main extends Component {
         if (page === 'home') { this.petSelected = false; this.careSelected = ''; }
         if (this.sheet) { this.sheet.active = false; this.sheet.destroy(); this.sheet = null; }
         this.updateSelectionRing(); this.renderNav();
-        this.notice.node.parent!.setPosition(0, this.height / 2 - (page === 'pet' ? 426 : 195), 0);
+        this.layoutNotice();
         if (page === 'home') return;
         if (page === 'pet') {
             this.sheet = this.uiNode(this.ui, '宠物状态', 0, -this.height / 2 + 330, 940, 240);
@@ -792,11 +792,17 @@ export class Main extends Component {
         const left = Math.ceil((this.data.adventureEnd - Date.now()) / 1000);
         this.adventureLabel.string = !this.data.adventureEnd ? '今日的风景，等你一起发现' : left > 0 ? '寻宝中  ' + Math.floor(left / 60) + ':' + ('0' + left % 60).slice(-2) : '伙伴回来啦 · 礼物等待领取';
     }
+    private layoutNotice() {
+        const panel = this.notice?.node.parent;
+        if (!panel) return;
+        panel.setPosition(0, -this.height / 2 + 525, 0);
+        panel.setSiblingIndex(this.ui.children.length - 1);
+    }
+
     private toast(message: string) {
         if (!this.notice) return;
         const panel = this.notice.node.parent!;
-        panel.setSiblingIndex(this.ui.children.length - 1);
-        panel.setPosition(0, this.page === 'pet' ? -this.height / 2 + 525 : this.height / 2 - 265, 0);
+        this.layoutNotice();
         const g = panel.getComponent(Graphics) || panel.addComponent(Graphics);
         g.clear(); g.fillColor = new Color(76, 47, 26, 240);
         g.roundRect(-480, -37, 960, 74, 22); g.fill();
@@ -1048,6 +1054,7 @@ export class Main extends Component {
         this.updateSelectionRing();
         this.updateSocialBubbles();
         this.updateNeedBubbles();
+        if (Date.now() < this.noticeUntil) this.layoutNotice();
     }
     onDestroy() {
         input.off(Input.EventType.TOUCH_END, this.onWorldTouch, this);
