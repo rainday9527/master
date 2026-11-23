@@ -3,8 +3,18 @@ import { _decorator, Component, Node, Camera, Canvas, UITransform, Graphics, Lab
 const { ccclass } = _decorator;
 type Kind = 'cat' | 'dog';
 type Page = 'home' | 'recruit' | 'adventure' | 'album' | 'shop' | 'pet' | 'bag';
+export type RewardedVideoResult = 'completed' | 'cancelled' | 'failed';
+export interface RewardedVideoProvider {
+    // 可信边界：仅由宿主注入的平台适配器调用终态回调，并在游戏主线程执行。
+    // completed 必须代表平台确认完整观看且视频已关闭；加载、开始、普通关闭不得映射为完成。
+    // 取消、加载/播放失败分别回传 cancelled/failed；每次调用最终必须回传终态。
+    // 此客户端接口无法验证平台凭证；不得将 UI 点击或不可信消息直接转发为 completed。
+    show(onResult: (result: RewardedVideoResult) => void): void;
+}
 interface Pet { id: number; hunger: number; clean: number; energy: number; joy: number; }
-interface Save { version: number; coins: number; gems: number; xp: number; avatar: number; pets: Pet[]; food: number; soap: number; toy: number; adventureEnd: number; lastSeen: number; }
+type ShopItem = 'food' | 'soap' | 'toy';
+interface ShopState { day: number; freeUsed: number; paidUsed: number; maxTime: number; revision: number; remaining: Record<ShopItem, number>; }
+interface Save { version: number; coins: number; gems: number; xp: number; avatar: number; pets: Pet[]; food: number; soap: number; toy: number; adventureEnd: number; lastSeen: number; shop: ShopState; }
 interface Actor { node: Node; visual: Node; pet: Pet; target: Vec3; timer: number; phase: number; socialUntil?: number; facing?: number; }
 interface SocialBubble { node: Node; actor: Actor; until: number; side: number; }
 const BREEDS: { name: string; kind: Kind; color: string; accent: string; cost: number }[] = [
@@ -61,9 +71,20 @@ export class Main extends Component {
     private dirty = false;
     private adventureLabel: Label | null = null;
     private saveWarning = false;
+    private saveSnapshot: string | null = null;
+    private saveSnapshotReady = false;
+    private shopClickTime = -Infinity;
+    private shopTimerLabel: Label | null = null;
+    private shopCostLabel: Label | null = null;
+    private shopStockLabels = new Map<ShopItem, Label>();
+    public rewardedVideoProvider: RewardedVideoProvider | null = null;
+    private gemDialog: Node | null = null;
+    private rewardedVideoPending = false;
 
     onLoad() {
         this.data = this.load();
+        // 立即保存商店迁移结果；失败时后续商店事务仍须先落盘才会生效。
+        this.commitShop(this.data);
         view.setDesignResolutionSize(1080, 1920, ResolutionPolicy.SHOW_ALL);
         this.world = new Node('温暖庭院');
         this.node.addChild(this.world);
@@ -80,12 +101,13 @@ export class Main extends Component {
     private fresh(): Save {
         return { version: 1, coins: 260, gems: 100, xp: 0, avatar: 0,
             pets: [0, 1].map(id => ({ id, hunger: 75, clean: 85, energy: 90, joy: 80 })),
-            food: 5, soap: 4, toy: 3, adventureEnd: 0, lastSeen: Date.now() };
+            food: 5, soap: 4, toy: 3, adventureEnd: 0, lastSeen: Date.now(), shop: this.newShop(Date.now()) };
     }
 
     private load(): Save {
         try {
             const raw = sys.localStorage.getItem(this.key);
+            this.saveSnapshot = raw; this.saveSnapshotReady = true;
             if (!raw) return this.fresh();
             const s = JSON.parse(raw) as Save;
             const validInt = (v: unknown, max = 100000000) => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 && v <= max;
@@ -101,14 +123,66 @@ export class Main extends Component {
             if (s.adventureEnd > Date.now() + 120000) s.adventureEnd = 0;
             const hours = Math.min(12, Math.max(0, (Date.now() - s.lastSeen) / 3600000));
             s.pets.forEach(p => { p.hunger = Math.max(10, p.hunger - hours * 4); p.clean = Math.max(10, p.clean - hours * 3); p.joy = Math.max(10, p.joy - hours * 2); p.energy = Math.min(100, p.energy + hours * 3); });
+            s.shop = this.restoreShop(s.shop, Object.prototype.hasOwnProperty.call(s, 'shop'));
             return s;
         } catch { this.saveWarning = true; return this.fresh(); }
     }
 
+    private shopDay(time: number) { return Math.floor((time + 8 * 3600000) / 86400000); }
+
+    private shopRemaining(): Record<ShopItem, number> {
+        return { food: 3 + Math.floor(Math.random() * 4), soap: 3 + Math.floor(Math.random() * 4), toy: 3 + Math.floor(Math.random() * 4) };
+    }
+
+    private newShop(time: number): ShopState {
+        return { day: this.shopDay(time), freeUsed: 0, paidUsed: 0, maxTime: time, revision: 0, remaining: this.shopRemaining() };
+    }
+
+    private restoreShop(value: ShopState | undefined, present: boolean): ShopState {
+        const now = Date.now();
+        if (!present) return this.newShop(now);
+        const int = (n: unknown, max: number) => typeof n === 'number' && Number.isSafeInteger(n) && n >= 0 && n <= max;
+        if (value && int(value.day, this.shopDay(8640000000000000)) && int(value.freeUsed, 3) &&
+            int(value.paidUsed, Number.MAX_SAFE_INTEGER - 1) && int(value.maxTime, 8640000000000000) &&
+            int(value.revision, Number.MAX_SAFE_INTEGER - 1) && value.day === this.shopDay(value.maxTime) &&
+            (value.paidUsed === 0 || value.freeUsed === 3) && value.remaining &&
+            (['food', 'soap', 'toy'] as ShopItem[]).every(key => int(value.remaining[key], 6))) return value;
+        // 仅修复商店，不重建金币、钻石、背包或宠物；保留可用的高水位，避免回拨重复领取。
+        const maxTime = value && int(value.maxTime, 8640000000000000) ? Math.max(now, value.maxTime) : now;
+        const day = value && int(value.day, this.shopDay(8640000000000000)) ? Math.max(this.shopDay(maxTime), value.day) : this.shopDay(maxTime);
+        return { day, freeUsed: 3, paidUsed: 4, maxTime: Math.max(maxTime, day * 86400000 - 8 * 3600000),
+            revision: value && int(value.revision, Number.MAX_SAFE_INTEGER - 1) ? value.revision : 0,
+            remaining: { food: 0, soap: 0, toy: 0 } };
+    }
+
+    private advanceShop(shop: ShopState, now: number): ShopState {
+        const maxTime = Math.max(shop.maxTime, now), day = this.shopDay(maxTime);
+        // 跨过多个日期也只重置一次，不累计补发；回拨不降低日期或最高时间。
+        return day > shop.day ? { ...shop, day, maxTime, freeUsed: 0, paidUsed: 0 } : { ...shop, maxTime };
+    }
+
+    private shopRefreshCost(shop: ShopState) {
+        return shop.freeUsed < 3 ? 0 : [20, 50, 80, 100][Math.min(shop.paidUsed, 3)];
+    }
+
+    private commitShop(candidate: Save): boolean {
+        try {
+            if (!this.saveSnapshotReady || sys.localStorage.getItem(this.key) !== this.saveSnapshot) {
+                this.toast('存档已被其他页面修改，请重载游戏'); return false;
+            }
+            const raw = JSON.stringify(candidate);
+            sys.localStorage.setItem(this.key, raw);
+            this.saveSnapshot = raw;
+            this.data = candidate; this.dirty = false;
+            return true;
+        } catch { this.toast('保存失败，本次商店操作未生效，未扣除货币'); return false; }
+    }
+
     private persist() {
-        this.data.lastSeen = Date.now();
-        try { sys.localStorage.setItem(this.key, JSON.stringify(this.data)); this.dirty = false; }
-        catch { this.toast('本地存储不可用，本次进度仅保留在运行期间'); }
+        const candidate = { ...this.data, lastSeen: Date.now() };
+        candidate.shop = this.advanceShop(candidate.shop, candidate.lastSeen);
+        // 所有既有保存入口共用快照检查，避免自动保存覆盖另一页面的商店交易。
+        return this.commitShop(candidate);
     }
 
     private makeBackground() {
@@ -430,9 +504,16 @@ export class Main extends Component {
         this.top.setPosition(0, this.height / 2 - 110, 0);
         this.bottom.setPosition(0, -this.height / 2 + 90, 0);
         this.layoutNotice();
+        this.layoutGemDialog();
         this.layoutBackground();
         this.worldCamera.orthoHeight = Math.max(9.5, 9.5 * this.height / 1920);
-        if (this.sheet) this.sheet.setPosition(0, this.page === 'pet' ? -this.height / 2 + 350 : this.page === 'shop' ? -this.height / 2 + 820 : -this.height / 2 + 640, 0);
+        if (this.sheet) {
+            this.sheet.setPosition(0, this.page === 'pet' ? -this.height / 2 + 350 : this.page === 'shop' ? -this.height / 2 + 850 : -this.height / 2 + 640, 0);
+            if (this.page === 'shop') {
+                const scale = Math.min(1, (this.width - 40) / 900, (this.height - 420) / 1300);
+                this.sheet.setScale(scale, scale, 1);
+            }
+        }
     }
     private petAvatar(parent: Node, id: number, x: number, y: number, size: number, locked = false) {
         const b = BREEDS[id], s = size / 100;
@@ -501,10 +582,74 @@ export class Main extends Component {
                 if (this.page !== 'adventure') this.open('adventure');
                 this.toast('完成林间寻宝可获得80金币和8钻石');
             } else {
-                if (this.page !== 'adventure') this.open('adventure');
-                this.toast('寻宝或照顾伙伴升级可获得钻石，暂未接入充值');
+                this.showGemDialog();
             }
         }, this);
+    }
+
+    private closeGemDialog() {
+        if (!this.gemDialog) return;
+        this.gemDialog.active = false;
+        this.gemDialog.removeFromParent();
+        this.gemDialog.destroy();
+        this.gemDialog = null;
+        this.blockedUntil = Date.now() + 350;
+    }
+
+    private layoutGemDialog() {
+        if (!this.gemDialog) return;
+        this.gemDialog.getComponent(UITransform)!.setContentSize(this.width, this.height);
+        const shade = this.gemDialog.getComponent(Graphics)!;
+        shade.clear(); shade.fillColor = new Color(0, 0, 0, 165);
+        shade.rect(-this.width / 2, -this.height / 2, this.width, this.height); shade.fill();
+        const panel = this.gemDialog.getChildByName('获取钻石面板')!;
+        const scale = Math.min(1, (this.width - 40) / 900, (this.height - 40) / 520);
+        panel.setScale(scale, scale, 1);
+    }
+
+    private showGemDialog() {
+        if (this.gemDialog) return;
+        const overlay = this.uiNode(this.ui, '获取钻石遮罩', 0, 0, this.width, this.height);
+        this.gemDialog = overlay;
+        overlay.addComponent(Graphics); this.intercept(overlay);
+        const panel = this.uiNode(overlay, '获取钻石面板', 0, 0, 900, 520);
+        this.card(panel); this.intercept(panel);
+        this.text(panel, '获取钻石', 0, 170, 560, 64, 40);
+        this.button(panel, '关闭', 340, 170, 150, 66, () => this.closeGemDialog(), C.pale, 27);
+        this.text(panel, '完整观看广告可获得 200 钻石\n也可前往现有冒险任务区获取奖励', 0, 50, 800, 110, 29, C.muted);
+        this.button(panel, '看广告', -210, -140, 370, 100, () => this.watchRewardedVideo());
+        this.button(panel, '做任务', 210, -140, 370, 100, () => this.open('adventure'), C.coral);
+        this.layoutGemDialog();
+    }
+
+    private watchRewardedVideo() {
+        if (this.rewardedVideoPending) { this.toast('广告播放中，请勿重复请求'); return; }
+        const provider = this.rewardedVideoProvider;
+        if (!provider) { this.toast('激励视频暂未接入'); return; }
+        this.rewardedVideoPending = true;
+        let settled = false;
+        const finish = (result: RewardedVideoResult) => {
+            if (settled) return;
+            settled = true;
+            this.rewardedVideoPending = false;
+            if (!isValid(this, true)) return;
+            if (result !== 'completed') {
+                this.toast(result === 'cancelled' ? '未完整观看广告，未获得钻石' : '广告播放失败，未获得钻石');
+                return;
+            }
+            if (this.data.gems > 100000000 - 200) { this.toast('钻石接近存储上限，无法领取本次奖励'); return; }
+            const gems = this.data.gems, lastSeen = this.data.lastSeen, dirty = this.dirty;
+            this.data.gems += 200;
+            if (!this.persist()) {
+                this.data.gems = gems; this.data.lastSeen = lastSeen; this.dirty = dirty;
+                this.toast('奖励保存失败，已回滚本次钻石奖励');
+                return;
+            }
+            this.renderHeader();
+            this.toast('完整观看成功，钻石 +200');
+        };
+        // 保留播放锁直到首个终态；关闭弹窗、切页不会开启另一次播放，也不会重复发奖。
+        try { provider.show(finish); } catch { finish('failed'); }
     }
 
     private renderHeader() {
@@ -568,7 +713,7 @@ export class Main extends Component {
         let loading = this.careIcons.get(name);
         if (!loading) {
             loading = new Promise<SpriteFrame | null>(resolve => {
-                resources.load('art/' + (['feed', 'clean', 'rest', 'play', 'bag'].includes(name) ? 'care/' : 'nav/') + name + '/spriteFrame', SpriteFrame, (error, frame) => resolve(error ? null : frame));
+                resources.load('art/' + (['feed', 'clean', 'rest', 'play', 'bag'].indexOf(name) !== -1 ? 'care/' : 'nav/') + name + '/spriteFrame', SpriteFrame, (error, frame) => resolve(error ? null : frame));
             });
             this.careIcons.set(name, loading);
         }
@@ -657,6 +802,7 @@ export class Main extends Component {
         });
     }
     private open(page: Page) {
+        this.closeGemDialog();
         if (page === 'pet' && this.page === 'pet' && this.sheet?.name === '宠物状态' && isValid(this.sheet, true)) {
             this.petSelected = true;
             this.renderPet(); this.updateSelectionRing(); this.renderNav(); this.layoutNotice();
@@ -674,8 +820,8 @@ export class Main extends Component {
         this.layoutNotice();
         if (page === 'home') return;
         if (page === 'shop') {
-            this.sheet = this.uiNode(this.ui, '商店摊位', 0, -this.height / 2 + 820, 1020, 1110);
-            this.intercept(this.sheet); this.renderShop(); return;
+            this.sheet = this.uiNode(this.ui, '商店摊位', 0, -this.height / 2 + 850, 900, 1300);
+            this.intercept(this.sheet); this.renderShop(); this.layout(); return;
         }
         if (page === 'pet') {
             this.sheet = this.uiNode(this.ui, '宠物状态', 0, -this.height / 2 + 350, 900, 300);
@@ -685,7 +831,7 @@ export class Main extends Component {
             return;
         }
         this.sheet = this.uiNode(this.ui, '操作卡片', 0, -this.height / 2 + 640, 1024, 866); this.card(this.sheet); this.intercept(this.sheet);
-        const titles: Record<string, string> = { pet: BREEDS[this.selected].name + '的小日常', recruit: '遇见新的毛茸茸', adventure: '林间寻宝', album: '伙伴图鉴', shop: '庭院补给铺', bag: '我的背包' };
+        const titles: Record<string, string> = { pet: BREEDS[this.selected].name + '的小日常', recruit: '遇见新的毛茸茸', adventure: '任务区 · 林间寻宝', album: '伙伴图鉴', shop: '庭院补给铺', bag: '我的背包' };
         this.text(this.sheet, titles[page], -60, 363, 760, 64, 40);
         const petBag = page === 'bag' && this.petSelected;
         this.button(this.sheet, petBag ? '返回宠物' : '收起', 405, 363, 150, 66, () => this.open(petBag ? 'pet' : 'home'), C.pale, 27);
@@ -751,7 +897,7 @@ export class Main extends Component {
             this.text(this.sheet!, (b.kind === 'cat' ? '猫咪  ' : '狗狗  ') + b.name, -240, y, 420, 70, 33);
             this.button(this.sheet!, owned ? '已经在家' : b.cost + ' 钻石 · 迎接', 260, y, 390, 90, () => {
                 if (this.data.pets.some(p => p.id === i + 2)) { this.toast('伙伴已经在庭院里等你啦'); return; }
-                if (this.data.gems < b.cost) { this.toast('钻石不足，照顾伙伴升级或完成冒险可获得'); return; }
+                if (this.data.gems < b.cost) { this.showGemDialog(); return; }
                 this.data.gems -= b.cost;
                 const p = { id: i + 2, hunger: 70, clean: 80, energy: 85, joy: 75 };
                 this.data.pets.push(p); this.spawnPet(p); this.persist(); this.renderHeader(); this.open('recruit'); this.toast(b.name + '搬进庭院啦');
@@ -780,40 +926,91 @@ export class Main extends Component {
         return node;
     }
 
+    private shopButton(node: Node, action: () => void) {
+        this.intercept(node);
+        node.on(Node.EventType.TOUCH_START, () => node.setScale(0.94, 0.94, 1), this);
+        node.on(Node.EventType.TOUCH_CANCEL, () => node.setScale(1, 1, 1), this);
+        node.on(Node.EventType.TOUCH_END, () => { node.setScale(1, 1, 1); action(); }, this);
+    }
+
+    private shopClick(): boolean {
+        const now = performance.now();
+        if (now - this.shopClickTime < 600) return false;
+        this.shopClickTime = now;
+        return true;
+    }
+
+    private refreshShop() {
+        if (!this.shopClick()) return;
+        const now = Date.now(), shop = this.advanceShop(this.data.shop, now), cost = this.shopRefreshCost(shop);
+        if (this.data.gems < cost) { this.showGemDialog(); return; }
+        if (shop.revision >= Number.MAX_SAFE_INTEGER - 1 || shop.paidUsed >= Number.MAX_SAFE_INTEGER - 1) {
+            this.toast('商店计数已达上限，无法刷新'); return;
+        }
+        const candidate: Save = { ...this.data, gems: this.data.gems - cost, lastSeen: now,
+            shop: { ...shop, freeUsed: shop.freeUsed + (cost === 0 ? 1 : 0), paidUsed: shop.paidUsed + (cost > 0 ? 1 : 0),
+                revision: shop.revision + 1, remaining: this.shopRemaining() } };
+        if (!this.commitShop(candidate)) return;
+        this.updateShopLabels(); this.renderHeader(); this.toast(cost ? '刷新成功，钻石 -' + cost : '免费刷新成功');
+    }
+
+    private buyShopItem(key: ShopItem, name: string, cost: number) {
+        if (!this.shopClick()) return;
+        const now = Date.now(), shop = this.advanceShop(this.data.shop, now);
+        if (shop.remaining[key] <= 0) { this.toast('本轮限购已售罄，请刷新补给'); return; }
+        if (this.data.coins < cost) { this.toast('金币不足，去林间寻宝吧'); return; }
+        if (this.data[key] >= 100000000) { this.toast('背包已经装满啦'); return; }
+        if (shop.revision >= Number.MAX_SAFE_INTEGER - 1) { this.toast('商店计数已达上限，无法购买'); return; }
+        const candidate: Save = { ...this.data, coins: this.data.coins - cost, [key]: this.data[key] + 1, lastSeen: now,
+            shop: { ...shop, revision: shop.revision + 1, remaining: { ...shop.remaining, [key]: shop.remaining[key] - 1 } } };
+        if (!this.commitShop(candidate)) return;
+        this.updateShopLabels(); this.renderHeader(); this.toast('已购买' + name);
+    }
+
+    private updateShopLabels() {
+        if (this.page !== 'shop' || !this.sheet || !isValid(this.sheet, true)) return;
+        const now = Date.now(), shop = this.advanceShop(this.data.shop, now), cost = this.shopRefreshCost(shop);
+        const seconds = Math.max(0, Math.ceil(((shop.day + 1) * 86400000 - 8 * 3600000 - now) / 1000));
+        const pad = (n: number) => ('0' + n).slice(-2);
+        if (this.shopTimerLabel && isValid(this.shopTimerLabel, true)) {
+            this.shopTimerLabel.string = '北京时间 0 点重置免费次数\n' + Math.floor(seconds / 3600) + ':' + pad(Math.floor(seconds / 60) % 60) + ':' + pad(seconds % 60);
+        }
+        if (this.shopCostLabel && isValid(this.shopCostLabel, true)) this.shopCostLabel.string = cost ? cost + ' 钻石 · 刷新' : '免费刷新（' + (3 - shop.freeUsed) + '/3）';
+        this.shopStockLabels.forEach((label, key) => {
+            if (isValid(label, true)) label.string = '剩余限购 ' + shop.remaining[key] + ' · 持有 ' + this.data[key];
+        });
+    }
+
     private renderShop() {
         const panel = this.sheet!;
-        this.shopArt(panel, 'stall', 0, 0, 820, 1228);
-        this.headerText(panel, '庭院补给铺', 0, 424, 470, 60, 42);
-        const tab = this.shopArt(panel, 'tab', 0, 328, 260, 88);
+        this.shopStockLabels.clear();
+        this.shopArt(panel, 'stall', 0, 0, 900, 1300);
+        this.headerText(panel, '庭院补给铺', 0, 470, 470, 60, 42);
+        const tab = this.shopArt(panel, 'tab', 0, 365, 254, 113);
         this.headerText(tab, '日常补给', 0, 0, 210, 42, 29);
-        const close = this.shopArt(panel, 'close', 327, 460, 68, 68);
-        this.intercept(close); close.on(Node.EventType.TOUCH_END, () => this.open('home'), this);
-        const goods: ['food' | 'soap' | 'toy', string, string, string, number][] = [
+        const close = this.shopArt(panel, 'close', 343, 470, 71, 72);
+        this.shopButton(close, () => this.open('home'));
+        const goods: [ShopItem, string, string, string, number][] = [
             ['food', '营养餐', '饱腹 +40', 'feed', 20], ['soap', '清洁香皂', '洁净 +40', 'clean', 15], ['toy', '陪玩玩具', '心情 +40', 'play', 25]
         ];
         goods.forEach(([key, name, info, icon, cost], i) => {
-            const x = 0;
-            const card = this.uiNode(panel, '商品-' + key, x, 170 - i * 252, 620, 232);
-            this.headerArt(card, 'currency-panel');
-            const image = this.uiNode(card, '照顾图标', -205, 0, 136, 136).addComponent(Sprite);
+            const card = this.shopArt(panel, 'card', -166 + i % 2 * 332, 140 - Math.floor(i / 2) * 344, 308, 334);
+            this.headerText(card, name, 0, 116, 250, 40, 28);
+            const image = this.uiNode(card, '照顾图标', 0, 43, 90, 90).addComponent(Sprite);
             image.sizeMode = Sprite.SizeMode.CUSTOM; void this.loadCareIcon(image, icon);
-            this.headerText(card, name, 0, 57, 220, 42, 29);
-            this.text(card, info, 0, 12, 210, 34, 23, C.ink);
-            const stock = this.text(card, '库存 ×' + this.data[key], 0, -33, 210, 32, 22, C.muted);
-            const buy = this.shopArt(card, 'buy', 193, -36, 176, 64);
-            this.headerText(buy, cost + ' 金币', 0, 0, 210, 42, 27);
-            this.intercept(buy);
-            buy.on(Node.EventType.TOUCH_START, () => buy.setScale(0.94, 0.94, 1), this);
-            buy.on(Node.EventType.TOUCH_CANCEL, () => buy.setScale(1, 1, 1), this);
-            buy.on(Node.EventType.TOUCH_END, () => {
-                buy.setScale(1, 1, 1);
-                if (this.data.coins < cost) { this.toast('金币不足，去林间寻宝吧'); return; }
-                if (this.data[key] >= 100000000) { this.toast('背包已经装满啦'); return; }
-                this.data.coins -= cost; this.data[key]++;
-                stock.string = '库存 ×' + this.data[key];
-                this.persist(); this.renderHeader(); this.toast('已购买' + name);
-            }, this);
+            this.text(card, info, 0, -17, 260, 32, 22, C.ink);
+            this.shopStockLabels.set(key, this.text(card, '', 0, -55, 280, 32, 21, C.muted));
+            const buy = this.shopArt(card, 'buy', 0, -112, 225, 84);
+            this.headerText(buy, cost + ' 金币 · 购买', 0, 0, 205, 42, 24);
+            this.shopButton(buy, () => this.buyShopItem(key, name, cost));
         });
+        const timer = this.shopArt(panel, 'timer-panel', 0, -500, 620, 249);
+        this.shopArt(timer, 'clock', -230, 6, 76, 90);
+        this.shopTimerLabel = this.text(timer, '', 35, 30, 450, 90, 25, C.white);
+        const refresh = this.shopArt(timer, 'buy', 45, -54, 270, 80);
+        this.shopCostLabel = this.headerText(refresh, '', 0, 0, 250, 42, 25);
+        this.shopButton(refresh, () => this.refreshShop());
+        this.updateShopLabels();
     }
     private renderBag() {
         this.text(this.sheet!, '庭院物资 · 点击宠物后使用补给', 0, 263, 920, 60, 29, C.muted);
@@ -868,7 +1065,7 @@ export class Main extends Component {
 
     private onWorldTouch(event: EventTouch) {
         const location = event.getLocation();
-        if (Date.now() < this.blockedUntil) return;
+        if (this.gemDialog || Date.now() < this.blockedUntil) return;
         const screen = new Vec3(location.x, location.y, 0), uiWorld = new Vec3(); this.uiCamera.screenToWorld(screen, uiWorld);
         const point = this.ui.getComponent(UITransform)!.convertToNodeSpaceAR(uiWorld);
         const hits = (n: Node) => {
@@ -898,6 +1095,12 @@ export class Main extends Component {
         if (this.elapsed % 10 === 0 && this.dirty) this.persist();
         if (this.page === 'adventure' && this.data.adventureEnd && Date.now() >= this.data.adventureEnd && this.adventureLabel && this.adventureLabel.string.indexOf('伙伴回来') !== 0) this.open('adventure');
         this.updateAdventureLabel();
+        const shopNow = Date.now();
+        if (this.shopDay(shopNow) > this.data.shop.day || (this.elapsed % 10 === 0 && shopNow > this.data.shop.maxTime)) {
+            const shop = this.advanceShop(this.data.shop, shopNow);
+            this.commitShop({ ...this.data, shop, lastSeen: shopNow });
+        }
+        this.updateShopLabels();
         if (Date.now() > this.noticeUntil) {
             this.notice.string = '';
             this.notice.node.parent?.getComponent(Graphics)?.clear();
@@ -1111,6 +1314,8 @@ export class Main extends Component {
         if (Date.now() < this.noticeUntil) this.layoutNotice();
     }
     onDestroy() {
+        this.closeGemDialog();
+        this.rewardedVideoProvider = null;
         input.off(Input.EventType.TOUCH_END, this.onWorldTouch, this);
         this.unscheduleAllCallbacks(); if (this.data) this.persist();
         this.socialBubbles.forEach(b => { if (isValid(b.node, true)) b.node.destroy(); });
