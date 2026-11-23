@@ -76,6 +76,7 @@ export class Main extends Component {
     private shopClickTime = -Infinity;
     private shopTimerLabel: Label | null = null;
     private shopCostLabel: Label | null = null;
+    private shopCostIcon: Node | null = null;
     private shopStockLabels = new Map<ShopItem, Label>();
     public rewardedVideoProvider: RewardedVideoProvider | null = null;
     private gemDialog: Node | null = null;
@@ -975,7 +976,12 @@ export class Main extends Component {
         if (this.shopTimerLabel && isValid(this.shopTimerLabel, true)) {
             this.shopTimerLabel.string = Math.floor(seconds / 3600) + ':' + pad(Math.floor(seconds / 60) % 60) + ':' + pad(seconds % 60);
         }
-        if (this.shopCostLabel && isValid(this.shopCostLabel, true)) this.shopCostLabel.string = cost ? cost + ' 钻石 · 刷新' : '免费刷新（' + (3 - shop.freeUsed) + '/3）';
+        if (this.shopCostLabel && isValid(this.shopCostLabel, true)) {
+            this.shopCostLabel.string = cost ? String(cost) : '免费刷新（' + (3 - shop.freeUsed) + '/3）';
+            this.shopCostLabel.node.setPosition(cost ? -24 : 0, 0, 0);
+            this.shopCostLabel.node.getComponent(UITransform)!.setContentSize(cost ? 92 : 230, 42);
+        }
+        if (this.shopCostIcon && isValid(this.shopCostIcon, true)) this.shopCostIcon.active = cost > 0;
         this.shopStockLabels.forEach((label, key) => {
             if (isValid(label, true)) label.string = '剩余限购 ' + shop.remaining[key] + ' · 持有 ' + this.data[key];
         });
@@ -989,7 +995,7 @@ export class Main extends Component {
         // 映射到 900×1300 后安全范围为 x[-374.54,373.17]、y[-496.25,87.17]。
         const content = this.uiNode(panel, '商店安全内容', 0, -205, 760, 580);
         content.setScale(0.94, 0.94, 1);
-        const tab = this.shopArt(content, 'tab', -270, 260, 180, 70);
+        const tab = this.shopArt(panel, 'tab', -265, 140, 180, 70);
         this.headerText(tab, '道具', 0, 0, 145, 38, 28);
         const close = this.shopArt(panel, 'close', 385, 130, 71, 72);
         this.shopButton(close, () => this.open('home'));
@@ -1007,14 +1013,18 @@ export class Main extends Component {
             this.text(card, info, 0, -17, 260, 32, 22, C.ink);
             this.shopStockLabels.set(key, this.text(card, '', 0, -53, 280, 32, 21, C.muted));
             const buy = this.shopArt(card, 'buy', 0, -112, 225, 84);
-            this.headerText(buy, cost + ' 金币 · 购买', 0, 0, 205, 42, 24);
+            this.headerText(buy, String(cost), -24, 0, 92, 42, 28);
+            const coin = this.uiNode(buy, '购买金币图标', 48, 0, 40, 40 * 348 / 341);
+            this.headerArt(coin, 'coin-icon');
             this.shopButton(buy, () => this.buyShopItem(key, name, cost));
         }
         const timer = this.shopArt(content, 'timer-panel', -195, -250, 310, 72);
         this.shopArt(timer, 'clock', -113, 0, 34, 40);
         this.shopTimerLabel = this.text(timer, '', 18, 0, 210, 40, 27, C.white);
         const refresh = this.shopArt(content, 'buy', 205, -250, 270, 80);
-        this.shopCostLabel = this.headerText(refresh, '', 0, 0, 250, 42, 25);
+        this.shopCostLabel = this.headerText(refresh, '', 0, 0, 230, 42, 25);
+        this.shopCostIcon = this.uiNode(refresh, '刷新钻石图标', 52, 0, 40, 40 * 315 / 353);
+        this.headerArt(this.shopCostIcon, 'diamond-icon');
         this.shopButton(refresh, () => this.refreshShop());
         this.updateShopLabels();
     }
