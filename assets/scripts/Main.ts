@@ -983,7 +983,7 @@ export class Main extends Component {
         }
         if (this.shopCostIcon && isValid(this.shopCostIcon, true)) this.shopCostIcon.active = cost > 0;
         this.shopStockLabels.forEach((label, key) => {
-            if (isValid(label, true)) label.string = '剩余限购 ' + shop.remaining[key] + ' · 持有 ' + this.data[key];
+            if (isValid(label, true)) label.string = '限购 ' + shop.remaining[key] + '\n持有 ' + this.data[key];
         });
     }
 
@@ -995,7 +995,7 @@ export class Main extends Component {
         // 映射到 900×1300 后安全范围为 x[-374.54,373.17]、y[-496.25,87.17]。
         const content = this.uiNode(panel, '商店安全内容', 0, -205, 760, 580);
         content.setScale(0.94, 0.94, 1);
-        const tab = this.shopArt(panel, 'tab', -265, 140, 180, 70);
+        const tab = this.shopArt(panel, 'tab', -265, 240, 180, 70);
         this.headerText(tab, '道具', 0, 0, 145, 38, 28);
         const close = this.shopArt(panel, 'close', 385, 130, 71, 72);
         this.shopButton(close, () => this.open('home'));
@@ -1003,25 +1003,31 @@ export class Main extends Component {
             ['food', '营养餐', '饱腹 +40', 'feed', 20], ['soap', '清洁香皂', '洁净 +40', 'clean', 15], ['toy', '陪玩玩具', '心情 +40', 'play', 25]
         ];
         for (let i = 0; i < 6; i++) {
-            const card = this.shopArt(content, 'card', -250 + (i % 3) * 250, i < 3 ? 140 : -60, 308, 334);
-            card.setScale(0.5, 0.5, 1);
+            // 只压紧底板纵横比，不缩小整棵卡片；面板内实际尺寸为 223.72×206.8。
+            const card = this.shopArt(content, 'card', (-245 + (i % 3) * 245) / 0.94,
+                ((i < 3 ? -55 : -270) + 205) / 0.94, 238, 220);
             if (i >= goods.length) continue;
             const [key, name, info, icon, cost] = goods[i];
-            this.headerText(card, name, 0, 116, 250, 40, 28);
-            const image = this.uiNode(card, '照顾图标', 0, 46, 90, 90).addComponent(Sprite);
+            const title = this.headerText(card, name, 0, 82, 214, 36, 26);
+            title.lineHeight = 32; title.overflow = Label.Overflow.CLAMP;
+            const image = this.uiNode(card, '照顾图标', -70, 30, 66, 66).addComponent(Sprite);
             image.sizeMode = Sprite.SizeMode.CUSTOM; void this.loadCareIcon(image, icon);
-            this.text(card, info, 0, -17, 260, 32, 22, C.ink);
-            this.shopStockLabels.set(key, this.text(card, '', 0, -53, 280, 32, 21, C.muted));
-            const buy = this.shopArt(card, 'buy', 0, -112, 225, 84);
-            this.headerText(buy, String(cost), -24, 0, 92, 42, 28);
-            const coin = this.uiNode(buy, '购买金币图标', 48, 0, 40, 40 * 348 / 341);
+            const effect = this.text(card, info, 39, 30, 132, 32, 20, C.ink);
+            effect.lineHeight = 26; effect.overflow = Label.Overflow.CLAMP;
+            const stock = this.text(card, '', 0, -26, 214, 44, 20, C.muted);
+            stock.lineHeight = 22; stock.overflow = Label.Overflow.CLAMP;
+            this.shopStockLabels.set(key, stock);
+            const buy = this.shopArt(card, 'buy', 0, -78, 160, 160 * 120 / 321);
+            const price = this.headerText(buy, String(cost), -20, 0, 72, 36, 26);
+            price.lineHeight = 32; price.overflow = Label.Overflow.CLAMP;
+            const coin = this.uiNode(buy, '购买金币图标', 38, 0, 30, 30 * 348 / 341);
             this.headerArt(coin, 'coin-icon');
             this.shopButton(buy, () => this.buyShopItem(key, name, cost));
         }
-        const timer = this.shopArt(content, 'timer-panel', -195, -250, 310, 72);
+        const timer = this.shopArt(content, 'timer-panel', -195, (-440 + 205) / 0.94, 310, 72);
         this.shopArt(timer, 'clock', -113, 0, 34, 40);
         this.shopTimerLabel = this.text(timer, '', 18, 0, 210, 40, 27, C.white);
-        const refresh = this.shopArt(content, 'buy', 205, -250, 270, 80);
+        const refresh = this.shopArt(content, 'buy', 205, (-440 + 205) / 0.94, 240, 240 * 120 / 321);
         this.shopCostLabel = this.headerText(refresh, '', 0, 0, 230, 42, 25);
         this.shopCostIcon = this.uiNode(refresh, '刷新钻石图标', 52, 0, 40, 40 * 315 / 353);
         this.headerArt(this.shopCostIcon, 'diamond-icon');
