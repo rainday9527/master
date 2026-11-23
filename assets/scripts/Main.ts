@@ -989,29 +989,31 @@ export class Main extends Component {
         // 映射到 900×1300 后安全范围为 x[-374.54,373.17]、y[-496.25,87.17]。
         const content = this.uiNode(panel, '商店安全内容', 0, -205, 760, 580);
         content.setScale(0.94, 0.94, 1);
-        const tab = this.shopArt(content, 'tab', -270, 240, 180, 80);
+        const tab = this.shopArt(content, 'tab', -270, 260, 180, 70);
         this.headerText(tab, '道具', 0, 0, 145, 38, 28);
         const close = this.shopArt(panel, 'close', 385, 130, 71, 72);
         this.shopButton(close, () => this.open('home'));
         const goods: [ShopItem, string, string, string, number][] = [
             ['food', '营养餐', '饱腹 +40', 'feed', 20], ['soap', '清洁香皂', '洁净 +40', 'clean', 15], ['toy', '陪玩玩具', '心情 +40', 'play', 25]
         ];
-        goods.forEach(([key, name, info, icon, cost], i) => {
-            const card = this.shopArt(content, 'card', -250 + i * 250, 0, 308, 334);
-            card.setScale(0.76, 0.76, 1);
+        for (let i = 0; i < 6; i++) {
+            const card = this.shopArt(content, 'card', -250 + (i % 3) * 250, i < 3 ? 140 : -60, 308, 334);
+            card.setScale(0.5, 0.5, 1);
+            if (i >= goods.length) continue;
+            const [key, name, info, icon, cost] = goods[i];
             this.headerText(card, name, 0, 116, 250, 40, 28);
-            const image = this.uiNode(card, '照顾图标', 0, 43, 90, 90).addComponent(Sprite);
+            const image = this.uiNode(card, '照顾图标', 0, 46, 90, 90).addComponent(Sprite);
             image.sizeMode = Sprite.SizeMode.CUSTOM; void this.loadCareIcon(image, icon);
             this.text(card, info, 0, -17, 260, 32, 22, C.ink);
-            this.shopStockLabels.set(key, this.text(card, '', 0, -55, 280, 32, 21, C.muted));
+            this.shopStockLabels.set(key, this.text(card, '', 0, -53, 280, 32, 21, C.muted));
             const buy = this.shopArt(card, 'buy', 0, -112, 225, 84);
             this.headerText(buy, cost + ' 金币 · 购买', 0, 0, 205, 42, 24);
             this.shopButton(buy, () => this.buyShopItem(key, name, cost));
-        });
-        const timer = this.shopArt(content, 'timer-panel', -195, -230, 310, 72);
+        }
+        const timer = this.shopArt(content, 'timer-panel', -195, -250, 310, 72);
         this.shopArt(timer, 'clock', -113, 0, 34, 40);
         this.shopTimerLabel = this.text(timer, '', 18, 0, 210, 40, 27, C.white);
-        const refresh = this.shopArt(content, 'buy', 205, -230, 270, 80);
+        const refresh = this.shopArt(content, 'buy', 205, -250, 270, 80);
         this.shopCostLabel = this.headerText(refresh, '', 0, 0, 250, 42, 25);
         this.shopButton(refresh, () => this.refreshShop());
         this.updateShopLabels();
