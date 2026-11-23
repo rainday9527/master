@@ -5,6 +5,7 @@ from PIL import Image
 import argparse
 import copy
 import json
+import re
 import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -50,28 +51,62 @@ def components(image):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--write', action='store_true')
+    parser.add_argument('--source', type=Path, default=SOURCE)
+    parser.add_argument('--ids', nargs='+', help='按行排列的12个ID，支持空格或逗号分隔')
     args = parser.parse_args()
-    image = Image.open(SOURCE).convert('RGB')
+    ids = [name for value in args.ids for name in value.split(',')] if args.ids else IDS
+    if len(ids) != 12 or len(set(ids)) != 12 or any(not re.fullmatch(r'[a-z][a-z0-9_]*', name) for name in ids):
+        parser.error('ids 必须是12个互不重复的小写字母、数字或下划线标识符')
+    source = args.source if args.source.is_absolute() else ROOT / args.source
+    image = Image.open(source).convert('RGB')
     print('source', image.size)
     parts, labels = components(image)
     for part in sorted(parts, key=lambda p: -p['area']):
         if part['area'] >= 12:
             print(part)
-    mains = [p for p in parts if p['area'] > 2000]
-    assert len(mains) == 12
-    mains.sort(key=lambda p: ((p['bounds'][1] + p['bounds'][3]) // 2 // 340, p['bounds'][0]))
+    # 网格仅用于确定ID归属；裁切范围来自真实连通组件的联合边界。
+    cells = [[] for _ in ids]
+    for part in parts:
+        l, t, r, b = part['bounds']
+        if part['area'] < 2:
+            continue
+        watermark = part['area'] < 1000 and l > image.width * 0.90 and t > image.height * 0.94
+        if watermark:
+            print('excluded_watermark', part)
+            continue
+        col = min(3, int((l+r) * 2 / image.width))
+        row = min(2, int((t+b) * 1.5 / image.height))
+        cells[row*4+col].append(part)
+    groups = []
+    for name, cell in zip(ids, cells):
+        assert cell and max(p['area'] for p in cell) > 2000, name+' 缺少主体'
+        main = max(cell, key=lambda p: p['area'])
+        group = [p for p in cell if p['area'] >= max(12, main['area'] * 0.03)]
+        while True:
+            l = min(p['bounds'][0] for p in group)
+            t = min(p['bounds'][1] for p in group)
+            r = max(p['bounds'][2] for p in group)
+            b = max(p['bounds'][3] for p in group)
+            nearby = [p for p in cell if p not in group and
+                      max(0, l-p['bounds'][2], p['bounds'][0]-r) ** 2 +
+                      max(0, t-p['bounds'][3], p['bounds'][1]-b) ** 2 <= 40 ** 2]
+            if not nearby:
+                break
+            group.extend(nearby)
+        groups.append(group)
+        print(name, 'bounds=', (l,t,r,b), 'components=', [(p['area'],p['bounds']) for p in group],
+              'excluded=', [p for p in cell if p not in group])
     if not args.write:
         return
     target = ROOT / 'assets/resources/art/items'
     target.mkdir(exist_ok=True)
     template = json.loads((ROOT / 'assets/resources/art/care/feed.png.meta').read_text())
-    directory = json.loads((ROOT / 'assets/resources/art/care.meta').read_text())
-    directory['uuid'] = str(uuid.uuid4())
-    (target.parent / 'items.meta').write_text(json.dumps(directory, indent=2) + '\n')
-    for name, main in zip(IDS, mains):
-        l, t, r, b = main['bounds']
-        # 真实主体附近的独立小部件一并保留，不按单个最大连通块裁切。
-        group = [p for p in parts if p['area'] >= 2 and p['bounds'][0] >= l-12 and p['bounds'][1] >= t-12 and p['bounds'][2] <= r+12 and p['bounds'][3] <= b+12]
+    directory_path = target.parent / 'items.meta'
+    if not directory_path.exists():
+        directory = json.loads((ROOT / 'assets/resources/art/care.meta').read_text())
+        directory['uuid'] = str(uuid.uuid4())
+        directory_path.write_text(json.dumps(directory, indent=2) + '\n')
+    for name, group in zip(ids, groups):
         selected = {p['label'] for p in group}
         l = min(p['bounds'][0] for p in group)
         t = min(p['bounds'][1] for p in group)
@@ -129,7 +164,7 @@ def main():
             # 极低覆盖率下压缩噪声对边缘颜色的影响，不改变透明度。
             if alpha < 0.35:
                 clean = ref
-            if background(clean):
+            if clean[0]-clean[1] > 65 and clean[2]-clean[1] > 45:
                 clean = (clean[0],clean[1],min(clean[2],clean[1]+44))
             output.append((*clean,round(alpha*255)))
         rgba = Image.new('RGBA', (w,h))
@@ -140,21 +175,29 @@ def main():
         scale = min(1.0,272/max(rgba.size))
         if scale < 1:
             rgba = rgba.resize(tuple(round(v*scale) for v in rgba.size), Image.Resampling.LANCZOS)
+        # LANCZOS在极低alpha处可能再次产生RGB振铃，缩小后再去一次溢色。
+        rgba.putdata([(red, green, min(blue, green+44), alpha)
+                      if alpha and red-green > 65 and blue-green > 45
+                      else (red, green, blue, alpha)
+                      for red, green, blue, alpha in rgba.getdata()])
         canvas = Image.new('RGBA',(320,320))
         canvas.paste(rgba,((320-rgba.width)//2,(320-rgba.height)//2))
         canvas.save(target / (name+'.png'))
-        meta = copy.deepcopy(template)
-        old_uuid = meta['uuid']
-        new_uuid = str(uuid.uuid4())
-        meta = json.loads(json.dumps(meta).replace(old_uuid,new_uuid))
-        for sub in meta['subMetas'].values():
-            sub['displayName'] = name
-            if sub['importer'] == 'sprite-frame':
-                ud = sub['userData']
-                ud.pop('vertices',None)
-                for field in ('width','height','rawWidth','rawHeight'):
-                    ud[field] = 320
-        (target / (name+'.png.meta')).write_text(json.dumps(meta,indent=2)+'\n')
+        meta_path = target / (name+'.png.meta')
+        # 已有meta逐字节保留，避免重导入改变UUID及编辑器设置。
+        if not meta_path.exists():
+            meta = copy.deepcopy(template)
+            old_uuid = meta['uuid']
+            new_uuid = str(uuid.uuid4())
+            meta = json.loads(json.dumps(meta).replace(old_uuid,new_uuid))
+            for sub in meta['subMetas'].values():
+                sub['displayName'] = name
+                if sub['importer'] == 'sprite-frame':
+                    ud = sub['userData']
+                    ud.pop('vertices',None)
+                    for field in ('width','height','rawWidth','rawHeight'):
+                        ud[field] = 320
+            meta_path.write_text(json.dumps(meta,indent=2)+'\n')
         alpha_bounds = canvas.getbbox()
         assert alpha_bounds and min(alpha_bounds[0],alpha_bounds[1],320-alpha_bounds[2],320-alpha_bounds[3]) >= 20
         bad = sum(1 for red,green,blue,a in canvas.getdata() if a and red-green>85 and blue-green>65 and red>175 and blue>140)
