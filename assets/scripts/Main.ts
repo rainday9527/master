@@ -609,7 +609,8 @@ export class Main extends Component {
     }
 
     private showDialog(title: string, body: string,
-        actions: [{ title: string; run: () => void }] | [{ title: string; run: () => void }, { title: string; run: () => void }]) {
+        actions: [{ title: string; run: () => void }] | [{ title: string; run: () => void }, { title: string; run: () => void }],
+        reward?: { amount: number; description: string }) {
         if (this.dialog) return;
         const overlay = this.uiNode(this.ui, '通用弹窗遮罩', 0, 0, this.width, this.height);
         this.dialog = overlay;
@@ -627,7 +628,24 @@ export class Main extends Component {
         const content = this.uiNode(panel, '弹窗安全内容', 0, (452 - 572.5) * ratio, 896 * ratio, 395 * ratio);
         const heading = this.headerText(content, title, 0, 126 * ratio, 650 * ratio, 58 * ratio, 37);
         heading.node.name = '弹窗独立标题';
-        this.text(content, body, 0, 22 * ratio, 840 * ratio, 110 * ratio, 28, C.muted).node.name = '弹窗正文';
+        const bodyLabel = this.text(content, body, 0, reward ? 47 : 22 * ratio, 840 * ratio, reward ? 30 : 110 * ratio, 28, C.muted);
+        bodyLabel.node.name = '弹窗正文';
+        if (reward) {
+            bodyLabel.lineHeight = 30;
+            const row = this.uiNode(content, '弹窗奖励行', 0, 9, 124, 36);
+            const amount = this.headerText(row, String(reward.amount), -24, 0, 76, 36, 32);
+            amount.node.name = '弹窗奖励数量';
+            const icon = this.uiNode(row, '弹窗奖励钻石', 43, 0, 38, 38 * 315 / 353);
+            const diamond = icon.addComponent(Sprite); diamond.sizeMode = Sprite.SizeMode.CUSTOM;
+            resources.load('art/header/diamond-icon/spriteFrame', SpriteFrame, (error, frame) => {
+                if (error || !frame || !isValid(this, true) || !isValid(icon, true) || !isValid(diamond, true)) return;
+                diamond.spriteFrame = frame;
+                icon.getComponent(UITransform)!.setContentSize(38, 38 * frame.rect.height / frame.rect.width);
+            });
+            const description = this.text(content, reward.description, 0, -27, 840 * ratio, 25, 24, C.muted);
+            description.lineHeight = 25;
+            description.node.name = '弹窗任务说明';
+        }
         actions.forEach((action, i) => {
             const x = actions.length === 1 ? 0 : (i === 0 ? -230 : 230) * ratio;
             const button = this.shopArt(content, 'buy', x, -122 * ratio, 380 * ratio, 380 * ratio * 120 / 321);
@@ -641,10 +659,10 @@ export class Main extends Component {
     }
 
     private showGemDialog() {
-        this.showDialog('获取钻石', '完整观看广告可获得 200 钻石\n也可前往现有冒险任务区获取奖励', [
+        this.showDialog('获取钻石', '完整观看广告可获得', [
             { title: '看广告', run: () => this.watchRewardedVideo() },
             { title: '做任务', run: () => this.open('adventure') }
-        ]);
+        ], { amount: 200, description: '也可前往现有冒险任务区获取奖励' });
     }
 
     private watchRewardedVideo() {
