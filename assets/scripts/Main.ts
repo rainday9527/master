@@ -79,7 +79,7 @@ export class Main extends Component {
     private shopCostIcon: Node | null = null;
     private shopStockLabels = new Map<ShopItem, Label>();
     public rewardedVideoProvider: RewardedVideoProvider | null = null;
-    private gemDialog: Node | null = null;
+    private dialog: Node | null = null;
     private rewardedVideoPending = false;
 
     onLoad() {
@@ -505,7 +505,7 @@ export class Main extends Component {
         this.top.setPosition(0, this.height / 2 - 110, 0);
         this.bottom.setPosition(0, -this.height / 2 + 90, 0);
         this.layoutNotice();
-        this.layoutGemDialog();
+        this.layoutDialog();
         this.layoutBackground();
         this.worldCamera.orthoHeight = Math.max(9.5, 9.5 * this.height / 1920);
         if (this.sheet) {
@@ -588,39 +588,63 @@ export class Main extends Component {
         }, this);
     }
 
-    private closeGemDialog() {
-        if (!this.gemDialog) return;
-        this.gemDialog.active = false;
-        this.gemDialog.removeFromParent();
-        this.gemDialog.destroy();
-        this.gemDialog = null;
+    private closeDialog() {
+        if (!this.dialog) return;
+        this.dialog.active = false;
+        this.dialog.removeFromParent();
+        this.dialog.destroy();
+        this.dialog = null;
         this.blockedUntil = Date.now() + 350;
     }
 
-    private layoutGemDialog() {
-        if (!this.gemDialog) return;
-        this.gemDialog.getComponent(UITransform)!.setContentSize(this.width, this.height);
-        const shade = this.gemDialog.getComponent(Graphics)!;
+    private layoutDialog() {
+        if (!this.dialog) return;
+        this.dialog.getComponent(UITransform)!.setContentSize(this.width, this.height);
+        const shade = this.dialog.getComponent(Graphics)!;
         shade.clear(); shade.fillColor = new Color(0, 0, 0, 165);
         shade.rect(-this.width / 2, -this.height / 2, this.width, this.height); shade.fill();
-        const panel = this.gemDialog.getChildByName('获取钻石面板')!;
-        const scale = Math.min(1, (this.width - 40) / 900, (this.height - 40) / 520);
+        const panel = this.dialog.getChildByName('通用弹窗面板')!;
+        const scale = Math.min(1, (this.width - 40) / 900, (this.height - 40) / (904 * 900 / 1116));
         panel.setScale(scale, scale, 1);
     }
 
-    private showGemDialog() {
-        if (this.gemDialog) return;
-        const overlay = this.uiNode(this.ui, '获取钻石遮罩', 0, 0, this.width, this.height);
-        this.gemDialog = overlay;
+    private showDialog(title: string, body: string,
+        actions: [{ title: string; run: () => void }] | [{ title: string; run: () => void }, { title: string; run: () => void }]) {
+        if (this.dialog) return;
+        const overlay = this.uiNode(this.ui, '通用弹窗遮罩', 0, 0, this.width, this.height);
+        this.dialog = overlay;
         overlay.addComponent(Graphics); this.intercept(overlay);
-        const panel = this.uiNode(overlay, '获取钻石面板', 0, 0, 900, 520);
-        this.card(panel); this.intercept(panel);
-        this.text(panel, '获取钻石', 0, 170, 560, 64, 40);
-        this.button(panel, '关闭', 340, 170, 150, 66, () => this.closeGemDialog(), C.pale, 27);
-        this.text(panel, '完整观看广告可获得 200 钻石\n也可前往现有冒险任务区获取奖励', 0, 50, 800, 110, 29, C.muted);
-        this.button(panel, '看广告', -210, -140, 370, 100, () => this.watchRewardedVideo());
-        this.button(panel, '做任务', 210, -140, 370, 100, () => this.open('adventure'), C.coral);
-        this.layoutGemDialog();
+        const ratio = 900 / 1116;
+        const panel = this.uiNode(overlay, '通用弹窗面板', 0, 0, 900, 904 * ratio);
+        this.intercept(panel);
+        const art = this.uiNode(panel, '弹窗底板', 0, 0, 900, 904 * ratio);
+        const sprite = art.addComponent(Sprite); sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+        resources.load('art/dialog/panel/spriteFrame', SpriteFrame, (error, frame) => {
+            if (!error && frame && isValid(sprite, true)) sprite.spriteFrame = frame;
+        });
+        // Pillow行列检测：1116×904底板的连续浅色内框为[78,370]–[1038,770]。
+        // 采用更保守的[110,375]–[1006,770]，标题、正文与按钮均由此映射。
+        const content = this.uiNode(panel, '弹窗安全内容', 0, (452 - 572.5) * ratio, 896 * ratio, 395 * ratio);
+        const heading = this.headerText(content, title, 0, 126 * ratio, 650 * ratio, 58 * ratio, 37);
+        heading.node.name = '弹窗独立标题';
+        this.text(content, body, 0, 22 * ratio, 840 * ratio, 110 * ratio, 28, C.muted).node.name = '弹窗正文';
+        actions.forEach((action, i) => {
+            const x = actions.length === 1 ? 0 : (i === 0 ? -230 : 230) * ratio;
+            const button = this.shopArt(content, 'buy', x, -122 * ratio, 380 * ratio, 380 * ratio * 120 / 321);
+            button.name = '弹窗按钮-' + action.title;
+            this.headerText(button, action.title, 0, 0, 300 * ratio, 50 * ratio, 28);
+            this.shopButton(button, action.run);
+        });
+        const close = this.shopArt(panel, 'close', 480 * ratio, (452 - 335) * ratio, 71 * ratio, 72 * ratio);
+        this.shopButton(close, () => this.closeDialog());
+        this.layoutDialog();
+    }
+
+    private showGemDialog() {
+        this.showDialog('获取钻石', '完整观看广告可获得 200 钻石\n也可前往现有冒险任务区获取奖励', [
+            { title: '看广告', run: () => this.watchRewardedVideo() },
+            { title: '做任务', run: () => this.open('adventure') }
+        ]);
     }
 
     private watchRewardedVideo() {
@@ -803,7 +827,7 @@ export class Main extends Component {
         });
     }
     private open(page: Page) {
-        this.closeGemDialog();
+        this.closeDialog();
         if (page === 'pet' && this.page === 'pet' && this.sheet?.name === '宠物状态' && isValid(this.sheet, true)) {
             this.petSelected = true;
             this.renderPet(); this.updateSelectionRing(); this.renderNav(); this.layoutNotice();
@@ -1087,7 +1111,7 @@ export class Main extends Component {
 
     private onWorldTouch(event: EventTouch) {
         const location = event.getLocation();
-        if (this.gemDialog || Date.now() < this.blockedUntil) return;
+        if (this.dialog || Date.now() < this.blockedUntil) return;
         const screen = new Vec3(location.x, location.y, 0), uiWorld = new Vec3(); this.uiCamera.screenToWorld(screen, uiWorld);
         const point = this.ui.getComponent(UITransform)!.convertToNodeSpaceAR(uiWorld);
         const hits = (n: Node) => {
@@ -1336,7 +1360,7 @@ export class Main extends Component {
         if (Date.now() < this.noticeUntil) this.layoutNotice();
     }
     onDestroy() {
-        this.closeGemDialog();
+        this.closeDialog();
         this.rewardedVideoProvider = null;
         input.off(Input.EventType.TOUCH_END, this.onWorldTouch, this);
         this.unscheduleAllCallbacks(); if (this.data) this.persist();
