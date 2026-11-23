@@ -973,7 +973,7 @@ export class Main extends Component {
         const seconds = Math.max(0, Math.ceil(((shop.day + 1) * 86400000 - 8 * 3600000 - now) / 1000));
         const pad = (n: number) => ('0' + n).slice(-2);
         if (this.shopTimerLabel && isValid(this.shopTimerLabel, true)) {
-            this.shopTimerLabel.string = '北京时间 0 点重置免费次数\n' + Math.floor(seconds / 3600) + ':' + pad(Math.floor(seconds / 60) % 60) + ':' + pad(seconds % 60);
+            this.shopTimerLabel.string = Math.floor(seconds / 3600) + ':' + pad(Math.floor(seconds / 60) % 60) + ':' + pad(seconds % 60);
         }
         if (this.shopCostLabel && isValid(this.shopCostLabel, true)) this.shopCostLabel.string = cost ? cost + ' 钻石 · 刷新' : '免费刷新（' + (3 - shop.freeUsed) + '/3）';
         this.shopStockLabels.forEach((label, key) => {
@@ -985,16 +985,16 @@ export class Main extends Component {
         const panel = this.sheet!;
         this.shopStockLabels.clear();
         this.shopArt(panel, 'stall', 0, 0, 900, 1300);
-        this.headerText(panel, '庭院补给铺', 0, 470, 470, 60, 42);
-        const tab = this.shopArt(panel, 'tab', 0, 365, 254, 113);
-        this.headerText(tab, '日常补给', 0, 0, 210, 42, 29);
+        const tab = this.shopArt(panel, 'tab', -240, 350, 180, 80);
+        this.headerText(tab, '道具', 0, 0, 145, 38, 28);
         const close = this.shopArt(panel, 'close', 343, 470, 71, 72);
         this.shopButton(close, () => this.open('home'));
         const goods: [ShopItem, string, string, string, number][] = [
             ['food', '营养餐', '饱腹 +40', 'feed', 20], ['soap', '清洁香皂', '洁净 +40', 'clean', 15], ['toy', '陪玩玩具', '心情 +40', 'play', 25]
         ];
         goods.forEach(([key, name, info, icon, cost], i) => {
-            const card = this.shopArt(panel, 'card', -166 + i % 2 * 332, 140 - Math.floor(i / 2) * 344, 308, 334);
+            const card = this.shopArt(panel, 'card', -236 + i * 236, 130, 308, 334);
+            card.setScale(0.68, 0.68, 1);
             this.headerText(card, name, 0, 116, 250, 40, 28);
             const image = this.uiNode(card, '照顾图标', 0, 43, 90, 90).addComponent(Sprite);
             image.sizeMode = Sprite.SizeMode.CUSTOM; void this.loadCareIcon(image, icon);
@@ -1004,10 +1004,10 @@ export class Main extends Component {
             this.headerText(buy, cost + ' 金币 · 购买', 0, 0, 205, 42, 24);
             this.shopButton(buy, () => this.buyShopItem(key, name, cost));
         });
-        const timer = this.shopArt(panel, 'timer-panel', 0, -500, 620, 249);
-        this.shopArt(timer, 'clock', -230, 6, 76, 90);
-        this.shopTimerLabel = this.text(timer, '', 35, 30, 450, 90, 25, C.white);
-        const refresh = this.shopArt(timer, 'buy', 45, -54, 270, 80);
+        const timer = this.shopArt(panel, 'timer-panel', -175, -460, 310, 72);
+        this.shopArt(timer, 'clock', -113, 0, 34, 40);
+        this.shopTimerLabel = this.text(timer, '', 18, 0, 210, 40, 27, C.white);
+        const refresh = this.shopArt(panel, 'buy', 190, -460, 270, 80);
         this.shopCostLabel = this.headerText(refresh, '', 0, 0, 250, 42, 25);
         this.shopButton(refresh, () => this.refreshShop());
         this.updateShopLabels();
