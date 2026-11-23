@@ -985,16 +985,20 @@ export class Main extends Component {
         const panel = this.sheet!;
         this.shopStockLabels.clear();
         this.shopArt(panel, 'stall', 0, 0, 900, 1300);
-        const tab = this.shopArt(panel, 'tab', -240, 350, 180, 80);
+        // 源图 656×947 的连续奶油内板为像素 [55,410]–[600,835]，不是整张装饰摊位。
+        // 映射到 900×1300 后安全范围为 x[-374.54,373.17]、y[-496.25,87.17]。
+        const content = this.uiNode(panel, '商店安全内容', 0, -205, 760, 580);
+        content.setScale(0.94, 0.94, 1);
+        const tab = this.shopArt(content, 'tab', -270, 240, 180, 80);
         this.headerText(tab, '道具', 0, 0, 145, 38, 28);
-        const close = this.shopArt(panel, 'close', 343, 470, 71, 72);
+        const close = this.shopArt(panel, 'close', 385, 130, 71, 72);
         this.shopButton(close, () => this.open('home'));
         const goods: [ShopItem, string, string, string, number][] = [
             ['food', '营养餐', '饱腹 +40', 'feed', 20], ['soap', '清洁香皂', '洁净 +40', 'clean', 15], ['toy', '陪玩玩具', '心情 +40', 'play', 25]
         ];
         goods.forEach(([key, name, info, icon, cost], i) => {
-            const card = this.shopArt(panel, 'card', -236 + i * 236, 130, 308, 334);
-            card.setScale(0.68, 0.68, 1);
+            const card = this.shopArt(content, 'card', -250 + i * 250, 0, 308, 334);
+            card.setScale(0.76, 0.76, 1);
             this.headerText(card, name, 0, 116, 250, 40, 28);
             const image = this.uiNode(card, '照顾图标', 0, 43, 90, 90).addComponent(Sprite);
             image.sizeMode = Sprite.SizeMode.CUSTOM; void this.loadCareIcon(image, icon);
@@ -1004,10 +1008,10 @@ export class Main extends Component {
             this.headerText(buy, cost + ' 金币 · 购买', 0, 0, 205, 42, 24);
             this.shopButton(buy, () => this.buyShopItem(key, name, cost));
         });
-        const timer = this.shopArt(panel, 'timer-panel', -175, -460, 310, 72);
+        const timer = this.shopArt(content, 'timer-panel', -195, -230, 310, 72);
         this.shopArt(timer, 'clock', -113, 0, 34, 40);
         this.shopTimerLabel = this.text(timer, '', 18, 0, 210, 40, 27, C.white);
-        const refresh = this.shopArt(panel, 'buy', 190, -460, 270, 80);
+        const refresh = this.shopArt(content, 'buy', 205, -230, 270, 80);
         this.shopCostLabel = this.headerText(refresh, '', 0, 0, 250, 42, 25);
         this.shopButton(refresh, () => this.refreshShop());
         this.updateShopLabels();
