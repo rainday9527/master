@@ -995,7 +995,7 @@ export class Main extends Component {
         // 映射到 900×1300 后安全范围为 x[-374.54,373.17]、y[-496.25,87.17]。
         const content = this.uiNode(panel, '商店安全内容', 0, -205, 760, 580);
         content.setScale(0.94, 0.94, 1);
-        const tab = this.shopArt(panel, 'tab', -265, 240, 180, 70);
+        const tab = this.shopArt(panel, 'tab', -265, 190, 180, 70);
         this.headerText(tab, '道具', 0, 0, 145, 38, 28);
         const close = this.shopArt(panel, 'close', 385, 130, 71, 72);
         this.shopButton(close, () => this.open('home'));
@@ -1003,31 +1003,31 @@ export class Main extends Component {
             ['food', '营养餐', '饱腹 +40', 'feed', 20], ['soap', '清洁香皂', '洁净 +40', 'clean', 15], ['toy', '陪玩玩具', '心情 +40', 'play', 25]
         ];
         for (let i = 0; i < 6; i++) {
-            // 只压紧底板纵横比，不缩小整棵卡片；面板内实际尺寸为 223.72×206.8。
+            // 抵消内容层缩放，面板内实际卡片为 210×245，行间距 20。
             const card = this.shopArt(content, 'card', (-245 + (i % 3) * 245) / 0.94,
-                ((i < 3 ? -55 : -270) + 205) / 0.94, 238, 220);
+                ((i < 3 ? -50 : -315) + 205) / 0.94, 210 / 0.94, 245 / 0.94);
             if (i >= goods.length) continue;
             const [key, name, info, icon, cost] = goods[i];
-            const title = this.headerText(card, name, 0, 82, 214, 36, 26);
-            title.lineHeight = 32; title.overflow = Label.Overflow.CLAMP;
-            const image = this.uiNode(card, '照顾图标', -70, 30, 66, 66).addComponent(Sprite);
+            const title = this.headerText(card, name, 0, 105, 210, 30, 26);
+            title.lineHeight = 30; title.overflow = Label.Overflow.CLAMP;
+            const image = this.uiNode(card, '照顾图标', 0, 45, 76, 76).addComponent(Sprite);
             image.sizeMode = Sprite.SizeMode.CUSTOM; void this.loadCareIcon(image, icon);
-            const effect = this.text(card, info, 39, 30, 132, 32, 20, C.ink);
+            const effect = this.text(card, info, 0, -13, 210, 26, 20, C.ink);
             effect.lineHeight = 26; effect.overflow = Label.Overflow.CLAMP;
-            const stock = this.text(card, '', 0, -26, 214, 44, 20, C.muted);
+            const stock = this.text(card, '', 0, -49, 210, 44, 20, C.muted);
             stock.lineHeight = 22; stock.overflow = Label.Overflow.CLAMP;
             this.shopStockLabels.set(key, stock);
-            const buy = this.shopArt(card, 'buy', 0, -78, 160, 160 * 120 / 321);
+            const buy = this.shopArt(card, 'buy', 0, -100, 150, 150 * 120 / 321);
             const price = this.headerText(buy, String(cost), -20, 0, 72, 36, 26);
             price.lineHeight = 32; price.overflow = Label.Overflow.CLAMP;
             const coin = this.uiNode(buy, '购买金币图标', 38, 0, 30, 30 * 348 / 341);
             this.headerArt(coin, 'coin-icon');
             this.shopButton(buy, () => this.buyShopItem(key, name, cost));
         }
-        const timer = this.shopArt(content, 'timer-panel', -195, (-440 + 205) / 0.94, 310, 72);
+        const timer = this.shopArt(panel, 'timer-panel', -195, -550, 310, 72);
         this.shopArt(timer, 'clock', -113, 0, 34, 40);
         this.shopTimerLabel = this.text(timer, '', 18, 0, 210, 40, 27, C.white);
-        const refresh = this.shopArt(content, 'buy', 205, (-440 + 205) / 0.94, 240, 240 * 120 / 321);
+        const refresh = this.shopArt(panel, 'buy', 205, -550, 240, 240 * 120 / 321);
         this.shopCostLabel = this.headerText(refresh, '', 0, 0, 230, 42, 25);
         this.shopCostIcon = this.uiNode(refresh, '刷新钻石图标', 52, 0, 40, 40 * 315 / 353);
         this.headerArt(this.shopCostIcon, 'diamond-icon');
