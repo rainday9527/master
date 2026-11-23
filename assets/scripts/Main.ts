@@ -78,7 +78,9 @@ export class Main extends Component {
     private shopTimerLabel: Label | null = null;
     private shopCostLabel: Label | null = null;
     private shopCostIcon: Node | null = null;
-    private shopStockLabels = new Map<string, Label>();
+    private shopCards: { node: Node; id: string; title: Label; icon: Sprite; species: Label; effect: Label; stock: Label; price: Label; currency: Sprite }[] = [];
+    private spriteRequests = new WeakMap<Sprite, object>();
+    private header: { profile: Node; avatar: number; level: Label; xp: Label; fill: Sprite; gems: Label; coins: Label } | null = null;
     private bagPage = 0;
     private bagFilter: ItemCategory | null = null;
     public rewardedVideoProvider: RewardedVideoProvider | null = null;
@@ -507,12 +509,15 @@ export class Main extends Component {
         n.getComponent(Graphics)?.clear();
     }
     private pressFeedback(n: Node) {
-        // Keep hit boxes, labels, and the dock stationary; animate only the icon artwork.
+        // 命中区域、文字和底栏不动，只相对图标原有缩放播放反馈。
+        const baseScales = new Map<Node, Vec3>();
         const animate = (scale: number, duration: number) => {
             const target = n.children.find(child => child.name === '照顾图标' || (child.name.startsWith('主城素材-') && !child.name.endsWith('selected') && !child.name.includes('label')));
             if (!target) return;
+            if (!baseScales.has(target)) baseScales.set(target, target.scale.clone());
+            const base = baseScales.get(target)!;
             Tween.stopAllByTarget(target);
-            tween(target).to(duration, { scale: new Vec3(scale, scale, 1) }, { easing: 'quadOut' }).start();
+            tween(target).to(duration, { scale: new Vec3(base.x * scale, base.y * scale, base.z) }, { easing: 'quadOut' }).start();
         };
         n.on(Node.EventType.TOUCH_START, () => animate(0.94, 0.06), this);
         n.on(Node.EventType.TOUCH_END, () => animate(1, 0.12), this);
@@ -717,7 +722,21 @@ export class Main extends Component {
     }
 
     private renderHeader() {
-        this.clear(this.top);
+        if (this.header && isValid(this.header.profile, true)) {
+            const h = this.header;
+            h.level.string = 'Lv.' + (Math.floor(this.data.xp / 100) + 1);
+            h.xp.string = this.data.xp % 100 + ' / 100';
+            h.fill.fillRange = this.data.xp % 100 / 100;
+            h.gems.string = String(this.data.gems);
+            h.coins.string = String(this.data.coins);
+            if (h.avatar !== this.data.avatar) {
+                h.profile.getChildByName('伙伴头像-' + BREEDS[h.avatar].kind + '-' + h.avatar)?.destroy();
+                this.petAvatar(h.profile, this.data.avatar, -159, 0, 102);
+                h.profile.children[h.profile.children.length - 1].setSiblingIndex(0);
+                h.avatar = this.data.avatar;
+            }
+            return;
+        }
         this.top.getComponent(UITransform)!.setContentSize(1024, 228);
         if (!this.top.getComponent(BlockInputEvents)) this.intercept(this.top);
         const level = Math.floor(this.data.xp / 100) + 1, progress = this.data.xp % 100;
@@ -726,7 +745,7 @@ export class Main extends Component {
         this.headerArt(profile, 'profile');
         this.intercept(profile);
         profile.on(Node.EventType.TOUCH_END, () => this.open('album'), this);
-        this.headerText(profile, 'Lv.' + level, -45, 25, 100, 36, 27);
+        const levelLabel = this.headerText(profile, 'Lv.' + level, -45, 25, 100, 36, 27);
         const track = this.uiNode(profile, '独立经验槽', 65, -17, 290, 50);
         this.headerArt(track, 'xp-track');
         // Both sprites share the exact canvas; xp-fit alpha is the trough's inner contour.
@@ -737,7 +756,7 @@ export class Main extends Component {
             // FILLED UV updates require a valid frame in Creator 3.8.8.
             fill.spriteFrame = frame;
             fill.type = Sprite.Type.FILLED; fill.fillType = Sprite.FillType.HORIZONTAL;
-            fill.fillStart = 0; fill.fillRange = progress / 100;
+            fill.fillStart = 0; fill.fillRange = this.data.xp % 100 / 100;
         });
         const xpLabel = this.headerText(profile, progress + ' / 100', 65, -17, 262, 28, 18);
         xpLabel.color = this.color('#FFF8DF'); xpLabel.outlineColor = this.color('#704121'); xpLabel.outlineWidth = 2;
@@ -746,13 +765,14 @@ export class Main extends Component {
         const diamond = this.uiNode(this.top, '钻石栏', 83, 28, 220, 81);
         this.headerArt(diamond, 'currency-panel');
         const gemIcon = this.uiNode(diamond, '独立钻石', -78, 0, 60, 53.5); this.headerArt(gemIcon, 'diamond-icon');
-        this.headerText(diamond, String(this.data.gems), -1, 0, 100, 44, 28);
+        const gemsLabel = this.headerText(diamond, String(this.data.gems), -1, 0, 100, 44, 28);
         this.currencyPlus(diamond, 'gems', 80);
         const coin = this.uiNode(this.top, '金币栏', 333, 28, 220, 81);
         this.headerArt(coin, 'currency-panel');
         const coinIcon = this.uiNode(coin, '独立金币', -78, 0, 56, 57.2); this.headerArt(coinIcon, 'coin-icon');
-        this.headerText(coin, String(this.data.coins), -1, 0, 100, 44, 28);
+        const coinsLabel = this.headerText(coin, String(this.data.coins), -1, 0, 100, 44, 28);
         this.currencyPlus(coin, 'coins', 80);
+        this.header = { profile, avatar: this.data.avatar, level: levelLabel, xp: xpLabel, fill, gems: gemsLabel, coins: coinsLabel };
     }
     private updateSelectionRing() {
         const actor = this.petSelected && (this.page === 'pet' || this.page === 'bag') ? this.actors.find(a => a.pet.id === this.selected && isValid(a.node, true)) : null;
@@ -1025,9 +1045,14 @@ export class Main extends Component {
 
     private shopButton(node: Node, action: () => void) {
         this.intercept(node);
-        node.on(Node.EventType.TOUCH_START, () => node.setScale(0.94, 0.94, 1), this);
-        node.on(Node.EventType.TOUCH_CANCEL, () => node.setScale(1, 1, 1), this);
-        node.on(Node.EventType.TOUCH_END, () => { node.setScale(1, 1, 1); action(); }, this);
+        let base: Vec3 | null = null;
+        const restore = () => { if (base) { node.setScale(base); base = null; } };
+        node.on(Node.EventType.TOUCH_START, () => {
+            if (!base) base = node.scale.clone();
+            node.setScale(base.x * 0.94, base.y * 0.94, base.z);
+        }, this);
+        node.on(Node.EventType.TOUCH_CANCEL, restore, this);
+        node.on(Node.EventType.TOUCH_END, () => { restore(); action(); }, this);
     }
 
     private shopClick(): boolean {
@@ -1048,7 +1073,7 @@ export class Main extends Component {
             shop: { ...shop, freeUsed: shop.freeUsed + (cost === 0 ? 1 : 0), paidUsed: shop.paidUsed + (cost > 0 ? 1 : 0),
                 revision: shop.revision + 1, slots: drawShopSlots(shop.slots) } };
         if (!this.commitShop(candidate)) return;
-        this.open('shop'); this.renderHeader(); this.toast(cost ? '刷新成功，钻石 -' + cost : '免费刷新成功');
+        this.updateShopCards(); this.renderHeader(); this.toast(cost ? '刷新成功，钻石 -' + cost : '免费刷新成功');
     }
 
     private buyShopItem(id: string) {
@@ -1087,15 +1112,47 @@ export class Main extends Component {
             this.shopCostLabel.node.getComponent(UITransform)!.setContentSize(cost ? 92 : 230, 42);
         }
         if (this.shopCostIcon && isValid(this.shopCostIcon, true)) this.shopCostIcon.active = cost > 0;
-        this.shopStockLabels.forEach((label, key) => {
-            const slot = shop.slots.find(entry => entry.id === key);
-            if (isValid(label, true)) label.string = '限购 ' + (slot?.remaining || 0) + '  持有 ' + (this.data.itemInventory[key] || 0);
+        this.shopCards.forEach(card => {
+            const slot = shop.slots.find(entry => entry.id === card.id);
+            if (isValid(card.stock, true)) card.stock.string = '限购 ' + (slot?.remaining || 0) + '  持有 ' + (this.data.itemInventory[card.id] || 0);
         });
+    }
+
+    private updateShopSprite(sprite: Sprite, path: string) {
+        const request = {};
+        this.spriteRequests.set(sprite, request);
+        // 保留上一张有效贴图直到新图就绪；过期请求不能覆盖新的 slot。
+        resources.load(path + '/spriteFrame', SpriteFrame, (error, frame) => {
+            if (!error && frame && isValid(sprite, true) && this.spriteRequests.get(sprite) === request) sprite.spriteFrame = frame;
+        });
+    }
+
+    private updateShopCards() {
+        if (this.page !== 'shop' || !this.sheet || !isValid(this.sheet, true)) return;
+        this.shopCards.forEach((card, index) => {
+            const item = findItem(this.data.shop.slots[index].id)!;
+            if (card.id !== item.id) {
+                const previous = findItem(card.id);
+                card.id = item.id;
+                card.title.string = item.name;
+                card.species.string = this.speciesText(item);
+                card.effect.string = effectText(item);
+                card.price.string = String(item.price);
+                card.icon.node.name = '道具图标-' + item.id;
+                this.updateShopSprite(card.icon, 'art/items/' + item.id);
+                if (!previous || previous.currency !== item.currency) {
+                    const aspect = item.currency === 'coins' ? 348 / 341 : 315 / 353;
+                    card.currency.node.getComponent(UITransform)!.setContentSize(30, 30 * aspect);
+                    this.updateShopSprite(card.currency, 'art/header/' + (item.currency === 'coins' ? 'coin-icon' : 'diamond-icon'));
+                }
+            }
+        });
+        this.updateShopLabels();
     }
 
     private renderShop() {
         const panel = this.sheet!;
-        this.shopStockLabels.clear();
+        this.shopCards = [];
         this.shopArt(panel, 'stall', 0, 0, 900, 1300);
         // 源图 656×947 的连续奶油内板为像素 [55,410]–[600,835]，不是整张装饰摊位。
         // 映射到 900×1300 后安全范围为 x[-374.54,373.17]、y[-496.25,87.17]。
@@ -1114,21 +1171,23 @@ export class Main extends Component {
             const item = goods[i];
             const title = this.headerText(card, item.name, 0, 105, 210, 30, 25);
             title.lineHeight = 30; title.overflow = Label.Overflow.CLAMP;
-            this.itemIcon(card, item.id, 0, 48, 66);
+            const icon = this.uiNode(card, '道具图标-' + item.id, 0, 48, 66, 66).addComponent(Sprite);
+            icon.sizeMode = Sprite.SizeMode.CUSTOM;
             const species = this.text(card, this.speciesText(item), 0, 3, 210, 22, 18, C.muted);
             species.lineHeight = 22; species.overflow = Label.Overflow.CLAMP;
             const effect = this.text(card, effectText(item), 0, -31, 210, 44, 18, C.ink);
             effect.lineHeight = 21; effect.overflow = Label.Overflow.CLAMP;
             const stock = this.text(card, '', 0, -68, 210, 24, 18, C.muted);
             stock.lineHeight = 24; stock.overflow = Label.Overflow.CLAMP;
-            this.shopStockLabels.set(item.id, stock);
             const buy = this.shopArt(card, 'buy', 0, -105, 120, 120 * 120 / 321);
             const price = this.headerText(buy, String(item.price), -20, 0, 72, 36, 26);
             price.lineHeight = 32; price.overflow = Label.Overflow.CLAMP;
             const currencyAspect = item.currency === 'coins' ? 348 / 341 : 315 / 353;
             const coin = this.uiNode(buy, '购买货币图标', 38, 0, 30, 30 * currencyAspect);
-            this.headerArt(coin, item.currency === 'coins' ? 'coin-icon' : 'diamond-icon');
-            this.shopButton(buy, () => this.buyShopItem(item.id));
+            const currency = coin.addComponent(Sprite); currency.sizeMode = Sprite.SizeMode.CUSTOM;
+            const binding = { node: card, id: '', title, icon, species, effect, stock, price, currency };
+            this.shopCards.push(binding);
+            this.shopButton(buy, () => this.buyShopItem(binding.id));
         }
         const timer = this.shopArt(panel, 'timer-panel', -195, -550, 310, 72);
         this.shopArt(timer, 'clock', -113, 0, 34, 40);
@@ -1138,7 +1197,7 @@ export class Main extends Component {
         this.shopCostIcon = this.uiNode(refresh, '刷新钻石图标', 52, 0, 40, 40 * 315 / 353);
         this.headerArt(this.shopCostIcon, 'diamond-icon');
         this.shopButton(refresh, () => this.refreshShop());
-        this.updateShopLabels();
+        this.updateShopCards();
     }
     private speciesText(item: ItemDefinition) {
         return item.appliesTo === 'both' ? '猫狗通用' : item.appliesTo === 'cat' ? '猫咪专用' : '狗狗专用';
