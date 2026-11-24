@@ -1372,11 +1372,11 @@ export class Main extends Component {
         const panel = this.sheet!;
         const daily = this.dailyCandidate().daily;
         this.dailySprite(panel, 'panel', 0, 0, 1024, 1400, true);
-        // 原图顶饰保护到 y=378，按 1024/939 映射后正文顶界为 288。
-        this.dailyText(panel, '每日任务', -12, 258, 440, 58, 42, false, true);
-        const close = this.dailySprite(panel, 'close', 318, 252, 64, 64, false, '收起');
+        // 九宫格顶饰下缘为 700 - 378 * 1024 / 939 ≈ 288；标题独立于下方列表。
+        this.dailyText(panel, '每日任务', -12, 350, 440, 58, 42, false, true);
+        const close = this.dailySprite(panel, 'close', 318, 350, 64, 64, false, '收起');
         this.shopButton(close, () => this.open('home'));
-        const countdown = this.dailyText(panel, '', -12, 207, 650, 36, 24);
+        const countdown = this.dailyText(panel, '', -12, 280, 650, 36, 24);
         const updateCountdown = () => {
             if (!isValid(countdown, true)) { this.unschedule(updateCountdown); return; }
             const seconds = Math.max(0, Math.ceil(((this.shopDay(Date.now()) + 1) * 86400000 - 8 * 3600000 - Date.now()) / 1000));
@@ -1404,7 +1404,14 @@ export class Main extends Component {
             this.dailyText(row, task.id === 'adventure' ? '完成林间寻宝' : task.title, -135, 22, 260, 38, 28, true);
             this.dailyText(row, daily.progress[task.id] + '/1', -135, -14, 260, 32, 24, true);
             this.dailyText(row, String(task.amount), 70, 6, 70, 40, 28);
-            this.dailySprite(row, task.currency === 'coins' ? 'coin' : 'gem', 130, 6, 36, 36, false, '奖励货币');
+            const currency = this.uiNode(row, '奖励货币', 130, 6, 36, 36);
+            const sprite = currency.addComponent(Sprite); sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+            resources.load('art/header/' + (task.currency === 'coins' ? 'coin-icon' : 'diamond-icon') + '/spriteFrame', SpriteFrame, (error, frame) => {
+                if (error || !frame || !isValid(currency, true)) return;
+                sprite.spriteFrame = frame;
+                const scale = Math.min(36 / frame.originalSize.width, 36 / frame.originalSize.height);
+                currency.getComponent(UITransform)!.setContentSize(frame.originalSize.width * scale, frame.originalSize.height * scale);
+            });
             const claimed = daily.claimed[task.id], ready = daily.progress[task.id] >= 1;
             if (claimed) this.dailyText(row, '已领取', 282, 6, 140, 58, 26);
             else this.dailyButton(row, ready ? '领取' : '前往', 282, 6, 150, 68, () => ready ? this.claimDaily(task.id) : this.goDaily(task.id));

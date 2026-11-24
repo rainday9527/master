@@ -4,6 +4,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const output = path.resolve(__dirname, '../temp');
+const currencyUUIDs = Object.fromEntries(['coins', 'gems'].map(currency => {
+  const key = currency === 'coins' ? 'coin-icon' : 'diamond-icon';
+  const meta = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../assets/resources/art/header/' + key + '.png.meta'), 'utf8'));
+  return [currency, meta.subMetas.f9941.uuid];
+}));
 const report = {
   fixtures: '各视口使用独立浏览器context；预设初始猫狗四项状态20、通用物资各10、空道具库存及未完成daily。六项完成和领奖全用page.mouse真实点击；冒险真实出发后仅将adventureEnd设为过期并保存，不等待60秒。逻辑测试独立列出，不冒充真实输入。',
   visual: '仅自动检查SpriteFrame、几何边界与截图；未进行人工视觉验收。',
@@ -88,6 +93,34 @@ const record = (name, data) => {
         const nodes = walk(main.sheet).filter(n => n.activeInHierarchy && (n.name === '每日任务底图' || n.name === '每日任务图标' || n.name === '每日礼包图标' || n.name === '奖励货币'));
         return nodes.length >= 14 && nodes.every(n => (n.getComponent(cc.Sprite) || n.children.find(c => c.getComponent(cc.Sprite))?.getComponent(cc.Sprite))?.spriteFrame?.texture);
       });
+      const header = await frame.evaluate(currencyUUIDs => {
+        const title = main.sheet.children.find(n => n.getComponent(cc.Label)?.string === '每日任务');
+        const countdown = main.sheet.children.find(n => n.getComponent(cc.Label)?.string.includes('后刷新（UTC+8）'));
+        const viewport = main.sheet.getChildByName('每日任务可视窗口');
+        const first = main.dailyScroll.content.children[0];
+        const bounds = n => n.getComponent('cc.UITransform').getBoundingBoxToWorld();
+        const t = bounds(title), c = bounds(countdown), v = bounds(viewport), r = bounds(first);
+        const violations = [];
+        const scale = viewport.worldScale.y;
+        const gaps = { titleToCountdown: (t.y - c.y - c.height) / scale,
+          countdownToViewport: (c.y - v.y - v.height) / scale,
+          viewportToFirst: (v.y + v.height - r.y - r.height) / scale,
+          countdownToFirst: (c.y - r.y - r.height) / scale };
+        if (gaps.titleToCountdown < 20 || gaps.countdownToViewport < 50 || gaps.countdownToFirst < 50 || gaps.viewportToFirst < -1) violations.push('头部与首行缺少明确间隔');
+        if (title.position.y !== 350 || countdown.position.y !== 280 || main.sheet.getChildByName('收起').position.y !== 350) violations.push('独立头部坐标异常');
+        const currencies = main.dailyScroll.content.children.slice(0, 6).map((row, index) => {
+          const currency = dailyModule.DAILY_TASKS[index].currency;
+          const node = row.getChildByName('奖励货币'), sprite = node.getComponent(cc.Sprite), frame = sprite.spriteFrame;
+          const size = node.getComponent('cc.UITransform');
+          if (frame?._uuid !== currencyUUIDs[currency]) violations.push(row.name + '未复用既有header货币UUID');
+          if (Math.abs(size.width / size.height - frame.originalSize.width / frame.originalSize.height) > 0.001) violations.push(row.name + '货币图标变形');
+          return { row: row.name, currency, uuid: frame?._uuid, expected: currencyUUIDs[currency], width: size.width, height: size.height };
+        });
+        return { titleY: title.position.y, countdownY: countdown.position.y, viewport: { x: viewport.position.x, y: viewport.position.y, width: viewport.getComponent('cc.UITransform').width, height: viewport.getComponent('cc.UITransform').height }, gaps, currencies, violations };
+      }, currencyUUIDs);
+      record('独立头部间隔与既有货币UUID ' + width, header);
+      assert.deepEqual(header.violations, []);
+      assert.deepEqual(header.viewport, { x: -12, y: -149, width: 740, height: 660 });
       const geometry = await frame.evaluate(() => {
         const bounds = n => { const transform = n.getComponent('cc.UITransform'); if (!transform) return { x: n.worldPosition.x - main.width / 2, y: n.worldPosition.y - main.height / 2, w: main.width, h: main.height }; const r = transform.getBoundingBoxToWorld(); return { x: r.x, y: r.y, w: r.width, h: r.height }; };
         const inside = (a, b) => a.x >= b.x - 1 && a.y >= b.y - 1 && a.x + a.w <= b.x + b.w + 1 && a.y + a.h <= b.y + b.h + 1;
