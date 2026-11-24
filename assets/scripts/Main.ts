@@ -1278,13 +1278,29 @@ export class Main extends Component {
         return node;
     }
 
+    private pressFeedback(node: Node, visuals: Node[]) {
+        // 只缩放显示层，点击热区与布局节点不变；保留各素材九宫格自身缩放。
+        let bases: { node: Node; scale: Vec3 }[] = [];
+        const restore = () => {
+            bases.forEach(entry => { if (isValid(entry.node, true)) entry.node.setScale(entry.scale); });
+            bases = [];
+        };
+        node.on(Node.EventType.TOUCH_START, () => {
+            if (bases.length) return;
+            bases = visuals.filter(n => isValid(n, true)).map(n => ({ node: n, scale: n.scale.clone() }));
+            bases.forEach(entry => entry.node.setScale(entry.scale.x * 0.94, entry.scale.y * 0.94, entry.scale.z));
+        }, this);
+        node.on(Node.EventType.TOUCH_CANCEL, restore, this);
+        node.on(Node.EventType.TOUCH_END, restore, this);
+    }
+
     private bagButton(parent: Node, title: string, x: number, y: number, w: number, h: number, action: () => void) {
         const node = this.uiNode(parent, title, x, y, w, h);
         // 复用已确认的任务按钮九宫格，不再使用背包参考图裁出的临时按钮。
         this.dailySprite(node, 'button', 0, 0, w, h, true);
         this.dailyText(node, title, 0, 0, w - 18, h - 6, 24);
         this.intercept(node);
-        // 使用不缩放父节点，触发期间及异步贴图加载均保持槽位几何稳定。
+        this.pressFeedback(node, node.children.slice());
         node.on(Node.EventType.TOUCH_END, action, this);
         return node;
     }
@@ -1342,10 +1358,12 @@ export class Main extends Component {
         this.bagTargetLabel = this.dailyText(panel, '', 0, 302, 742, 40, 23);
         const filters: [string, ItemCategory | null][] = [['全部', null], ['喂养', 'food'], ['清洁', 'soap'], ['陪玩', 'toy']];
         filters.forEach(([name, category], index) => {
-            const tab = this.shopArt(panel, 'tab', -282 + index * 188, 245, 170, 66);
+            const tab = this.uiNode(panel, '背包分类-' + name, -282 + index * 188, 245, 170, 66);
+            this.shopArt(tab, 'tab', 0, 0, 170, 66);
             const label = this.dailyText(tab, name, 0, 0, 145, 40, 26);
             this.bagTabs.push({ category, label });
             this.intercept(tab);
+            this.pressFeedback(tab, tab.children.slice());
             tab.on(Node.EventType.TOUCH_END, () => { this.bagFilter = category; this.bagPage = 0; this.updateBag(); }, this);
         });
         for (let i = 0; i < 6; i++) {

@@ -71,7 +71,9 @@ const bagButton = source.slice(source.indexOf('private bagButton('), source.inde
 assert.ok(bagButton.includes("this.dailySprite(node, 'button', 0, 0, w, h, true)"), '操作按钮复用任务九宫格');
 assert.ok(!bagButton.includes("this.bagArt(parent, 'button'"));
 const renderBag = source.slice(source.indexOf('private renderBag()'), source.indexOf('private dailySprite('));
-assert.ok(renderBag.includes("this.shopArt(panel, 'tab'"), '分类复用商店道具页签');
+assert.ok(renderBag.includes("this.shopArt(tab, 'tab'"), '分类复用商店道具页签');
+assert.ok(bagButton.includes('this.pressFeedback(node, node.children.slice())'), '操作按钮显示层反馈');
+assert.ok(renderBag.includes('this.pressFeedback(tab, tab.children.slice())'), '分类页签显示层反馈');
 assert.ok(renderBag.includes("this.dailySprite(panel, 'panel-clean', 0, 0, 921, 1390, true, '背包任务大底板')"), '背包大底板直接复用任务正式空白底板');
 assert.ok(!renderBag.includes("this.bagArt(panel, 'panel'"), '停用参考大底图，不叠加第二层');
 assert.ok(renderBag.includes("this.bagArt(panel, 'card'"), '按用户纠正恢复物品栏卡片');
