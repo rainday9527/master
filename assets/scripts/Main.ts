@@ -672,9 +672,10 @@ export class Main extends Component {
             if (!error && frame && isValid(sprite, true)) sprite.spriteFrame = frame;
         });
         // Pillow行列检测：1116×904底板的连续浅色内框为[78,370]–[1038,770]。
-        // 采用更保守的[110,375]–[1006,770]，标题、正文与按钮均由此映射。
-        const content = this.uiNode(panel, '弹窗安全内容', 0, (452 - 572.5) * ratio, 896 * ratio, 395 * ratio);
-        const heading = this.headerText(content, title, 0, 126 * ratio, 650 * ratio, 58 * ratio, 37);
+        // 标题独立落在猫狗中间的木牌（源图中央 y=260..300），不占正文内区。
+        // 内容整体上移35设计单位；金币、钻石及其他通用弹窗共用布局。
+        const content = this.uiNode(panel, '弹窗安全内容', 0, (452 - 572.5) * ratio + 35, 896 * ratio, 395 * ratio);
+        const heading = this.headerText(panel, title, 0, (452 - 280) * ratio, 400 * ratio, 44 * ratio, 30);
         heading.node.name = '弹窗独立标题';
         const bodyLabel = this.text(content, body, 0, reward ? 47 : 22 * ratio, 840 * ratio, reward ? 30 : 110 * ratio, 28, C.muted);
         bodyLabel.node.name = '弹窗正文';
