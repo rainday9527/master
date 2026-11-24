@@ -293,7 +293,7 @@ const record = (name, data) => {
           const key = task.id.startsWith('feed') ? 'food' : task.id === 'clean' ? 'soap' : 'toy';
           if (task.id.startsWith('feed')) assert.equal(await frame.evaluate(() => main.selected), task.id === 'feedCat' ? 0 : 1);
           const before = await state();
-          await click(textTarget('使用', `main.sheet.getChildByName('库存-${key}')`));
+          await click(textTarget('使用', `main.bagSlots.find(slot => slot.entry?.legacy === '${key}').node`));
           assert.equal((await state())[key], before[key] - 1);
         }
         const completed = await state();

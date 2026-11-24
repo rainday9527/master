@@ -88,6 +88,11 @@ export class Main extends Component {
     private header: { profile: Node; avatar: number; level: Label; xp: Label; fill: Sprite; gems: Label; coins: Label } | null = null;
     private bagPage = 0;
     private bagFilter: ItemCategory | null = null;
+    private bagSlots: { node: Node; entry: { item: ItemDefinition; legacy: ItemCategory | null } | null; title: Label; icon: Sprite; species: Label; effect: Label; count: Label; use: Label }[] = [];
+    private bagPageLabel: Label | null = null;
+    private bagTargetLabel: Label | null = null;
+    private bagEmpty: Node | null = null;
+    private bagTabs: { category: ItemCategory | null; label: Label }[] = [];
     public rewardedVideoProvider: RewardedVideoProvider | null = null;
     private dialog: Node | null = null;
     private rewardedVideoPending = false;
@@ -556,9 +561,9 @@ export class Main extends Component {
         this.worldCamera.orthoHeight = Math.max(9.5, 9.5 * this.height / 1920);
         if (this.sheet) {
             this.sheet.setPosition(0, this.page === 'pet' ? -this.height / 2 + 350 : this.page === 'shop' ? -this.height / 2 + 850 : -this.height / 2 + 640, 0);
-            if (this.page === 'daily') this.sheet.setPosition(0, -10, 0);
-            if (this.page === 'shop' || this.page === 'daily') {
-                const scale = Math.min(1, (this.width - 40) / (this.page === 'daily' ? 1024 : 900), (this.height - 420) / (this.page === 'daily' ? 1400 : 1300));
+            if (this.page === 'daily' || this.page === 'bag') this.sheet.setPosition(0, -10, 0);
+            if (this.page === 'shop' || this.page === 'daily' || this.page === 'bag') {
+                const scale = Math.min(1, (this.width - 40) / (this.page === 'daily' ? 1024 : this.page === 'bag' ? 921 : 900), (this.height - 420) / (this.page === 'daily' ? 1400 : this.page === 'bag' ? 1390 : 1300));
                 this.sheet.setScale(scale, scale, 1);
             }
         }
@@ -951,6 +956,10 @@ export class Main extends Component {
         const dailyEntry = this.ui.getChildByName('每日任务入口');
         if (dailyEntry) dailyEntry.active = page === 'home';
         if (page === 'home') return;
+        if (page === 'bag') {
+            this.sheet = this.uiNode(this.ui, '背包面板', 0, -10, 921, 1390);
+            this.intercept(this.sheet); this.renderBag(); this.layout(); return;
+        }
         if (page === 'daily') {
             this.sheet = this.uiNode(this.ui, '每日任务面板', 0, -10, 1024, 1400);
             this.intercept(this.sheet); this.renderDaily(); this.layout(); return;
@@ -969,13 +978,10 @@ export class Main extends Component {
         this.sheet = this.uiNode(this.ui, '操作卡片', 0, -this.height / 2 + 640, 1024, 866); this.card(this.sheet); this.intercept(this.sheet);
         const titles: Record<string, string> = { pet: BREEDS[this.selected].name + '的小日常', recruit: '遇见新的毛茸茸', adventure: '任务区 · 林间寻宝', album: '伙伴图鉴', shop: '庭院补给铺', bag: '我的背包' };
         this.text(this.sheet, titles[page], -60, 363, 760, 64, 40);
-        const petBag = page === 'bag' && this.petSelected;
-        this.button(this.sheet, petBag ? '返回宠物' : '收起', 405, 363, 150, 66, () => this.open(petBag ? 'pet' : 'home'), C.pale, 27);
-        if (petBag) this.button(this.sheet, '返回主页', 0, -425, 220, 44, () => this.open('home'), C.pale, 23);
+        this.button(this.sheet, '收起', 405, 363, 150, 66, () => this.open('home'), C.pale, 27);
         if (page === 'recruit') this.renderRecruit();
         if (page === 'album') this.renderAlbum();
         if (page === 'adventure') this.renderAdventure();
-        if (page === 'bag') this.renderBag();
     }
 
     private renderPet() {
@@ -1052,7 +1058,7 @@ export class Main extends Component {
         const actor = this.actors.find(a => a.pet.id === p.id);
         if (actor) { actor.pet = nextPet; actor.timer = -1.3; }
         this.renderHeader();
-        if (this.page === 'bag') this.open('bag'); else this.open('pet');
+        if (this.page === 'bag') this.updateBag(); else this.open('pet');
         const tired = (effects.energy || 0) < 0 && p.energy < -(effects.energy || 0);
         this.toast((item ? '已使用' + item.name : '精神满满') + '，经验 +15' + (tired ? '（体力已降至0）' : ''));
     }
@@ -1265,36 +1271,106 @@ export class Main extends Component {
         });
     }
 
-    private renderBag() {
-        const panel = this.sheet!;
-        const categoryNames = { food: '喂养', soap: '清洁', toy: '陪玩' };
-        const target = this.petSelected ? BREEDS[this.selected].name : '请先选择伙伴';
-        this.text(panel, target + (this.bagFilter ? ' · ' + categoryNames[this.bagFilter] : ' · 全部库存'), 0, 285, 920, 45, 27, C.muted);
-        const filters: [string, ItemCategory | null][] = [['全部', null], ['喂养', 'food'], ['清洁', 'soap'], ['陪玩', 'toy']];
-        filters.forEach(([name, category], i) => this.button(panel, name, -315 + i * 210, 232, 180, 46, () => {
-            this.bagFilter = category; this.bagPage = 0; this.open('bag');
-        }, this.bagFilter === category ? C.green : C.pale, 23));
-        const entries = [
+    private bagArt(parent: Node, key: string, x: number, y: number, w: number, h: number) {
+        const node = this.uiNode(parent, '背包素材-' + key, x, y, w, h);
+        const sprite = node.addComponent(Sprite); sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+        this.updateShopSprite(sprite, 'art/bag/' + key);
+        return node;
+    }
+
+    private bagButton(parent: Node, title: string, x: number, y: number, w: number, h: number, action: () => void) {
+        const node = this.bagArt(parent, 'button', x, y, w, h);
+        node.name = title;
+        this.dailyText(node, title, 0, 0, w - 18, h - 6, 24);
+        this.intercept(node);
+        // 使用不缩放父节点，触发期间及异步贴图加载均保持槽位几何稳定。
+        node.on(Node.EventType.TOUCH_END, action, this);
+        return node;
+    }
+
+    private bagEntries() {
+        return [
             ...ITEM_CATALOG.map(item => ({ item, count: this.data.itemInventory[item.id] || 0, legacy: null as ItemCategory | null })),
             ...(['food', 'soap', 'toy'] as ItemCategory[]).map(key => ({ item: this.legacyItem(key), count: this.data[key], legacy: key })),
         ].filter(entry => entry.count > 0 && (!this.bagFilter || entry.item.category === this.bagFilter) &&
             (!this.petSelected || itemApplies(entry.item, BREEDS[this.selected].kind)));
-        const pages = Math.max(1, Math.ceil(entries.length / 6));
+    }
+
+    private updateBag() {
+        if (this.page !== 'bag' || !this.sheet || !isValid(this.sheet, true)) return;
+        const entries = this.bagEntries(), pages = Math.max(1, Math.ceil(entries.length / 6));
         this.bagPage = Math.max(0, Math.min(this.bagPage, pages - 1));
-        entries.slice(this.bagPage * 6, this.bagPage * 6 + 6).forEach((entry, i) => {
-            const row = this.uiNode(panel, '库存-' + entry.item.id, (i % 2 ? 238 : -238), 132 - Math.floor(i / 2) * 142, 452, 130);
-            this.card(row, C.pale);
-            if (!entry.legacy) this.itemIcon(row, entry.item.id, -176, 12, 58);
-            this.text(row, entry.item.name + ' ×' + entry.count, 28, 40, 350, 32, 23);
-            this.text(row, this.speciesText(entry.item) + ' ' + effectText(entry.item), 0, 1, 428, 44, 19, C.muted);
-            this.button(row, '使用', 115, -40, 160, 40, () => this.applyCare(entry.item, entry.legacy), C.green, 22);
+        if (this.bagPageLabel) this.bagPageLabel.string = (this.bagPage + 1) + ' / ' + pages;
+        if (this.bagTargetLabel) {
+            const pet = this.data.pets.find(p => p.id === this.selected);
+            this.bagTargetLabel.string = this.petSelected && pet ? BREEDS[this.selected].name + ' · 饱腹' + Math.round(pet.hunger) + ' 洁净' + Math.round(pet.clean) + ' 体力' + Math.round(pet.energy) + ' 心情' + Math.round(pet.joy) : '请先选择伙伴 · 查看全部库存';
+        }
+        if (this.bagEmpty) this.bagEmpty.active = entries.length === 0;
+        this.bagTabs.forEach(tab => tab.label.color = this.color(this.bagFilter === tab.category ? '#49301E' : '#94714F'));
+        this.bagSlots.forEach((slot, index) => {
+            const entry = entries[this.bagPage * 6 + index];
+            slot.node.active = !!entry;
+            if (!entry) { slot.entry = null; return; }
+            const changed = slot.entry?.item.id !== entry.item.id;
+            slot.entry = entry;
+            slot.title.string = entry.item.name;
+            slot.species.string = this.speciesText(entry.item);
+            slot.effect.string = effectText(entry.item);
+            slot.count.string = '持有 ×' + entry.count;
+            const pet = this.data.pets.find(p => p.id === this.selected);
+            const full = pet && (Object.keys(entry.item.effects) as PetStat[]).filter(stat => entry.item.effects[stat]! > 0).every(stat => pet[stat] >= 100);
+            slot.use.string = !this.petSelected ? '先选伙伴' : full ? '状态已满' : '使用';
+            if (changed) {
+                const path = entry.legacy ? 'art/care/' + (entry.legacy === 'food' ? 'feed' : entry.legacy === 'soap' ? 'clean' : 'play') : 'art/items/' + entry.item.id;
+                this.updateShopSprite(slot.icon, path);
+            }
         });
-        if (!entries.length) this.text(panel, '暂无适用物资，可前往补给铺购买', 0, -20, 900, 80, 28, C.muted);
-        this.button(panel, '上一页', -285, -270, 210, 52, () => { this.bagPage = Math.max(0, this.bagPage - 1); this.open('bag'); }, C.pale, 23);
-        this.text(panel, (this.bagPage + 1) + ' / ' + pages, 0, -270, 180, 44, 25);
-        this.button(panel, '下一页', 285, -270, 210, 52, () => { this.bagPage = Math.min(pages - 1, this.bagPage + 1); this.open('bag'); }, C.pale, 23);
-        this.button(panel, '补充物资', -240, -365, 420, 70, () => this.open('shop'));
-        this.button(panel, this.petSelected ? '返回 ' + target : '选择伙伴', 240, -365, 420, 70, () => this.open(this.petSelected ? 'pet' : 'home'), C.coral);
+    }
+
+    private renderBag() {
+        const panel = this.sheet!;
+        this.bagSlots = []; this.bagTabs = [];
+        this.bagArt(panel, 'panel', 0, 0, 921, 1390);
+        // 源图标题牌=(280,285,715,347)，当前映射 x=-232..203、y=384..446。
+        this.dailyText(panel, '我的背包', -14, 415, 370, 48, 38);
+        const close = this.uiNode(panel, '收起背包', 380, 416, 84, 84);
+        this.dailySprite(close, 'close', 0, 0, 78, 78);
+        this.shopButton(close, () => this.open(this.petSelected ? 'pet' : 'home'));
+        // 实际浅内区映射 x=-392.5..390.5、y=-659..341，内容不占顶部装饰。
+        this.bagTargetLabel = this.dailyText(panel, '', 0, 302, 742, 40, 23);
+        const filters: [string, ItemCategory | null][] = [['全部', null], ['喂养', 'food'], ['清洁', 'soap'], ['陪玩', 'toy']];
+        filters.forEach(([name, category], index) => {
+            const tab = this.bagArt(panel, 'tab', -282 + index * 188, 245, 170, 55);
+            const label = this.dailyText(tab, name, 0, 0, 145, 40, 26);
+            this.bagTabs.push({ category, label });
+            this.intercept(tab);
+            tab.on(Node.EventType.TOUCH_END, () => { this.bagFilter = category; this.bagPage = 0; this.updateBag(); }, this);
+        });
+        for (let i = 0; i < 6; i++) {
+            const node = this.bagArt(panel, 'card', i % 2 ? 190 : -190, 98 - Math.floor(i / 2) * 244, 366, 230);
+            node.name = '背包槽位-' + i;
+            // 卡片真实浅内区映射 x=-160..160、y=-91..93，所有文字及按钮均在其中。
+            const title = this.dailyText(node, '', 0, 76, 320, 33, 25);
+            const iconNode = this.uiNode(node, '背包道具图标', -111, 12, 68, 68);
+            const icon = iconNode.addComponent(Sprite); icon.sizeMode = Sprite.SizeMode.CUSTOM;
+            const species = this.dailyText(node, '', 43, 35, 210, 28, 20);
+            const effect = this.dailyText(node, '', 43, -3, 210, 47, 19);
+            effect.enableWrapText = true; effect.lineHeight = 22;
+            const count = this.dailyText(node, '', -87, -62, 140, 30, 21);
+            const binding = { node, entry: null, title, icon, species, effect, count, use: null as unknown as Label } as typeof this.bagSlots[number];
+            const use = this.bagButton(node, '使用', 76, -64, 140, 43, () => {
+                if (binding.entry) this.applyCare(binding.entry.item, binding.entry.legacy);
+            });
+            binding.use = use.getChildByName('文字')!.getComponent(Label)!;
+            this.bagSlots.push(binding);
+        }
+        this.bagEmpty = this.dailyText(panel, '暂无适用物资，可前往补给铺购买', 0, -50, 710, 70, 26).node;
+        this.bagButton(panel, '上一页', -245, -540, 190, 58, () => { this.bagPage = Math.max(0, this.bagPage - 1); this.updateBag(); });
+        this.bagPageLabel = this.dailyText(panel, '', 0, -540, 180, 40, 26);
+        this.bagButton(panel, '下一页', 245, -540, 190, 58, () => { this.bagPage++; this.updateBag(); });
+        this.bagButton(panel, '补充物资', -190, -608, 300, 64, () => this.open('shop'));
+        this.bagButton(panel, this.petSelected ? '返回伙伴' : '选择伙伴', 190, -608, 300, 64, () => this.open(this.petSelected ? 'pet' : 'home'));
+        this.updateBag();
     }
     private dailySprite(parent: Node, key: string, x: number, y: number, w: number, h: number, sliced = false, name = '每日任务底图') {
         const node = this.uiNode(parent, name, x, y, w, h);
