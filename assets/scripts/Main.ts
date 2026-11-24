@@ -463,10 +463,10 @@ export class Main extends Component {
         this.bottom = this.uiNode(this.ui, '底栏', 0, 0, 1080, 180);
         const note = this.uiNode(this.ui, '提示', 0, 0, 980, 66);
         this.notice = this.text(note, '点击庭院里的猫猫狗狗，开始照顾它们', 0, 0, 950, 54, 27, C.ink);
-        const daily = this.button(this.ui, '每日任务', 390, 650, 210, 86, () => this.open('daily'), C.cream, 30);
+        const daily = this.dailyButton(this.ui, '每日任务', 390, 650, 210, 86, () => this.open('daily'), 28);
         daily.name = '每日任务入口';
-        const dailyIcon = this.uiNode(daily, '照顾图标', -72, 0, 42, 42).addComponent(Sprite);
-        dailyIcon.sizeMode = Sprite.SizeMode.CUSTOM; void this.loadCareIcon(dailyIcon, 'adventure');
+        this.dailySprite(daily, 'adventure', -72, 0, 42, 42, false, '每日入口图标');
+        daily.getChildByName('文字')?.setPosition(20, 0, 0);
         this.layout(); this.renderHeader(); this.renderNav();
     }
 
@@ -1275,15 +1275,32 @@ export class Main extends Component {
         this.button(panel, '补充物资', -240, -365, 420, 70, () => this.open('shop'));
         this.button(panel, this.petSelected ? '返回 ' + target : '选择伙伴', 240, -365, 420, 70, () => this.open(this.petSelected ? 'pet' : 'home'), C.coral);
     }
-    private dailyArt(node: Node, key: 'panel' | 'row') {
-        const size = node.getComponent(UITransform)!.contentSize;
-        const background = this.uiNode(node, '每日任务底图', 0, 0, size.width, size.height);
-        background.setSiblingIndex(0);
-        const sprite = background.addComponent(Sprite); sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+    private dailySprite(parent: Node, key: string, x: number, y: number, w: number, h: number, sliced = false, name = '每日任务底图') {
+        const node = this.uiNode(parent, name, x, y, w, h);
+        const sprite = node.addComponent(Sprite); sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+        if (sliced) sprite.type = Sprite.Type.SLICED;
         resources.load('art/daily/' + key + '/spriteFrame', SpriteFrame, (error, frame) => {
-            if (error || !frame || !isValid(background, true)) return;
-            sprite.spriteFrame = frame; node.getComponent(Graphics)?.clear();
+            if (error || !frame || !isValid(node, true)) return;
+            sprite.spriteFrame = frame;
+            if (sliced) {
+                // 面板保持原始横向像素，猫狗顶饰不横拉；行与按钮保持原始纵向像素，圆角不挤压。
+                const scale = key === 'panel' ? w / frame.originalSize.width : Math.min(1, h / frame.originalSize.height);
+                node.getComponent(UITransform)!.setContentSize(w / scale, h / scale);
+                node.setScale(scale, scale, 1);
+            } else {
+                const scale = Math.min(w / frame.originalSize.width, h / frame.originalSize.height);
+                node.getComponent(UITransform)!.setContentSize(frame.originalSize.width * scale, frame.originalSize.height * scale);
+            }
         });
+        return node;
+    }
+
+    private dailyButton(parent: Node, title: string, x: number, y: number, w: number, h: number, action: () => void, font = 24) {
+        const node = this.uiNode(parent, title, x, y, w, h);
+        this.dailySprite(node, 'button', 0, 0, w, h, true);
+        this.text(node, title, 0, 0, w - 20, h - 10, font);
+        this.shopButton(node, action);
+        return node;
     }
 
     private claimDaily(id: DailyTaskId | 'pack') {
@@ -1318,33 +1335,39 @@ export class Main extends Component {
     private renderDaily() {
         const panel = this.sheet!;
         const daily = this.dailyCandidate().daily;
-        this.dailyArt(panel, 'panel');
-        this.text(panel, '每日任务', 0, 370, 440, 64, 42);
-        this.button(panel, '收起', 310, 278, 100, 52, () => this.open('home'), C.pale, 23);
-        this.text(panel, '每日 00:00（UTC+8）刷新 · 完成后手动领取', -40, 269, 570, 32, 20, C.muted);
+        this.dailySprite(panel, 'panel', 0, 0, 1024, 1400, true);
+        this.text(panel, '每日任务', 0, 490, 440, 64, 42);
+        const close = this.dailySprite(panel, 'close', 395, 495, 72, 72, false, '收起');
+        this.shopButton(close, () => this.open('home'));
+        const countdown = this.text(panel, '', 0, 409, 650, 40, 22, C.muted);
+        const updateCountdown = () => {
+            if (!isValid(countdown, true)) { this.unschedule(updateCountdown); return; }
+            const seconds = Math.max(0, Math.ceil(((this.shopDay(Date.now()) + 1) * 86400000 - 8 * 3600000 - Date.now()) / 1000));
+            const pad = (n: number) => ('0' + n).slice(-2);
+            countdown.string = '◷  ' + pad(Math.floor(seconds / 3600)) + ':' + pad(Math.floor(seconds / 60) % 60) + ':' + pad(seconds % 60) + ' 后刷新（UTC+8）';
+        };
+        updateCountdown(); this.schedule(updateCountdown, 1);
         DAILY_TASKS.forEach((task, index) => {
-            const row = this.uiNode(panel, '每日任务-' + task.id, 0, 190 - index * 110, 690, 96);
-            void this.skin(row, 'panel');
-            const icon = this.uiNode(row, '照顾图标', -295, 0, 60, 60).addComponent(Sprite);
-            icon.sizeMode = Sprite.SizeMode.CUSTOM; void this.loadCareIcon(icon, task.icon);
+            const row = this.uiNode(panel, '每日任务-' + task.id, 0, 310 - index * 126, 820, 116);
+            this.dailySprite(row, 'row', 0, 0, 820, 116, true);
+            this.dailySprite(row, task.id === 'feedCat' ? 'feed-cat' : task.id === 'feedDog' ? 'feed-dog' : task.id, -335, 0, 82, 82, false, '每日任务图标');
             this.text(row, task.title, -130, 17, 240, 36, 25);
             this.text(row, daily.progress[task.id] + ' / 1', -130, -21, 240, 30, 21, C.muted);
             this.text(row, '+' + task.amount, 90, 0, 92, 40, 24);
-            this.headerArt(this.uiNode(row, '奖励货币', 153, 0, 34, 34), task.currency === 'coins' ? 'coin-icon' : 'diamond-icon');
+            this.dailySprite(row, task.currency === 'coins' ? 'coin' : 'gem', 153, 0, 38, 38, false, '奖励货币');
             const claimed = daily.claimed[task.id], ready = daily.progress[task.id] >= 1;
             if (claimed) this.text(row, '已领取', 255, 0, 140, 58, 24, C.muted);
-            else this.button(row, ready ? '领取' : '前往', 255, 0, 140, 58, () => ready ? this.claimDaily(task.id) : this.goDaily(task.id), ready ? C.green : C.cream, 24);
+            else this.dailyButton(row, ready ? '领取' : '前往', 282, 0, 150, 68, () => ready ? this.claimDaily(task.id) : this.goDaily(task.id));
         });
-        const pack = this.uiNode(panel, '每日免费照顾包', 0, -455, 690, 100);
-        void this.skin(pack, 'panel');
-        const packIcon = this.uiNode(pack, '照顾图标', -295, 0, 60, 60).addComponent(Sprite);
-        packIcon.sizeMode = Sprite.SizeMode.CUSTOM; void this.loadCareIcon(packIcon, 'bag');
+        const pack = this.uiNode(panel, '每日免费照顾包', 0, -480, 820, 130);
+        this.dailySprite(pack, 'row', 0, 0, 820, 130, true);
+        this.dailySprite(pack, 'adventure', -335, 0, 82, 82, false, '每日礼包图标');
         this.text(pack, '每日免费照顾包', -130, 19, 240, 34, 24);
         this.text(pack, '喂食、清洁、陪玩补给', -130, -20, 240, 28, 18, C.muted);
         this.text(pack, '食物×2\n清洁×1 · 球×1', 90, 0, 160, 66, 18, C.muted);
         if (daily.packClaimed) this.text(pack, '已领取', 255, 0, 140, 58, 24, C.muted);
-        else this.button(pack, '免费领取', 255, 0, 140, 58, () => this.claimDaily('pack'), C.green, 23);
-        this.text(panel, '奖励数值待试玩调整', 0, -519, 640, 20, 16, C.muted);
+        else this.dailyButton(pack, '免费领取', 282, 0, 150, 68, () => this.claimDaily('pack'), 23);
+        this.text(panel, '每日免费补给 · 完成任务后手动领奖', 0, -590, 640, 26, 18, C.muted);
     }
 
     private adventureAction() {

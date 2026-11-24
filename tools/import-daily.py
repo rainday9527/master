@@ -29,7 +29,7 @@ def extract(image, labels, part, padding=12):
             label = labels[sy*image.width+sx] if 0 <= sx < image.width and 0 <= sy < image.height else 0
             red, green, blue = rgb[j]
             fringe = red-green > 65 and blue-green > 45 and red > 160 and blue > 125
-            if label == part['label'] and not fringe:
+            if label in part.get('labels', {part['label']}) and not fringe:
                 distances[j] = 0
                 nearest[j] = j
                 queue.append(j)
