@@ -698,7 +698,7 @@ export class Main extends Component {
         }
         actions.forEach((action, i) => {
             const x = actions.length === 1 ? 0 : (i === 0 ? -230 : 230) * ratio;
-            const button = this.shopArt(content, 'buy', x, -122 * ratio, 380 * ratio, 380 * ratio * 120 / 321);
+            const button = this.shopArt(content, 'buy', x, -160 * ratio, 380 * ratio, 380 * ratio * 120 / 321);
             button.name = '弹窗按钮-' + action.title;
             this.headerText(button, action.title, 0, 0, 300 * ratio, 50 * ratio, 28);
             this.shopButton(button, action.run);
