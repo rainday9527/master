@@ -547,8 +547,8 @@ export class Main extends Component {
         this.ui.getComponent(UITransform)!.setContentSize(this.width, this.height);
         this.uiCamera.orthoHeight = this.height / 2;
         this.top.setPosition(0, this.height / 2 - 110, 0);
-        // 入口宽190：右边缘距设计画布右侧20，与主城功能区边距一致。
-        this.ui.getChildByName('每日任务入口')?.setPosition(this.width / 2 - 20 - 190 / 2, this.height / 2 - 295, 0);
+        // 入口宽190：右边缘距设计画布右侧4，按确认位置进一步靠右。
+        this.ui.getChildByName('每日任务入口')?.setPosition(this.width / 2 - 4 - 190 / 2, this.height / 2 - 295, 0);
         this.bottom.setPosition(0, -this.height / 2 + 90, 0);
         this.layoutNotice();
         this.layoutDialog();
