@@ -15,11 +15,11 @@ function load(name) {
     modules.set(name, exports);
     const source = fs.readFileSync(path.join(root, name + '.ts'), 'utf8');
     const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, experimentalDecorators: true } }).outputText;
-    vm.runInNewContext(compiled, { exports, require: id => id === 'cc' ? { _decorator: { ccclass: () => type => type }, Component: class {}, sys: { localStorage: storage } } : load(id.replace('./', '')), Date: Clock, console });
+    vm.runInNewContext(compiled, { exports, require: id => id === 'cc' ? { _decorator: { ccclass: () => type => type }, Component: class {}, isValid: () => true, sys: { localStorage: storage } } : load(id.replace('./', '')), Date: Clock, console });
     return exports;
 }
 const { Main } = load('Main');
-const { DAILY_TASKS, restoreDaily, newDaily } = load('DailyTasks');
+const { DAILY_TASKS, restoreDaily, newDaily, recordDaily } = load('DailyTasks');
 function game() {
     const g = new Main();
     g.toast = () => {}; g.renderHeader = () => {}; g.open = page => { assert.notEqual(page, 'daily', '领奖不得重建任务面板'); };
@@ -48,6 +48,15 @@ g.applyCare(load('ItemCatalog').findItem('dog_food')); assert.equal(g.data.daily
 g.data.food = 0; care(g, 0, 'food'); assert.equal(g.data.daily.progress.feedCat, 0); g.data.food = 5;
 care(g, 0, 'food'); care(g, 1, 'food'); care(g, 0, 'soap'); care(g, 0, 'toy'); care(g, 0, 'rest');
 for (const id of ['feedCat', 'feedDog', 'clean', 'play', 'rest']) assert.equal(g.data.daily.progress[id], 1, id);
+// 真实照顾操作累加至目标，多余操作夹紧。
+for (let i = 0; i < 4; i++) {
+    g.data.food = 10;
+    for (const [pet, category, stat] of [[0, 'food', 'hunger'], [1, 'food', 'hunger'], [0, 'soap', 'clean'], [0, 'toy', 'joy'], [0, 'rest', 'energy']]) {
+        g.data.pets.find(p => p.id === pet)[stat] = 20;
+        care(g, pet, category);
+    }
+}
+for (const task of DAILY_TASKS.filter(t => t.id !== 'adventure')) assert.equal(g.data.daily.progress[task.id], task.target);
 let coins = g.data.coins; fail = true; g.claimDaily('feedCat'); assert.equal(g.data.coins, coins); assert.equal(g.data.daily.claimed.feedCat, false);
 fail = false; g.claimDaily('feedCat'); assert.equal(g.data.coins, coins + 100); g.claimDaily('feedCat'); assert.equal(g.data.coins, coins + 100);
 g = game(); coins = g.data.coins; g.claimDaily('feedCat'); assert.equal(g.data.coins, coins);
@@ -57,7 +66,11 @@ fail = false; g.adventureAction(); const end = g.data.adventureEnd;
 g.adventureAction(); assert.equal(g.data.adventureEnd, end); now = end;
 coins = g.data.coins; const gems = g.data.gems; fail = true; g.adventureAction(); assert.equal(g.data.coins, coins); assert.equal(g.data.adventureEnd, end); assert.equal(g.data.daily.progress.adventure, 0);
 fail = false; g.adventureAction(); assert.equal(g.data.coins, coins + 80); assert.equal(g.data.gems, gems + 8); assert.equal(g.data.daily.progress.adventure, 1);
-g.claimDaily('adventure'); assert.equal(g.data.gems, gems + 28); g.claimDaily('adventure'); assert.equal(g.data.gems, gems + 28);
+g.claimDaily('adventure'); assert.equal(g.data.gems, gems + 8, '一次冒险未达到目标');
+g.adventureAction(); now = g.data.adventureEnd; g.adventureAction();
+assert.equal(g.data.daily.progress.adventure, 2);
+const adventureGems = g.data.gems;
+g.claimDaily('adventure'); assert.equal(g.data.gems, adventureGems + 20); g.claimDaily('adventure'); assert.equal(g.data.gems, adventureGems + 20);
 // UTC+8 午夜，跨多天只刷新一次，回拨不恢复权益。
 g.claimDaily('pack'); const day = g.data.daily.day; now += 4 * 86400000; g.claimDaily('pack'); assert.equal(g.data.daily.day, day + 4); const food = g.data.food;
 now -= 5 * 86400000; g.claimDaily('pack'); assert.equal(g.data.daily.day, day + 4); assert.equal(g.data.food, food);
@@ -70,7 +83,7 @@ assert.equal(newDaily(2).progress.adventure, 0);
 // 原位刷新handler执行契约：覆盖七行成功、重复、失败，禁止任何daily重建。
 for (const id of ['pack', ...DAILY_TASKS.map(t => t.id)]) {
     g = reset();
-    if (id !== 'pack') g.data.daily.progress[id] = 1;
+    if (id !== 'pack') g.data.daily.progress[id] = DAILY_TASKS.find(t => t.id === id).target;
     let refreshed = 0;
     const rows = g.dailyRows;
     for (const key of ['pack', ...DAILY_TASKS.map(t => t.id)]) rows.set(key, daily => {
@@ -82,13 +95,115 @@ for (const id of ['pack', ...DAILY_TASKS.map(t => t.id)]) {
     const once = JSON.stringify(g.data); g.claimDaily(id);
     assert.equal(JSON.stringify(g.data), once); assert.equal(refreshed, 14); assert.equal(g.dailyRows, rows);
 }
+// 新目标、旧0/1存档及已领取权益均保留；新进度可往返保存。
+assert.deepEqual(Array.from(DAILY_TASKS, t => t.target), [3, 3, 3, 3, 2, 2]);
+for (const task of DAILY_TASKS) {
+    assert(!task.title.includes('一次'));
+    const legacy = newDaily(10);
+    legacy.progress[task.id] = 1; legacy.claimed[task.id] = true;
+    const restored = restoreDaily(JSON.parse(JSON.stringify(legacy)), 10, true);
+    assert.equal(restored.progress[task.id], 1);
+    assert.equal(restored.claimed[task.id], true);
+    legacy.claimed[task.id] = false;
+    assert.equal(restoreDaily(legacy, 10, true).claimed[task.id], false);
+    for (let i = 0; i < 8; i++) recordDaily(legacy, task.id);
+    assert.equal(legacy.progress[task.id], task.target);
+    assert.equal(restoreDaily(legacy, 10, true).progress[task.id], task.target);
+    assert.equal(restoreDaily(legacy, 11, true).progress[task.id], 0);
+    g = reset(); g.data.daily.progress[task.id] = 1; g.data.daily.claimed[task.id] = true;
+    const balance = g.data[task.currency];
+    g.claimDaily(task.id); g.watchDailyRewardedVideo(task.id);
+    assert.equal(g.data[task.currency], balance);
+}
+function ready(id = 'feedCat') {
+    now = Date.UTC(2026, 10, 23, 15, 59, 59);
+    const g = reset(), task = DAILY_TASKS.find(t => t.id === id);
+    g.data.daily.progress[id] = task.target; assert(g.commitShop(g.data));
+    return g;
+}
+for (const task of DAILY_TASKS) {
+    g = ready(task.id);
+    let refreshes = 0, callback, shows = 0;
+    g.dailyRows.set(task.id, () => refreshes++);
+    const balance = g.data[task.currency];
+    g.watchDailyRewardedVideo(task.id);
+    assert.equal(g.data[task.currency], balance); assert.equal(g.rewardedVideoPending, false);
+    g.rewardedVideoProvider = { show: cb => { callback = cb; shows++; } };
+    g.watchDailyRewardedVideo(task.id); g.watchDailyRewardedVideo(task.id);
+    g.watchRewardedVideo('coins'); g.watchRewardedVideo('gems');
+    assert.equal(shows, 1); assert.equal(g.rewardedVideoPending, true);
+    callback('completed'); const saved = raw;
+    assert.equal(g.data[task.currency], balance + 2 * task.amount);
+    assert.equal(g.data.daily.claimed[task.id], true); assert.equal(refreshes, 1);
+    assert.equal(g.rewardedVideoPending, false);
+    callback('completed'); callback('failed'); g.claimDaily(task.id);
+    assert.equal(raw, saved); assert.equal(g.data[task.currency], balance + 2 * task.amount);
+    g = game(); assert.equal(g.data.daily.claimed[task.id], true);
+}
+for (const result of ['cancelled', 'failed', 'throw', 'saveFailed', 'normalClaim', 'crossDay', 'persistedCrossDay', 'overflow', 'conflict']) {
+    g = ready();
+    const balance = g.data.coins;
+    let callback;
+    g.rewardedVideoProvider = { show: cb => { callback = cb; if (result === 'throw') throw Error('播放失败'); } };
+    g.watchDailyRewardedVideo('feedCat');
+    if (result === 'normalClaim') g.claimDaily('feedCat');
+    if (result === 'crossDay' || result === 'persistedCrossDay') {
+        now += 1000;
+        if (result === 'persistedCrossDay') {
+            g.persist(); g.data.daily.progress.feedCat = 3; assert(g.commitShop(g.data));
+        }
+    }
+    if (result === 'overflow') g.data.coins = 100000000 - 199;
+    if (result === 'conflict') raw += ' ';
+    const before = JSON.stringify(g.data), saved = raw;
+    if (result === 'saveFailed') fail = true;
+    callback(result === 'cancelled' || result === 'failed' ? result : 'completed');
+    fail = false;
+    assert.equal(JSON.stringify(g.data), before, result + '不改余额或领取状态');
+    assert.equal(raw, saved, result + '不写入奖励');
+    assert.equal(g.rewardedVideoPending, false);
+    callback('completed'); assert.equal(raw, saved, '重复终态无效');
+    if (['cancelled', 'failed', 'throw', 'saveFailed'].includes(result)) {
+        assert.equal(g.data.daily.claimed.feedCat, false);
+        g.claimDaily('feedCat'); assert.equal(g.data.coins, balance + 100);
+    }
+}
+// 金币、钻石与每日任务互斥；旧回调不能解开新播放的锁。
+for (const currency of ['coins', 'gems']) {
+    g = ready(); let callback, shows = 0;
+    g.rewardedVideoProvider = { show: cb => { callback = cb; shows++; } };
+    g.watchRewardedVideo(currency); g.watchDailyRewardedVideo('feedCat');
+    assert.equal(shows, 1); callback('cancelled'); const oldCallback = callback;
+    g.watchDailyRewardedVideo('feedCat'); assert.equal(shows, 2);
+    oldCallback('completed'); assert.equal(g.rewardedVideoPending, true);
+    callback('completed'); assert.equal(g.rewardedVideoPending, false);
+}
+// 未完成不得播放；普通领取也必须达到target且检查余额上限。
+g = reset(); let shows = 0; g.rewardedVideoProvider = { show: () => shows++ };
+g.data.daily.progress.feedCat = 1; let balance = g.data.coins;
+g.claimDaily('feedCat'); g.watchDailyRewardedVideo('feedCat');
+assert.equal(shows, 0); assert.equal(g.data.coins, balance);
+g.data.daily.progress.feedCat = 3; g.data.coins = 100000000 - 99;
+g.claimDaily('feedCat'); assert.equal(g.data.daily.claimed.feedCat, false);
+g.data.coins = 100000000 - 100; g.claimDaily('feedCat'); assert.equal(g.data.coins, 100000000);
+g = ready('adventure'); g.data.gems = 100000000 - 40;
+g.rewardedVideoProvider = { show: cb => cb('completed') };
+g.watchDailyRewardedVideo('adventure');
+assert.equal(g.data.gems, 100000000); assert.equal(g.data.daily.claimed.adventure, true);
 // 离线UI契约：不启动HTTP服务，也不冒充浏览器几何验收。
 const source = fs.readFileSync(path.join(root, 'Main.ts'), 'utf8');
 const dailyUI = source.split('private renderDaily() {')[1].split('private adventureAction()')[0];
 assert.match(source, /\(key === 'row' \|\| key === 'row-clean'\) \? 0\.24/);
 assert.equal((dailyUI.match(/'row-clean', 0, 0, 740, 102, true/g) || []).length, 2);
 assert(!/'row'|ProgressBar/.test(dailyUI), '不能使用原进度槽素材或进度条组件');
-assert.match(dailyUI, /daily\.progress\[task\.id\] \+ '\/1'/, '保留实际任务文字状态');
+assert.match(dailyUI, /daily\.progress\[task\.id\] \+ '\/' \+ task\.target/, '显示实际目标');
+assert.match(dailyUI, /state\.progress\[task\.id\] \+ '\/' \+ task\.target/);
+assert.match(dailyUI, /adButton\.active = complete && !claimed/);
+assert.match(dailyUI, /'广告双倍', 300, 6, 108, 68/);
+const dailyButtonUI = source.split('private dailyButton(')[1].split('private claimDaily(')[0];
+assert.match(dailyButtonUI, /this\.pressVisualFeedback\(node, node\.children\.slice\(\)\)/);
+assert.equal((source.match(/private pressFeedback\(/g) || []).length, 1);
+assert.equal((source.match(/private pressVisualFeedback\(/g) || []).length, 1);
 assert.match(dailyUI, /'任务', -12, 400, 440, 58/);
 assert.match(dailyUI, /'每日任务可视窗口', -12, -149, 740, 660/);
 assert.match(dailyUI, /'art\/header\/'/);
@@ -104,4 +219,4 @@ assert(x - w / 2 > (687 - 939 / 2) * 1024 / 939, '关闭区不得遮挡中央猫
 assert.match(dailyUI, /this\.dailySprite\(close, 'close', 0, 0, 112, 112, false, '关闭图标'\)/);
 assert.match(source, /Math\.min\(w \/ frame\.originalSize\.width, h \/ frame\.originalSize\.height\)/);
 assert.match(dailyUI, /this\.shopButton\(close, \(\) => this\.open\('home'\)\)/);
-console.log('通过：六任务、旧版迁移、幂等、失败回滚、真实业务进度、冒险事务、UTC+8跨日/回拨、快照冲突、损坏修复、无槽行接入、右上关闭区128及图标112等比静态契约。cc/存储为桩；未启动服务或执行浏览器试玩。');
+console.log('通过：六任务target及累加夹紧、旧0/1及已领取存档、普通领取目标/上限、真实照顾与冒险事务、广告未接/双倍成功/取消/失败/抛错/重复/跨日/保存失败/快照冲突/余额上限、普通领取竞态、金币钻石共用锁及旧回调隔离、七行原位刷新、滚动与显示层反馈静态契约。cc/存储为桩；未构建、未启动服务或执行浏览器试玩。');

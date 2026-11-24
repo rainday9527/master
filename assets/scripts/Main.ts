@@ -1479,6 +1479,7 @@ export class Main extends Component {
         const node = this.uiNode(parent, title, x, y, w, h);
         this.dailySprite(node, 'button', 0, 0, w, h, true);
         this.dailyText(node, title, 0, 0, w - 20, h - 10, font, false, true);
+        this.pressVisualFeedback(node, node.children.slice());
         let start: Vec2 | null = null;
         let moved = false;
         node.on(Node.EventType.TOUCH_START, (event: EventTouch) => {
@@ -1509,12 +1510,45 @@ export class Main extends Component {
             (Object.keys(DAILY_PACK) as ItemCategory[]).forEach(key => candidate[key] += DAILY_PACK[key]);
         } else {
             const task = DAILY_TASKS.find(task => task.id === id)!;
-            if (candidate.daily.claimed[id] || candidate.daily.progress[id] < 1) { this.updateDailyRows(candidate.daily); return; }
+            if (candidate.daily.claimed[id] || candidate.daily.progress[id] < task.target) { this.updateDailyRows(candidate.daily); return; }
             if (candidate[task.currency] > 100000000 - task.amount) { this.toast('货币接近存储上限，暂时无法领取'); return; }
             candidate.daily.claimed[id] = true; candidate[task.currency] += task.amount;
         }
         if (!this.commitShop(candidate)) return;
         this.renderHeader(); this.updateDailyRows(); this.toast(id === 'pack' ? '已领取：通用食物×2、清洁包×1、陪玩球×1' : '每日任务奖励已领取');
+    }
+
+    private watchDailyRewardedVideo(id: DailyTaskId) {
+        if (this.rewardedVideoPending) { this.toast('广告播放中，请勿重复请求'); return; }
+        const task = DAILY_TASKS.find(task => task.id === id)!;
+        const daily = this.dailyCandidate().daily;
+        if (daily.claimed[id] || daily.progress[id] < task.target) { this.updateDailyRows(daily); return; }
+        const provider = this.rewardedVideoProvider;
+        if (!provider) { this.toast('激励视频暂未接入'); return; }
+        this.rewardedVideoPending = true;
+        let settled = false;
+        const finish = (result: RewardedVideoResult) => {
+            if (settled) return;
+            settled = true;
+            this.rewardedVideoPending = false;
+            if (!isValid(this, true)) return;
+            if (result !== 'completed') {
+                this.toast(result === 'cancelled' ? '未完整观看广告，仍可普通领取' : '广告播放失败，仍可普通领取');
+                return;
+            }
+            const candidate = this.dailyCandidate();
+            // 使用当前余额与权益，不让旧日回调或播放期间的普通领取重复发奖。
+            if (candidate.daily.day !== daily.day || candidate.daily.claimed[id] || candidate.daily.progress[id] < task.target) {
+                this.updateDailyRows(candidate.daily); return;
+            }
+            const amount = task.amount * 2;
+            if (candidate[task.currency] > 100000000 - amount) { this.toast('货币接近存储上限，暂时无法领取'); return; }
+            candidate[task.currency] += amount;
+            candidate.daily.claimed[id] = true;
+            if (!this.commitShop(candidate)) return;
+            this.renderHeader(); this.updateDailyRows(); this.toast('每日任务双倍奖励已领取');
+        };
+        try { provider.show(finish); } catch { finish('failed'); }
     }
 
     private goDaily(id: DailyTaskId) {
@@ -1561,10 +1595,10 @@ export class Main extends Component {
             this.dailySprite(row, 'row-clean', 0, 0, 740, 102, true);
             // 0.24 倍九宫格的浅色内区：x=-356..358、y=-31..42，文字均置于其中。
             this.dailySprite(row, task.id === 'feedCat' ? 'feed-cat' : task.id === 'feedDog' ? 'feed-dog' : task.id, -315, 6, 64, 64, false, '每日任务图标');
-            this.dailyText(row, task.id === 'adventure' ? '完成林间寻宝' : task.title, -135, 22, 260, 38, 28, true);
-            const progress = this.dailyText(row, daily.progress[task.id] + '/1', -135, -14, 260, 32, 24, true);
-            this.dailyText(row, String(task.amount), 70, 6, 70, 40, 28);
-            const currency = this.uiNode(row, '奖励货币', 130, 6, 36, 36);
+            this.dailyText(row, task.title, -173, 22, 180, 38, 26, true);
+            const progress = this.dailyText(row, daily.progress[task.id] + '/' + task.target, -173, -14, 180, 32, 24, true);
+            this.dailyText(row, String(task.amount), 0, 6, 64, 40, 26);
+            const currency = this.uiNode(row, '奖励货币', 52, 6, 36, 36);
             const sprite = currency.addComponent(Sprite); sprite.sizeMode = Sprite.SizeMode.CUSTOM;
             resources.load('art/header/' + (task.currency === 'coins' ? 'coin-icon' : 'diamond-icon') + '/spriteFrame', SpriteFrame, (error, frame) => {
                 if (error || !frame || !isValid(currency, true)) return;
@@ -1572,22 +1606,25 @@ export class Main extends Component {
                 const scale = Math.min(36 / frame.originalSize.width, 36 / frame.originalSize.height);
                 currency.getComponent(UITransform)!.setContentSize(frame.originalSize.width * scale, frame.originalSize.height * scale);
             });
-            const button = this.dailyButton(row, '前往', 282, 6, 150, 68, () => {
+            const button = this.dailyButton(row, '前往', 182, 6, 100, 68, () => {
                 const state = this.dailyCandidate().daily;
                 if (state.claimed[task.id]) return;
-                if (state.progress[task.id] >= 1) this.claimDaily(task.id);
+                if (state.progress[task.id] >= task.target) this.claimDaily(task.id);
                 else this.goDaily(task.id);
-            });
+            }, 22);
+            const adButton = this.dailyButton(row, '广告双倍', 300, 6, 108, 68, () => this.watchDailyRewardedVideo(task.id), 20);
             const title = button.getChildByName('文字')!.getComponent(Label)!;
             const background = button.getChildByName('每日任务底图')!;
             this.dailyRows.set(task.id, state => {
                 const claimed = state.claimed[task.id];
-                const text = claimed ? '已领取' : state.progress[task.id] >= 1 ? '领取' : '前往';
-                progress.string = state.progress[task.id] + '/1';
-                const ready = claimed || state.progress[task.id] >= 1;
+                const complete = state.progress[task.id] >= task.target;
+                const text = claimed ? '已领取' : complete ? '领取' : '前往';
+                progress.string = state.progress[task.id] + '/' + task.target;
+                const ready = claimed || complete;
                 progress.color = this.statusColor(ready);
                 title.color = this.statusColor(ready);
                 button.name = text; title.string = text; background.active = !claimed;
+                adButton.active = complete && !claimed;
             });
         });
         const pack = this.uiNode(content, '每日免费照顾包', 0, -715, 740, 102);

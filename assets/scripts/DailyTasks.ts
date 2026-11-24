@@ -5,14 +5,14 @@ export interface DailyState {
     claimed: Record<DailyTaskId, boolean>;
     packClaimed: boolean;
 }
-// PLACEHOLDER：奖励及补给数量待真实试玩调整；不设置全完成或广告奖励。
-export const DAILY_TASKS: readonly { id: DailyTaskId; title: string; icon: string; currency: 'coins' | 'gems'; amount: number }[] = [
-    { id: 'feedCat', title: '喂猫一次', icon: 'feed', currency: 'coins', amount: 100 },
-    { id: 'feedDog', title: '喂狗一次', icon: 'feed', currency: 'coins', amount: 100 },
-    { id: 'clean', title: '清洁一次', icon: 'clean', currency: 'coins', amount: 80 },
-    { id: 'play', title: '陪玩一次', icon: 'play', currency: 'coins', amount: 80 },
-    { id: 'rest', title: '休息一次', icon: 'rest', currency: 'coins', amount: 60 },
-    { id: 'adventure', title: '领取冒险奖励一次', icon: 'adventure', currency: 'gems', amount: 20 },
+// PLACEHOLDER：奖励及补给数量待真实试玩调整。
+export const DAILY_TASKS: readonly { id: DailyTaskId; title: string; icon: string; currency: 'coins' | 'gems'; amount: number; target: number }[] = [
+    { id: 'feedCat', title: '喂猫3次', icon: 'feed', currency: 'coins', amount: 100, target: 3 },
+    { id: 'feedDog', title: '喂狗3次', icon: 'feed', currency: 'coins', amount: 100, target: 3 },
+    { id: 'clean', title: '清洁3次', icon: 'clean', currency: 'coins', amount: 80, target: 3 },
+    { id: 'play', title: '陪玩3次', icon: 'play', currency: 'coins', amount: 80, target: 3 },
+    { id: 'rest', title: '休息2次', icon: 'rest', currency: 'coins', amount: 60, target: 2 },
+    { id: 'adventure', title: '林间寻宝2次', icon: 'adventure', currency: 'gems', amount: 20, target: 2 },
 ];
 // 通用食物两份分别喂猫、喂狗，清洁包和陪玩球各供一次照顾；手动领取，不自动发放。
 export const DAILY_PACK = { food: 2, soap: 1, toy: 1 } as const;
@@ -25,7 +25,7 @@ export function restoreDaily(value: unknown, day: number, present: boolean): Dai
     const state = value as DailyState | null;
     if (state && Number.isSafeInteger(state.day) && state.day >= 0 && state.day <= day &&
         typeof state.packClaimed === 'boolean' && state.progress && state.claimed &&
-        DAILY_TASKS.every(task => (state.progress[task.id] === 0 || state.progress[task.id] === 1) && typeof state.claimed[task.id] === 'boolean')) {
+        DAILY_TASKS.every(task => Number.isSafeInteger(state.progress[task.id]) && state.progress[task.id] >= 0 && state.progress[task.id] <= task.target && typeof state.claimed[task.id] === 'boolean')) {
         return advanceDaily(state, day);
     }
     // 损坏时保留整个庭院，本日权益保守封闭，次日正常刷新。
@@ -34,4 +34,7 @@ export function restoreDaily(value: unknown, day: number, present: boolean): Dai
 export function advanceDaily(state: DailyState, day: number): DailyState {
     return day > state.day ? newDaily(day) : { ...state, progress: { ...state.progress }, claimed: { ...state.claimed } };
 }
-export function recordDaily(state: DailyState, id: DailyTaskId): void { state.progress[id] = 1; }
+export function recordDaily(state: DailyState, id: DailyTaskId): void {
+    const task = DAILY_TASKS.find(task => task.id === id)!;
+    state.progress[id] = Math.min(task.target, state.progress[id] + 1);
+}
