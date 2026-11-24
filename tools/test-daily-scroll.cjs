@@ -33,7 +33,7 @@ const record = (name, data) => {
       page.on('pageerror', e => report.errors.push({ width, message: e.message }));
       let frame;
       const boot = async () => {
-        await page.goto(process.env.DAILY_PREVIEW_URL || 'http://127.0.0.1:8084/index.html');
+        await page.goto(process.env.DAILY_PREVIEW_URL || 'http://127.0.0.1:8087/index.html');
         await page.waitForFunction(() => !!document.querySelector('iframe') || !!window.cc?.director);
         const element = await page.locator('iframe').count() ? await page.locator('iframe').first().elementHandle() : null;
         frame = element ? await element.contentFrame() : page.mainFrame();
@@ -68,6 +68,40 @@ const record = (name, data) => {
         await page.mouse.click(x, y);
         await page.waitForTimeout(160);
       };
+      const stableClaim = async (label, action) => {
+        await frame.evaluate(() => {
+          const sheet = main.sheet, scroll = main.dailyScroll;
+          const nodes = [...walk(sheet), ...walk(main.top)];
+          const geometry = n => {
+            const t = n.getComponent('cc.UITransform');
+            return JSON.stringify([n.position, n.worldPosition, n.scale, n.worldScale, t?.width, t?.height, t?.anchorPoint]);
+          };
+          const before = nodes.map(n => ({ node: n, parent: n.parent, geometry: geometry(n), sprite: n.getComponent(cc.Sprite)?.spriteFrame }));
+          const offset = scroll.getScrollOffset().clone();
+          window.claimActionDone = false;
+          window.claimSamples = new Promise((resolve, reject) => {
+            let count = 0, after = 0;
+            const sample = () => {
+              try {
+                if (main.sheet !== sheet || main.dailyScroll !== scroll) throw Error('任务面板或滚动组件引用改变');
+                if (walk(sheet).length !== before.length - walk(main.top).length) throw Error('任务节点数量改变');
+                if (cc.Vec2.distance(scroll.getScrollOffset(), offset) > 0.01) throw Error('领奖滚动偏移跳动');
+                for (const saved of before) {
+                  const n = saved.node;
+                  if (!cc.isValid(n, true) || n.parent !== saved.parent || geometry(n) !== saved.geometry || n.getComponent(cc.Sprite)?.spriteFrame !== saved.sprite) throw Error('节点引用/位置/尺寸/缩放/贴图跳动：' + n.name);
+                }
+                count++;
+                if (window.claimActionDone && ++after === 30) resolve(count); else requestAnimationFrame(sample);
+              } catch (error) { reject(error); }
+            };
+            sample();
+          });
+          window.claimSamples.catch(() => {});
+        });
+        await action();
+        const samples = await frame.evaluate(() => { window.claimActionDone = true; return window.claimSamples; });
+        record('领奖多帧节点及几何稳定 ' + width + ' ' + label, { samples });
+      };
       const drag = async (expression, dy) => {
         const { x, y } = await screenPoint(expression);
         await page.mouse.move(x, y); await page.mouse.down();
@@ -91,6 +125,20 @@ const record = (name, data) => {
       });
       await boot();
       await frame.waitForFunction(() => walk(main.ui.getChildByName('每日任务入口')).some(n => n.getComponent(cc.Sprite)?.spriteFrame?.name === 'task'));
+      await frame.waitForFunction(() => main.ui.getChildByName('每日任务入口').getChildByName('主城素材-label0')?.getComponent(cc.Sprite)?.spriteFrame);
+      const entry = await frame.evaluate(() => {
+        const node = main.ui.getChildByName('每日任务入口'), nav = main.bottom.getChildByName('导航-home');
+        const caption = n => n.children.find(c => c.getComponent(cc.Label))?.getComponent(cc.Label);
+        const label = caption(node), reference = caption(nav), plate = node.getChildByName('主城素材-label0');
+        return { title: label.string, plate: plate.getComponent(cc.Sprite).spriteFrame._uuid,
+          referencePlate: nav.getChildByName('主城素材-label0').getComponent(cc.Sprite).spriteFrame._uuid,
+          sameStyle: ['fontFamily','fontSize','isBold','enableOutline','outlineWidth'].every(key => label[key] === reference[key]),
+          iconY: node.getChildByName('每日入口图标').position.y, captionY: label.node.position.y,
+          hasDailyButton: !!node.getChildByName('每日任务底图') };
+      });
+      assert.equal(entry.title, '任务'); assert.equal(entry.sameStyle, true); assert.equal(entry.plate, entry.referencePlate);
+      assert.equal(entry.iconY, 26); assert.equal(entry.captionY, -48); assert.equal(entry.hasDailyButton, false);
+      record('主城任务入口复用导航底板与文字样式 ' + width, entry);
       await click("main.ui.getChildByName('每日任务入口')");
       assert.equal(await frame.evaluate(() => main.page), 'daily');
       await frame.waitForFunction(() => {
@@ -98,7 +146,7 @@ const record = (name, data) => {
         return nodes.length >= 14 && nodes.every(n => (n.getComponent(cc.Sprite) || n.children.find(c => c.getComponent(cc.Sprite))?.getComponent(cc.Sprite))?.spriteFrame?.texture);
       });
       const header = await frame.evaluate(currencyUUIDs => {
-        const title = main.sheet.children.find(n => n.getComponent(cc.Label)?.string === '每日任务');
+        const title = main.sheet.children.find(n => n.getComponent(cc.Label)?.string === '任务');
         const countdown = main.sheet.children.find(n => n.getComponent(cc.Label)?.string.includes('后刷新（UTC+8）'));
         const viewport = main.sheet.getChildByName('每日任务可视窗口');
         const first = main.dailyScroll.content.children[0];
@@ -115,9 +163,9 @@ const record = (name, data) => {
         const close = main.sheet.getChildByName('收起'), closeSize = close.getComponent('cc.UITransform');
         const closeIcon = close.getChildByName('关闭图标'), iconSize = closeIcon.getComponent('cc.UITransform');
         const closeFrame = closeIcon.getComponent(cc.Sprite)?.spriteFrame;
-        if (close.position.x !== 420 || close.position.y !== 540 || closeSize.width < 128 || closeSize.height < 128) violations.push('右上关闭按钮位置或点击区异常');
+        if (close.position.x !== 420 || close.position.y !== 390 || closeSize.width < 128 || closeSize.height < 128) violations.push('右上关闭按钮位置或点击区异常');
         if (!closeFrame || Math.abs(iconSize.width / iconSize.height - closeFrame.originalSize.width / closeFrame.originalSize.height) > 0.001 || Math.max(iconSize.width, iconSize.height) !== 112) violations.push('关闭图标未放大或未等比');
-        if (close.position.x - closeSize.width / 2 <= 208 || close.position.y - closeSize.height / 2 <= 429 || close.position.x + closeSize.width / 2 > 512) violations.push('关闭区遮挡标题、中央猫饰或越出右边界');
+        if (close.position.x - closeSize.width / 2 <= 208 || close.position.y + closeSize.height / 2 > 470 || close.position.x + closeSize.width / 2 > 512) violations.push('关闭区遮挡标题、中央猫饰或越出右边界');
         const panelSprite = main.sheet.children.find(n => n.getComponent(cc.Sprite)?.spriteFrame?.name === 'panel-clean');
         if (!panelSprite) violations.push('未使用清除内框的正式素材');
         const sourceTitle = [(700 - title.position.y - 29) * 939 / 1024, (700 - title.position.y + 29) * 939 / 1024];
@@ -209,8 +257,15 @@ const record = (name, data) => {
       const offset = await frame.evaluate(()=>main.dailyScroll.getScrollOffset().y);
       await drag(textTarget('免费领取'), -35);
       assert.equal((await state()).daily.packClaimed,false,'拖动礼包按钮不得领取');
-      await click(textTarget('免费领取'));
-      assert(Math.abs(await frame.evaluate(()=>main.dailyScroll.getScrollOffset().y)-offset)<1,'领奖重建丢失滚动位置');
+      await stableClaim('礼包保存失败', () => frame.evaluate(() => {
+        const original = Storage.prototype.setItem, before = JSON.stringify(main.data);
+        Storage.prototype.setItem = () => { throw Error('礼包多帧保存失败测试'); };
+        try { main.claimDaily('pack'); if (JSON.stringify(main.data) !== before) throw Error('礼包失败未回滚'); }
+        finally { Storage.prototype.setItem = original; }
+      }));
+      await stableClaim('礼包', () => click(textTarget('免费领取')));
+      await stableClaim('礼包重复领取', () => frame.evaluate(() => main.claimDaily('pack')));
+      assert(Math.abs(await frame.evaluate(()=>main.dailyScroll.getScrollOffset().y)-offset)<1,'领奖丢失滚动位置');
       record('六行遮罩和真实按钮拖动 '+width,initial);
       await drag("walk(main.sheet).find(n=>n.name==='每日任务可视窗口')",100);
       assert.equal(await frame.evaluate(()=>main.dailyScroll.getScrollOffset().y),0);
@@ -245,7 +300,14 @@ const record = (name, data) => {
         assert.equal(completed.daily.progress[task.id], 1); assert.equal(completed.daily.claimed[task.id], false);
         await openDaily();
         const before = await state();
-        await click(textTarget('领取', row(task.id)));
+        await stableClaim(task.id + '保存失败', () => frame.evaluate(id => {
+          const original = Storage.prototype.setItem, before = JSON.stringify(main.data);
+          Storage.prototype.setItem = () => { throw Error('领奖多帧保存失败测试'); };
+          try { main.claimDaily(id); if (JSON.stringify(main.data) !== before) throw Error('失败未回滚'); }
+          finally { Storage.prototype.setItem = original; }
+        }, task.id));
+        await stableClaim(task.id, () => click(textTarget('领取', row(task.id))));
+        await stableClaim(task.id + '重复领取', () => frame.evaluate(id => main.claimDaily(id), task.id));
         const after = await state();
         assert.equal(after.daily.claimed[task.id], true); assert.equal(after[task.currency], before[task.currency] + task.amount);
         record('真实完成并手动领奖 ' + width + ' ' + task.id, { progress: after.daily.progress[task.id], reward: after[task.currency] - before[task.currency] });

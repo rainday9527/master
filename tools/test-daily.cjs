@@ -22,7 +22,7 @@ const { Main } = load('Main');
 const { DAILY_TASKS, restoreDaily, newDaily } = load('DailyTasks');
 function game() {
     const g = new Main();
-    g.toast = () => {}; g.renderHeader = () => {}; g.open = () => {};
+    g.toast = () => {}; g.renderHeader = () => {}; g.open = page => { assert.notEqual(page, 'daily', '领奖不得重建任务面板'); };
     g.data = g.load();
     assert.equal(g.commitShop(g.data), true);
     return g;
@@ -67,6 +67,21 @@ raw += ' '; const data = g.data; g.claimDaily('pack'); assert.equal(g.data, data
 assert.equal(restoreDaily({ day: 1 }, 2, true).packClaimed, true);
 assert.equal(restoreDaily(undefined, 2, false).day, 2);
 assert.equal(newDaily(2).progress.adventure, 0);
+// 原位刷新handler执行契约：覆盖七行成功、重复、失败，禁止任何daily重建。
+for (const id of ['pack', ...DAILY_TASKS.map(t => t.id)]) {
+    g = reset();
+    if (id !== 'pack') g.data.daily.progress[id] = 1;
+    let refreshed = 0;
+    const rows = g.dailyRows;
+    for (const key of ['pack', ...DAILY_TASKS.map(t => t.id)]) rows.set(key, daily => {
+        assert.equal(JSON.stringify(daily), JSON.stringify(g.data.daily)); refreshed++;
+    });
+    const before = JSON.stringify(g.data); fail = true; g.claimDaily(id);
+    assert.equal(JSON.stringify(g.data), before); assert.equal(refreshed, 0);
+    fail = false; g.claimDaily(id); assert.equal(refreshed, 7); assert.equal(g.dailyRows, rows);
+    const once = JSON.stringify(g.data); g.claimDaily(id);
+    assert.equal(JSON.stringify(g.data), once); assert.equal(refreshed, 14); assert.equal(g.dailyRows, rows);
+}
 // 离线UI契约：不启动HTTP服务，也不冒充浏览器几何验收。
 const source = fs.readFileSync(path.join(root, 'Main.ts'), 'utf8');
 const dailyUI = source.split('private renderDaily() {')[1].split('private adventureAction()')[0];
@@ -74,16 +89,16 @@ assert.match(source, /\(key === 'row' \|\| key === 'row-clean'\) \? 0\.24/);
 assert.equal((dailyUI.match(/'row-clean', 0, 0, 740, 102, true/g) || []).length, 2);
 assert(!/'row'|ProgressBar/.test(dailyUI), '不能使用原进度槽素材或进度条组件');
 assert.match(dailyUI, /daily\.progress\[task\.id\] \+ '\/1'/, '保留实际任务文字状态');
-assert.match(dailyUI, /'每日任务', -12, 400, 440, 58/);
+assert.match(dailyUI, /'任务', -12, 400, 440, 58/);
 assert.match(dailyUI, /'每日任务可视窗口', -12, -149, 740, 660/);
 assert.match(dailyUI, /'art\/header\/'/);
 const close = dailyUI.match(/this\.uiNode\(panel, '收起', (\d+), (\d+), (\d+), (\d+)\)/);
 assert(close, '关闭区必须独立于等比图标');
 const [x, y, w, h] = close.slice(1).map(Number);
-assert.deepEqual([x, y, w, h], [420, 540, 128, 128]);
+assert.deepEqual([x, y, w, h], [420, 390, 128, 128]);
 assert(w >= 128 && h >= 128);
 assert(x + w / 2 <= 512 && y + h / 2 <= 700, '点击区不得越出面板');
-assert(x - w / 2 > 208 && y - h / 2 > 429, '关闭区不得遮挡原标题');
+assert(x - w / 2 > 208 && y + h / 2 <= 470, '关闭区应落到实际侧板且不遮挡原标题');
 // alpha扫描：源图y=0..199顶饰右界x=687，关闭区左界与其分离。
 assert(x - w / 2 > (687 - 939 / 2) * 1024 / 939, '关闭区不得遮挡中央猫饰');
 assert.match(dailyUI, /this\.dailySprite\(close, 'close', 0, 0, 112, 112, false, '关闭图标'\)/);
