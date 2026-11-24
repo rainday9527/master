@@ -67,4 +67,26 @@ raw += ' '; const data = g.data; g.claimDaily('pack'); assert.equal(g.data, data
 assert.equal(restoreDaily({ day: 1 }, 2, true).packClaimed, true);
 assert.equal(restoreDaily(undefined, 2, false).day, 2);
 assert.equal(newDaily(2).progress.adventure, 0);
-console.log('通过：六任务、旧版迁移、礼包/任务幂等、存储失败回滚、实际照顾、冒险事务、UTC+8午夜/跳日/回拨、快照冲突、损坏修复。cc/存储为桩，未代替真实试玩。');
+// 离线UI契约：不启动HTTP服务，也不冒充浏览器几何验收。
+const source = fs.readFileSync(path.join(root, 'Main.ts'), 'utf8');
+const dailyUI = source.split('private renderDaily() {')[1].split('private adventureAction()')[0];
+assert.match(source, /\(key === 'row' \|\| key === 'row-clean'\) \? 0\.24/);
+assert.equal((dailyUI.match(/'row-clean', 0, 0, 740, 102, true/g) || []).length, 2);
+assert(!/'row'|ProgressBar/.test(dailyUI), '不能使用原进度槽素材或进度条组件');
+assert.match(dailyUI, /daily\.progress\[task\.id\] \+ '\/1'/, '保留实际任务文字状态');
+assert.match(dailyUI, /'每日任务', -12, 400, 440, 58/);
+assert.match(dailyUI, /'每日任务可视窗口', -12, -149, 740, 660/);
+assert.match(dailyUI, /'art\/header\/'/);
+const close = dailyUI.match(/this\.uiNode\(panel, '收起', (\d+), (\d+), (\d+), (\d+)\)/);
+assert(close, '关闭区必须独立于等比图标');
+const [x, y, w, h] = close.slice(1).map(Number);
+assert.deepEqual([x, y, w, h], [420, 540, 128, 128]);
+assert(w >= 128 && h >= 128);
+assert(x + w / 2 <= 512 && y + h / 2 <= 700, '点击区不得越出面板');
+assert(x - w / 2 > 208 && y - h / 2 > 429, '关闭区不得遮挡原标题');
+// alpha扫描：源图y=0..199顶饰右界x=687，关闭区左界与其分离。
+assert(x - w / 2 > (687 - 939 / 2) * 1024 / 939, '关闭区不得遮挡中央猫饰');
+assert.match(dailyUI, /this\.dailySprite\(close, 'close', 0, 0, 112, 112, false, '关闭图标'\)/);
+assert.match(source, /Math\.min\(w \/ frame\.originalSize\.width, h \/ frame\.originalSize\.height\)/);
+assert.match(dailyUI, /this\.shopButton\(close, \(\) => this\.open\('home'\)\)/);
+console.log('通过：六任务、旧版迁移、幂等、失败回滚、真实业务进度、冒险事务、UTC+8跨日/回拨、快照冲突、损坏修复、无槽行接入、右上关闭区128及图标112等比静态契约。cc/存储为桩；未启动服务或执行浏览器试玩。');

@@ -1293,7 +1293,7 @@ export class Main extends Component {
             sprite.spriteFrame = frame;
             if (sliced) {
                 // 面板顶饰等比；任务行缩小厚边框并拉伸中心，为双行文字留出浅色内区。
-                const scale = (key === 'panel' || key === 'panel-clean') ? w / frame.originalSize.width : key === 'row' ? 0.24 : Math.min(1, h / frame.originalSize.height);
+                const scale = (key === 'panel' || key === 'panel-clean') ? w / frame.originalSize.width : (key === 'row' || key === 'row-clean') ? 0.24 : Math.min(1, h / frame.originalSize.height);
                 node.getComponent(UITransform)!.setContentSize(w / scale, h / scale);
                 node.setScale(scale, scale, 1);
             } else {
@@ -1374,7 +1374,8 @@ export class Main extends Component {
         this.dailySprite(panel, 'panel-clean', 0, 0, 1024, 1400, true);
         // 标题投影至源图 y≈249..302，完全位于原标题牌 y=240..310 内。
         this.dailyText(panel, '每日任务', -12, 400, 440, 58, 42, false, true);
-        const close = this.dailySprite(panel, 'close', 318, 400, 64, 64, false, '收起');
+        const close = this.uiNode(panel, '收起', 420, 540, 128, 128);
+        this.dailySprite(close, 'close', 0, 0, 112, 112, false, '关闭图标');
         this.shopButton(close, () => this.open('home'));
         const countdown = this.dailyText(panel, '', -12, 280, 650, 36, 24);
         const updateCountdown = () => {
@@ -1398,7 +1399,7 @@ export class Main extends Component {
         }, 0);
         DAILY_TASKS.forEach((task, index) => {
             const row = this.uiNode(content, '每日任务-' + task.id, 0, -55 - index * 110, 740, 102);
-            this.dailySprite(row, 'row', 0, 0, 740, 102, true);
+            this.dailySprite(row, 'row-clean', 0, 0, 740, 102, true);
             // 0.24 倍九宫格的浅色内区：x=-356..358、y=-31..42，文字均置于其中。
             this.dailySprite(row, task.id === 'feedCat' ? 'feed-cat' : task.id === 'feedDog' ? 'feed-dog' : task.id, -315, 6, 64, 64, false, '每日任务图标');
             this.dailyText(row, task.id === 'adventure' ? '完成林间寻宝' : task.title, -135, 22, 260, 38, 28, true);
@@ -1417,7 +1418,7 @@ export class Main extends Component {
             else this.dailyButton(row, ready ? '领取' : '前往', 282, 6, 150, 68, () => ready ? this.claimDaily(task.id) : this.goDaily(task.id));
         });
         const pack = this.uiNode(content, '每日免费照顾包', 0, -715, 740, 102);
-        this.dailySprite(pack, 'row', 0, 0, 740, 102, true);
+        this.dailySprite(pack, 'row-clean', 0, 0, 740, 102, true);
         this.dailySprite(pack, 'adventure', -315, 6, 64, 64, false, '每日礼包图标');
         this.dailyText(pack, '每日免费照顾包', -50, 22, 430, 38, 28, true);
         this.dailyText(pack, '食物×2  清洁×1  球×1', -50, -14, 430, 32, 24, true);

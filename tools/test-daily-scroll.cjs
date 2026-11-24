@@ -23,6 +23,8 @@ const record = (name, data) => {
 (async () => {
   const material = require('node:child_process').execFileSync('python', [path.resolve(__dirname, 'clean-daily-panel.py')], { encoding: 'utf8' });
   record('真实面板纹理及内框清除断言', JSON.parse(material));
+  const rowMaterial = require('node:child_process').execFileSync('python', [path.resolve(__dirname, 'clean-daily-row.py')], { encoding: 'utf8' });
+  record('真实行纹理及进度槽清除断言', JSON.parse(rowMaterial));
   const browser = await chromium.launch({ channel: 'chrome', headless: true });
   try {
     for (const width of [390, 430]) {
@@ -109,12 +111,19 @@ const record = (name, data) => {
           viewportToFirst: (v.y + v.height - r.y - r.height) / scale,
           countdownToFirst: (c.y - r.y - r.height) / scale };
         if (gaps.titleToCountdown < 20 || gaps.countdownToViewport < 50 || gaps.countdownToFirst < 50 || gaps.viewportToFirst < -1) violations.push('头部与首行缺少明确间隔');
-        if (title.position.y !== 400 || countdown.position.y !== 280 || main.sheet.getChildByName('收起').position.y !== 400) violations.push('独立头部坐标异常');
+        if (title.position.y !== 400 || countdown.position.y !== 280) violations.push('独立头部坐标异常');
+        const close = main.sheet.getChildByName('收起'), closeSize = close.getComponent('cc.UITransform');
+        const closeIcon = close.getChildByName('关闭图标'), iconSize = closeIcon.getComponent('cc.UITransform');
+        const closeFrame = closeIcon.getComponent(cc.Sprite)?.spriteFrame;
+        if (close.position.x !== 420 || close.position.y !== 540 || closeSize.width < 128 || closeSize.height < 128) violations.push('右上关闭按钮位置或点击区异常');
+        if (!closeFrame || Math.abs(iconSize.width / iconSize.height - closeFrame.originalSize.width / closeFrame.originalSize.height) > 0.001 || Math.max(iconSize.width, iconSize.height) !== 112) violations.push('关闭图标未放大或未等比');
+        if (close.position.x - closeSize.width / 2 <= 208 || close.position.y - closeSize.height / 2 <= 429 || close.position.x + closeSize.width / 2 > 512) violations.push('关闭区遮挡标题、中央猫饰或越出右边界');
         const panelSprite = main.sheet.children.find(n => n.getComponent(cc.Sprite)?.spriteFrame?.name === 'panel-clean');
         if (!panelSprite) violations.push('未使用清除内框的正式素材');
         const sourceTitle = [(700 - title.position.y - 29) * 939 / 1024, (700 - title.position.y + 29) * 939 / 1024];
         if (sourceTitle[0] < 240 || sourceTitle[1] > 310) violations.push('标题越出真实原标题牌');
-        if (walk(main.sheet).filter(n => n.getComponent(cc.Sprite)?.spriteFrame?.name === 'row').length !== 7) violations.push('独立行框数量异常');
+        if (walk(main.sheet).filter(n => n.getComponent(cc.Sprite)?.spriteFrame?.name === 'row-clean').length !== 7) violations.push('无进度槽独立行框数量异常');
+        if (walk(main.sheet).some(n => n.getComponent(cc.Sprite)?.spriteFrame?.name === 'row' || n.getComponent('cc.ProgressBar'))) violations.push('仍使用进度槽原图或进度条组件');
         const currencies = main.dailyScroll.content.children.slice(0, 6).map((row, index) => {
           const currency = dailyModule.DAILY_TASKS[index].currency;
           const node = row.getChildByName('奖励货币'), sprite = node.getComponent(cc.Sprite), frame = sprite.spriteFrame;
