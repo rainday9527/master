@@ -4,6 +4,9 @@ import { ITEM_CATALOG, ItemDefinition, ItemCategory, PetStat, ShopSlot, findItem
 
 const { ccclass } = _decorator;
 type Kind = 'cat' | 'dog';
+type Currency = 'gems' | 'coins';
+// 金币广告奖励暂与钻石一致；后续数值调整只改此处。
+const VIDEO_REWARDS: Record<Currency, number> = { gems: 200, coins: 200 };
 type Page = 'home' | 'recruit' | 'adventure' | 'album' | 'shop' | 'pet' | 'bag';
 export type RewardedVideoResult = 'completed' | 'cancelled' | 'failed';
 export interface RewardedVideoProvider {
@@ -605,12 +608,8 @@ export class Main extends Component {
         plus.on(Node.EventType.TOUCH_CANCEL, () => animate(1, 0.14), this);
         plus.on(Node.EventType.TOUCH_END, () => animate(1, 0.16), this);
         plus.on(Node.EventType.TOUCH_END, () => {
-            if (currency === 'coins') {
-                if (this.page !== 'adventure') this.open('adventure');
-                this.toast('完成林间寻宝可获得80金币和8钻石');
-            } else {
-                this.showGemDialog();
-            }
+            if (currency === 'coins') this.showCoinDialog();
+            else this.showGemDialog();
         }, this);
     }
 
@@ -636,7 +635,7 @@ export class Main extends Component {
 
     private showDialog(title: string, body: string,
         actions: [{ title: string; run: () => void }] | [{ title: string; run: () => void }, { title: string; run: () => void }],
-        reward?: { amount: number; description: string }) {
+        reward?: { amount: number; currency: Currency; description: string }) {
         if (this.dialog) return;
         const overlay = this.uiNode(this.ui, '通用弹窗遮罩', 0, 0, this.width, this.height);
         this.dialog = overlay;
@@ -661,11 +660,12 @@ export class Main extends Component {
             const row = this.uiNode(content, '弹窗奖励行', 0, 9, 124, 36);
             const amount = this.headerText(row, String(reward.amount), -24, 0, 76, 36, 32);
             amount.node.name = '弹窗奖励数量';
-            const icon = this.uiNode(row, '弹窗奖励钻石', 43, 0, 38, 38 * 315 / 353);
-            const diamond = icon.addComponent(Sprite); diamond.sizeMode = Sprite.SizeMode.CUSTOM;
-            resources.load('art/header/diamond-icon/spriteFrame', SpriteFrame, (error, frame) => {
-                if (error || !frame || !isValid(this, true) || !isValid(icon, true) || !isValid(diamond, true)) return;
-                diamond.spriteFrame = frame;
+            const isCoin = reward.currency === 'coins';
+            const icon = this.uiNode(row, isCoin ? '弹窗奖励金币' : '弹窗奖励钻石', 43, 0, 38, 38 * (isCoin ? 348 / 341 : 315 / 353));
+            const rewardSprite = icon.addComponent(Sprite); rewardSprite.sizeMode = Sprite.SizeMode.CUSTOM;
+            resources.load('art/header/' + (isCoin ? 'coin-icon' : 'diamond-icon') + '/spriteFrame', SpriteFrame, (error, frame) => {
+                if (error || !frame || !isValid(this, true) || !isValid(icon, true) || !isValid(rewardSprite, true)) return;
+                rewardSprite.spriteFrame = frame;
                 icon.getComponent(UITransform)!.setContentSize(38, 38 * frame.rect.height / frame.rect.width);
             });
             const description = this.text(content, reward.description, 0, -27, 840 * ratio, 25, 24, C.muted);
@@ -686,12 +686,21 @@ export class Main extends Component {
 
     private showGemDialog() {
         this.showDialog('获取钻石', '完整观看广告可获得', [
-            { title: '看广告', run: () => this.watchRewardedVideo() },
+            { title: '看广告', run: () => this.watchRewardedVideo('gems') },
             { title: '做任务', run: () => this.open('adventure') }
-        ], { amount: 200, description: '也可前往现有冒险任务区获取奖励' });
+        ], { amount: VIDEO_REWARDS.gems, currency: 'gems', description: '也可前往现有冒险任务区获取奖励' });
     }
 
-    private watchRewardedVideo() {
+    private showCoinDialog() {
+        this.showDialog('获取金币', '完整观看广告可获得', [
+            { title: '看广告', run: () => this.watchRewardedVideo('coins') },
+            { title: '去冒险', run: () => this.open('adventure') }
+        ], { amount: VIDEO_REWARDS.coins, currency: 'coins', description: '也可前往林间寻宝，每次获得80金币' });
+    }
+
+    private watchRewardedVideo(currency: Currency) {
+        const currencyName = currency === 'coins' ? '金币' : '钻石';
+        const amount = VIDEO_REWARDS[currency];
         if (this.rewardedVideoPending) { this.toast('广告播放中，请勿重复请求'); return; }
         const provider = this.rewardedVideoProvider;
         if (!provider) { this.toast('激励视频暂未接入'); return; }
@@ -703,19 +712,19 @@ export class Main extends Component {
             this.rewardedVideoPending = false;
             if (!isValid(this, true)) return;
             if (result !== 'completed') {
-                this.toast(result === 'cancelled' ? '未完整观看广告，未获得钻石' : '广告播放失败，未获得钻石');
+                this.toast((result === 'cancelled' ? '未完整观看广告，未获得' : '广告播放失败，未获得') + currencyName);
                 return;
             }
-            if (this.data.gems > 100000000 - 200) { this.toast('钻石接近存储上限，无法领取本次奖励'); return; }
-            const gems = this.data.gems, lastSeen = this.data.lastSeen, dirty = this.dirty;
-            this.data.gems += 200;
+            if (this.data[currency] > 100000000 - amount) { this.toast(currencyName + '接近存储上限，无法领取本次奖励'); return; }
+            const balance = this.data[currency], lastSeen = this.data.lastSeen, dirty = this.dirty;
+            this.data[currency] += amount;
             if (!this.persist()) {
-                this.data.gems = gems; this.data.lastSeen = lastSeen; this.dirty = dirty;
-                this.toast('奖励保存失败，已回滚本次钻石奖励');
+                this.data[currency] = balance; this.data.lastSeen = lastSeen; this.dirty = dirty;
+                this.toast('奖励保存失败，已回滚本次' + currencyName + '奖励');
                 return;
             }
             this.renderHeader();
-            this.toast('完整观看成功，钻石 +200');
+            this.toast('完整观看成功，' + currencyName + ' +' + amount);
         };
         // 保留播放锁直到首个终态；关闭弹窗、切页不会开启另一次播放，也不会重复发奖。
         try { provider.show(finish); } catch { finish('failed'); }
@@ -1084,7 +1093,7 @@ export class Main extends Component {
         const slot = shop.slots.find(entry => entry.id === id);
         if (!slot || slot.remaining <= 0) { this.toast('本轮限购已售罄，请刷新补给'); return; }
         if (this.data[item.currency] < item.price) {
-            if (item.currency === 'gems') this.showGemDialog(); else this.toast('金币不足，去林间寻宝吧');
+            if (item.currency === 'gems') this.showGemDialog(); else this.showCoinDialog();
             return;
         }
         const count = this.data.itemInventory[id] || 0;
