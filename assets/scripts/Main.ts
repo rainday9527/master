@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Camera, Canvas, UITransform, Graphics, Label, Color, Vec3, Vec2, MeshRenderer, Material, primitives, utils, view, ResolutionPolicy, Layers, input, Input, EventTouch, sys, BlockInputEvents, Sprite, SpriteFrame, resources, DirectionalLight, Vec4, JsonAsset, Texture2D, isValid, tween, Tween } from 'cc';
+import { _decorator, Component, Node, Camera, Canvas, UITransform, Graphics, Label, Color, Vec3, Vec2, MeshRenderer, Material, primitives, utils, view, ResolutionPolicy, Layers, input, Input, EventTouch, sys, BlockInputEvents, Sprite, SpriteFrame, resources, DirectionalLight, Vec4, JsonAsset, Texture2D, isValid, tween, Tween, ScrollView, Mask } from 'cc';
 
 import { ITEM_CATALOG, ItemDefinition, ItemCategory, PetStat, ShopSlot, findItem, itemApplies, effectText, drawShopSlots } from './ItemCatalog';
 
@@ -465,7 +465,7 @@ export class Main extends Component {
         this.notice = this.text(note, '点击庭院里的猫猫狗狗，开始照顾它们', 0, 0, 950, 54, 27, C.ink);
         const daily = this.dailyButton(this.ui, '每日任务', 390, 650, 210, 86, () => this.open('daily'), 28);
         daily.name = '每日任务入口';
-        this.dailySprite(daily, 'adventure', -72, 0, 42, 42, false, '每日入口图标');
+        this.dailySprite(daily, 'task', -72, 0, 42, 42, false, '每日入口图标');
         daily.getChildByName('文字')?.setPosition(20, 0, 0);
         this.layout(); this.renderHeader(); this.renderNav();
     }
@@ -910,7 +910,16 @@ export class Main extends Component {
             title.outlineWidth = 2;
         });
     }
+    private dailyScroll: ScrollView | null = null;
+    private dailyScrollOffset = 0;
+
     private open(page: Page) {
+        if (this.page === 'daily' && page === 'daily' && this.dailyScroll && isValid(this.dailyScroll, true)) {
+            this.dailyScrollOffset = Math.max(0, Math.min(110, this.dailyScroll.getScrollOffset().y));
+        } else {
+            this.dailyScrollOffset = 0;
+        }
+        this.dailyScroll = null;
         this.closeDialog();
         if (page === 'pet' && this.page === 'pet' && this.sheet?.name === '宠物状态' && isValid(this.sheet, true)) {
             this.petSelected = true;
@@ -1296,13 +1305,14 @@ export class Main extends Component {
     }
 
     private dailyText(parent: Node, value: string, x: number, y: number, w: number, h: number, font = 28, left = false, bold = false): Label {
-        const label = this.text(parent, value, x, y, w, h, font, '#492B18');
+        const label = this.text(parent, value, x, y, w, h, font, '#49301E');
         label.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
-        label.isBold = bold; label.lineHeight = font + 6;
+        label.isBold = true; label.lineHeight = font + 6;
         label.horizontalAlign = left ? Label.HorizontalAlign.LEFT : Label.HorizontalAlign.CENTER;
         label.verticalAlign = Label.VerticalAlign.CENTER;
         label.enableWrapText = false; label.overflow = Label.Overflow.CLAMP;
-        label.enableOutline = false; label.enableShadow = false;
+        label.enableOutline = true; label.outlineColor = this.color('#FFF3D5'); label.outlineWidth = 2;
+        label.enableShadow = false;
         return label;
     }
 
@@ -1310,7 +1320,22 @@ export class Main extends Component {
         const node = this.uiNode(parent, title, x, y, w, h);
         this.dailySprite(node, 'button', 0, 0, w, h, true);
         this.dailyText(node, title, 0, 0, w - 20, h - 10, font, false, true);
-        this.shopButton(node, action);
+        let start: Vec2 | null = null;
+        let moved = false;
+        node.on(Node.EventType.TOUCH_START, (event: EventTouch) => {
+            start = event.getUILocation().clone(); moved = false;
+            this.blockedUntil = Date.now() + 350;
+        }, this);
+        node.on(Node.EventType.TOUCH_MOVE, (event: EventTouch) => {
+            if (start && Vec2.distance(start, event.getUILocation()) > 10) moved = true;
+        }, this);
+        node.on(Node.EventType.TOUCH_CANCEL, () => { start = null; moved = true; }, this);
+        node.on(Node.EventType.TOUCH_END, (event: EventTouch) => {
+            this.blockedUntil = Date.now() + 350;
+            const tap = start && !moved && Vec2.distance(start, event.getUILocation()) <= 10;
+            start = null;
+            if (tap) action();
+        }, this);
         return node;
     }
 
@@ -1359,8 +1384,20 @@ export class Main extends Component {
             countdown.string = pad(Math.floor(seconds / 3600)) + ':' + pad(Math.floor(seconds / 60) % 60) + ':' + pad(seconds % 60) + ' 后刷新（UTC+8）';
         };
         updateCountdown(); this.schedule(updateCountdown, 1);
+        // 六行各占 110，高度包含行间距；第七行礼包完全位于遮罩之外。
+        const viewport = this.uiNode(panel, '每日任务可视窗口', -12, -149, 740, 660);
+        viewport.addComponent(Mask).type = Mask.Type.GRAPHICS_RECT;
+        const content = this.uiNode(viewport, '每日任务滚动内容', 0, 330, 740, 770);
+        content.getComponent(UITransform)!.setAnchorPoint(0.5, 1);
+        const scroll = viewport.addComponent(ScrollView);
+        scroll.content = content; scroll.horizontal = false; scroll.vertical = true;
+        scroll.cancelInnerEvents = true; scroll.elastic = false; scroll.inertia = false;
+        this.dailyScroll = scroll;
+        this.scheduleOnce(() => {
+            if (isValid(scroll, true)) scroll.scrollToOffset(new Vec2(0, this.dailyScrollOffset), 0);
+        }, 0);
         DAILY_TASKS.forEach((task, index) => {
-            const row = this.uiNode(panel, '每日任务-' + task.id, -12, 130 - index * 110, 740, 102);
+            const row = this.uiNode(content, '每日任务-' + task.id, 0, -55 - index * 110, 740, 102);
             this.dailySprite(row, 'row', 0, 0, 740, 102, true);
             // 0.24 倍九宫格的浅色内区：x=-356..358、y=-31..42，文字均置于其中。
             this.dailySprite(row, task.id === 'feedCat' ? 'feed-cat' : task.id === 'feedDog' ? 'feed-dog' : task.id, -315, 6, 64, 64, false, '每日任务图标');
@@ -1372,14 +1409,14 @@ export class Main extends Component {
             if (claimed) this.dailyText(row, '已领取', 282, 6, 140, 58, 26);
             else this.dailyButton(row, ready ? '领取' : '前往', 282, 6, 150, 68, () => ready ? this.claimDaily(task.id) : this.goDaily(task.id));
         });
-        const pack = this.uiNode(panel, '每日免费照顾包', -12, -530, 740, 102);
+        const pack = this.uiNode(content, '每日免费照顾包', 0, -715, 740, 102);
         this.dailySprite(pack, 'row', 0, 0, 740, 102, true);
         this.dailySprite(pack, 'adventure', -315, 6, 64, 64, false, '每日礼包图标');
         this.dailyText(pack, '每日免费照顾包', -50, 22, 430, 38, 28, true);
         this.dailyText(pack, '食物×2  清洁×1  球×1', -50, -14, 430, 32, 24, true);
         if (daily.packClaimed) this.dailyText(pack, '已领取', 282, 6, 140, 58, 26);
         else this.dailyButton(pack, '免费领取', 282, 6, 150, 68, () => this.claimDaily('pack'));
-        this.dailyText(panel, '每日免费补给 · 完成任务后手动领奖', -12, -608, 680, 36, 24);
+        this.dailyText(panel, '上下滑动查看免费补给 · 完成后手动领奖', -12, -530, 680, 36, 24);
     }
 
     private adventureAction() {

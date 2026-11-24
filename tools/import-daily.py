@@ -128,7 +128,22 @@ def write_meta(target, name, size):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--write',action='store_true')
+    parser.add_argument('--task',action='store_true',help='导入独立每日任务清单图标')
     args = parser.parse_args()
+    if args.task:
+        source = ROOT / 'art/generated/ONE_isolated_daily_quest_check_2026-11-24T15-21-38.png'
+        image = Image.open(source).convert('RGB')
+        parts, labels = items.components(image)
+        part = max(parts, key=lambda p: p['area'])
+        canvas, _ = extract(image, labels, part)
+        bad = sum(1 for r,g,b,a in canvas.getdata() if a and r-g>85 and b-g>65 and r>175 and b>140)
+        assert bad == 0, '任务图标残留品红'
+        print('task', canvas.size, 'magenta_pixels', bad)
+        if args.write:
+            target = ROOT / 'assets/resources/art/daily'
+            canvas.save(target / 'task.png')
+            write_meta(target, 'task', canvas.size)
+        return
     image = Image.open(SOURCE).convert('RGB')
     parts, labels = items.components(image)
     ranked = sorted(parts,key=lambda p:-p['area'])
