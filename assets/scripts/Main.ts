@@ -1279,8 +1279,9 @@ export class Main extends Component {
     }
 
     private bagButton(parent: Node, title: string, x: number, y: number, w: number, h: number, action: () => void) {
-        const node = this.bagArt(parent, 'button', x, y, w, h);
-        node.name = title;
+        const node = this.uiNode(parent, title, x, y, w, h);
+        // 复用已确认的任务按钮九宫格，不再使用背包参考图裁出的临时按钮。
+        this.dailySprite(node, 'button', 0, 0, w, h, true);
         this.dailyText(node, title, 0, 0, w - 18, h - 6, 24);
         this.intercept(node);
         // 使用不缩放父节点，触发期间及异步贴图加载均保持槽位几何稳定。
@@ -1340,7 +1341,7 @@ export class Main extends Component {
         this.bagTargetLabel = this.dailyText(panel, '', 0, 302, 742, 40, 23);
         const filters: [string, ItemCategory | null][] = [['全部', null], ['喂养', 'food'], ['清洁', 'soap'], ['陪玩', 'toy']];
         filters.forEach(([name, category], index) => {
-            const tab = this.bagArt(panel, 'tab', -282 + index * 188, 245, 170, 55);
+            const tab = this.shopArt(panel, 'tab', -282 + index * 188, 245, 170, 66);
             const label = this.dailyText(tab, name, 0, 0, 145, 40, 26);
             this.bagTabs.push({ category, label });
             this.intercept(tab);
@@ -1351,7 +1352,7 @@ export class Main extends Component {
             node.name = '背包槽位-' + i;
             // 卡片真实浅内区映射 x=-160..160、y=-91..93，所有文字及按钮均在其中。
             const title = this.dailyText(node, '', 0, 76, 320, 33, 25);
-            const iconNode = this.uiNode(node, '背包道具图标', -111, 12, 68, 68);
+            const iconNode = this.uiNode(node, '背包道具图标', -109, 12, 96, 96);
             const icon = iconNode.addComponent(Sprite); icon.sizeMode = Sprite.SizeMode.CUSTOM;
             const species = this.dailyText(node, '', 43, 35, 210, 28, 20);
             const effect = this.dailyText(node, '', 43, -3, 210, 47, 19);

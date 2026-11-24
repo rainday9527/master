@@ -67,4 +67,10 @@ g.data.pets[g.selected].hunger = g.data.pets[g.selected].clean = g.data.pets[g.s
 g.updateBag(); g.applyCare(item); assert.equal(g.data.itemInventory[buy], 0);
 const source = fs.readFileSync(path.join(__dirname, '../assets/scripts/Main.ts'), 'utf8');
 assert.ok(!source.slice(source.indexOf('private renderBag()'), source.indexOf('private dailySprite(')).includes("this.open('bag')"));
-console.log('通过：四类筛选、物种过滤、六槽引用稳定、分页回退、实际购买使用、legacy用尽、满状态/错物种/保存失败事务；尚待引擎多帧几何与视觉验收。');
+const bagButton = source.slice(source.indexOf('private bagButton('), source.indexOf('private bagEntries('));
+assert.ok(bagButton.includes("this.dailySprite(node, 'button', 0, 0, w, h, true)"), '操作按钮复用任务九宫格');
+assert.ok(!bagButton.includes("this.bagArt(parent, 'button'"));
+const renderBag = source.slice(source.indexOf('private renderBag()'), source.indexOf('private dailySprite('));
+assert.ok(renderBag.includes("this.shopArt(panel, 'tab'"), '分类复用商店道具页签');
+assert.ok(renderBag.includes("'背包道具图标', -109, 12, 96, 96"), '放大道具图标且不与文字列重叠');
+console.log('通过：四类筛选、物种过滤、六槽引用稳定、分页回退、实际购买使用、legacy用尽、满状态/错物种/保存失败事务、复用任务按钮及商店页签、96尺寸图标契约；尚待引擎多帧几何与视觉验收。');
