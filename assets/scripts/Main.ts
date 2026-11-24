@@ -1293,7 +1293,7 @@ export class Main extends Component {
             sprite.spriteFrame = frame;
             if (sliced) {
                 // 面板顶饰等比；任务行缩小厚边框并拉伸中心，为双行文字留出浅色内区。
-                const scale = key === 'panel' ? w / frame.originalSize.width : key === 'row' ? 0.24 : Math.min(1, h / frame.originalSize.height);
+                const scale = (key === 'panel' || key === 'panel-clean') ? w / frame.originalSize.width : key === 'row' ? 0.24 : Math.min(1, h / frame.originalSize.height);
                 node.getComponent(UITransform)!.setContentSize(w / scale, h / scale);
                 node.setScale(scale, scale, 1);
             } else {
@@ -1371,10 +1371,10 @@ export class Main extends Component {
     private renderDaily() {
         const panel = this.sheet!;
         const daily = this.dailyCandidate().daily;
-        this.dailySprite(panel, 'panel', 0, 0, 1024, 1400, true);
-        // 九宫格顶饰下缘为 700 - 378 * 1024 / 939 ≈ 288；标题独立于下方列表。
-        this.dailyText(panel, '每日任务', -12, 350, 440, 58, 42, false, true);
-        const close = this.dailySprite(panel, 'close', 318, 350, 64, 64, false, '收起');
+        this.dailySprite(panel, 'panel-clean', 0, 0, 1024, 1400, true);
+        // 标题投影至源图 y≈249..302，完全位于原标题牌 y=240..310 内。
+        this.dailyText(panel, '每日任务', -12, 400, 440, 58, 42, false, true);
+        const close = this.dailySprite(panel, 'close', 318, 400, 64, 64, false, '收起');
         this.shopButton(close, () => this.open('home'));
         const countdown = this.dailyText(panel, '', -12, 280, 650, 36, 24);
         const updateCountdown = () => {

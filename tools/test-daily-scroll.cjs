@@ -21,6 +21,8 @@ const record = (name, data) => {
 };
 
 (async () => {
+  const material = require('node:child_process').execFileSync('python', [path.resolve(__dirname, 'clean-daily-panel.py')], { encoding: 'utf8' });
+  record('真实面板纹理及内框清除断言', JSON.parse(material));
   const browser = await chromium.launch({ channel: 'chrome', headless: true });
   try {
     for (const width of [390, 430]) {
@@ -107,7 +109,12 @@ const record = (name, data) => {
           viewportToFirst: (v.y + v.height - r.y - r.height) / scale,
           countdownToFirst: (c.y - r.y - r.height) / scale };
         if (gaps.titleToCountdown < 20 || gaps.countdownToViewport < 50 || gaps.countdownToFirst < 50 || gaps.viewportToFirst < -1) violations.push('头部与首行缺少明确间隔');
-        if (title.position.y !== 350 || countdown.position.y !== 280 || main.sheet.getChildByName('收起').position.y !== 350) violations.push('独立头部坐标异常');
+        if (title.position.y !== 400 || countdown.position.y !== 280 || main.sheet.getChildByName('收起').position.y !== 400) violations.push('独立头部坐标异常');
+        const panelSprite = main.sheet.children.find(n => n.getComponent(cc.Sprite)?.spriteFrame?.name === 'panel-clean');
+        if (!panelSprite) violations.push('未使用清除内框的正式素材');
+        const sourceTitle = [(700 - title.position.y - 29) * 939 / 1024, (700 - title.position.y + 29) * 939 / 1024];
+        if (sourceTitle[0] < 240 || sourceTitle[1] > 310) violations.push('标题越出真实原标题牌');
+        if (walk(main.sheet).filter(n => n.getComponent(cc.Sprite)?.spriteFrame?.name === 'row').length !== 7) violations.push('独立行框数量异常');
         const currencies = main.dailyScroll.content.children.slice(0, 6).map((row, index) => {
           const currency = dailyModule.DAILY_TASKS[index].currency;
           const node = row.getChildByName('奖励货币'), sprite = node.getComponent(cc.Sprite), frame = sprite.spriteFrame;
@@ -116,7 +123,7 @@ const record = (name, data) => {
           if (Math.abs(size.width / size.height - frame.originalSize.width / frame.originalSize.height) > 0.001) violations.push(row.name + '货币图标变形');
           return { row: row.name, currency, uuid: frame?._uuid, expected: currencyUUIDs[currency], width: size.width, height: size.height };
         });
-        return { titleY: title.position.y, countdownY: countdown.position.y, viewport: { x: viewport.position.x, y: viewport.position.y, width: viewport.getComponent('cc.UITransform').width, height: viewport.getComponent('cc.UITransform').height }, gaps, currencies, violations };
+        return { sourceTitle, panelFrame: panelSprite?.getComponent(cc.Sprite).spriteFrame.name, titleY: title.position.y, countdownY: countdown.position.y, viewport: { x: viewport.position.x, y: viewport.position.y, width: viewport.getComponent('cc.UITransform').width, height: viewport.getComponent('cc.UITransform').height }, gaps, currencies, violations };
       }, currencyUUIDs);
       record('独立头部间隔与既有货币UUID ' + width, header);
       assert.deepEqual(header.violations, []);
