@@ -72,5 +72,7 @@ assert.ok(bagButton.includes("this.dailySprite(node, 'button', 0, 0, w, h, true)
 assert.ok(!bagButton.includes("this.bagArt(parent, 'button'"));
 const renderBag = source.slice(source.indexOf('private renderBag()'), source.indexOf('private dailySprite('));
 assert.ok(renderBag.includes("this.shopArt(panel, 'tab'"), '分类复用商店道具页签');
+assert.ok(renderBag.includes("void this.skin(node, 'tile')"), '物品栏复用无烘焙按钮的通用底板');
+assert.ok(!renderBag.includes("this.bagArt(panel, 'card'"), '禁用参考图残留按钮卡片');
 assert.ok(renderBag.includes("'背包道具图标', -109, 12, 96, 96"), '放大道具图标且不与文字列重叠');
 console.log('通过：四类筛选、物种过滤、六槽引用稳定、分页回退、实际购买使用、legacy用尽、满状态/错物种/保存失败事务、复用任务按钮及商店页签、96尺寸图标契约；尚待引擎多帧几何与视觉验收。');

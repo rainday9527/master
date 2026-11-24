@@ -1348,9 +1348,10 @@ export class Main extends Component {
             tab.on(Node.EventType.TOUCH_END, () => { this.bagFilter = category; this.bagPage = 0; this.updateBag(); }, this);
         });
         for (let i = 0; i < 6; i++) {
-            const node = this.bagArt(panel, 'card', i % 2 ? 190 : -190, 98 - Math.floor(i / 2) * 244, 366, 230);
-            node.name = '背包槽位-' + i;
-            // 卡片真实浅内区映射 x=-160..160、y=-91..93，所有文字及按钮均在其中。
+            const node = this.uiNode(panel, '背包槽位-' + i, i % 2 ? 190 : -190, 98 - Math.floor(i / 2) * 244, 366, 230);
+            // 使用无内置按钮/分区的通用物品格，避免参考图卡片残留烘焙控件。
+            void this.skin(node, 'tile');
+            // 内容与真实操作按钮独立叠放，刷新时不重建底板。
             const title = this.dailyText(node, '', 0, 76, 320, 33, 25);
             const iconNode = this.uiNode(node, '背包道具图标', -109, 12, 96, 96);
             const icon = iconNode.addComponent(Sprite); icon.sizeMode = Sprite.SizeMode.CUSTOM;
