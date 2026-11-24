@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Camera, Canvas, UITransform, Graphics, Label, Color, Vec3, Vec2, MeshRenderer, Material, primitives, utils, view, ResolutionPolicy, Layers, input, Input, EventTouch, sys, BlockInputEvents, Sprite, SpriteFrame, resources, DirectionalLight, Vec4, JsonAsset, Texture2D, isValid, tween, Tween, ScrollView, Mask } from 'cc';
+import { _decorator, Component, Node, Camera, Canvas, UITransform, Graphics, Label, Color, Vec3, Vec2, MeshRenderer, Material, primitives, utils, view, ResolutionPolicy, Layers, input, Input, EventTouch, sys, BlockInputEvents, Sprite, SpriteFrame, resources, DirectionalLight, Vec4, JsonAsset, Texture2D, isValid, tween, Tween, ScrollView, Mask, UIOpacity } from 'cc';
 
 import { ITEM_CATALOG, ItemDefinition, ItemCategory, PetStat, ShopSlot, findItem, itemApplies, effectText, drawShopSlots } from './ItemCatalog';
 
@@ -929,7 +929,41 @@ export class Main extends Component {
         this.dailyRows.forEach(refresh => refresh(daily));
     }
 
+    private animatePanelOpen() {
+        const panel = this.sheet;
+        if (!panel || !isValid(panel, true)) return;
+        const base = panel.scale.clone();
+        const opacity = panel.getComponent(UIOpacity) || panel.addComponent(UIOpacity);
+        opacity.opacity = 0;
+        panel.setScale(base.x * 0.97, base.y * 0.97, base.z);
+        tween(opacity).to(0.16, { opacity: 255 }).start();
+        tween(panel).to(0.18, { scale: base }, { easing: 'quadOut' }).start();
+    }
+
+    private retirePanel(panel: Node) {
+        Tween.stopAllByTarget(panel);
+        const opacity = panel.getComponent(UIOpacity) || panel.addComponent(UIOpacity);
+        Tween.stopAllByTarget(opacity);
+        // 退出层不再参与点击；快速切换也不能让旧面板拦截新页面。
+        const mute = (node: Node) => {
+            node.targetOff(this);
+            const blocker = node.getComponent(BlockInputEvents);
+            if (blocker) blocker.enabled = false;
+            node.children.forEach(mute);
+        };
+        mute(panel);
+        tween(opacity).to(0.10, { opacity: 0 }).call(() => {
+            if (isValid(panel, true)) { panel.removeFromParent(); panel.destroy(); }
+        }).start();
+    }
+
     private open(page: Page) {
+        if (page === this.page && this.sheet && isValid(this.sheet, true) && (page === 'bag' || page === 'shop' || page === 'daily')) {
+            if (page === 'bag') this.updateBag();
+            else if (page === 'shop') this.updateShopLabels();
+            else this.updateDailyRows();
+            return;
+        }
         if (this.page === 'daily' && page === 'daily' && this.dailyScroll && isValid(this.dailyScroll, true)) {
             this.dailyScrollOffset = Math.max(0, Math.min(110, this.dailyScroll.getScrollOffset().y));
         } else {
@@ -947,9 +981,8 @@ export class Main extends Component {
         if (page === 'pet') this.petSelected = true;
         if (page === 'home') { this.petSelected = false; this.careSelected = ''; }
         if (this.sheet) {
-            this.sheet.active = false;
-            this.sheet.removeFromParent();
-            this.sheet.destroy(); this.sheet = null;
+            this.retirePanel(this.sheet);
+            this.sheet = null;
         }
         this.updateSelectionRing(); this.renderNav();
         this.layoutNotice();
@@ -958,21 +991,22 @@ export class Main extends Component {
         if (page === 'home') return;
         if (page === 'bag') {
             this.sheet = this.uiNode(this.ui, '背包面板', 0, -10, 921, 1390);
-            this.intercept(this.sheet); this.renderBag(); this.layout(); return;
+            this.intercept(this.sheet); this.renderBag(); this.layout(); this.animatePanelOpen(); return;
         }
         if (page === 'daily') {
             this.sheet = this.uiNode(this.ui, '每日任务面板', 0, -10, 1024, 1400);
-            this.intercept(this.sheet); this.renderDaily(); this.layout(); return;
+            this.intercept(this.sheet); this.renderDaily(); this.layout(); this.animatePanelOpen(); return;
         }
         if (page === 'shop') {
             this.sheet = this.uiNode(this.ui, '商店摊位', 0, -this.height / 2 + 850, 900, 1300);
-            this.intercept(this.sheet); this.renderShop(); this.layout(); return;
+            this.intercept(this.sheet); this.renderShop(); this.layout(); this.animatePanelOpen(); return;
         }
         if (page === 'pet') {
             this.sheet = this.uiNode(this.ui, '宠物状态', 0, -this.height / 2 + 350, 900, 300);
             this.headerArt(this.sheet, 'pet-status'); this.intercept(this.sheet);
             this.headerText(this.sheet, BREEDS[this.selected].name + ' · 小日常', 0, 84, 600, 36, 27).node.name = '宠物标题';
             this.renderPet();
+            this.animatePanelOpen();
             return;
         }
         this.sheet = this.uiNode(this.ui, '操作卡片', 0, -this.height / 2 + 640, 1024, 866); this.card(this.sheet); this.intercept(this.sheet);
@@ -982,6 +1016,7 @@ export class Main extends Component {
         if (page === 'recruit') this.renderRecruit();
         if (page === 'album') this.renderAlbum();
         if (page === 'adventure') this.renderAdventure();
+        this.animatePanelOpen();
     }
 
     private renderPet() {
@@ -1017,7 +1052,11 @@ export class Main extends Component {
     }
     private care(item: ItemCategory | 'rest') {
         if (item !== 'rest') {
-            this.bagFilter = item; this.bagPage = 0; this.open('bag'); return;
+            const changed = this.bagFilter !== item;
+            this.bagFilter = item;
+            if (changed || this.page !== 'bag') this.bagPage = 0;
+            if (this.page === 'bag') this.updateBag(); else this.open('bag');
+            return;
         }
         this.applyCare(null, 'rest');
     }
