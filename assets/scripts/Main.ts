@@ -1331,10 +1331,9 @@ export class Main extends Component {
     private renderBag() {
         const panel = this.sheet!;
         this.bagSlots = []; this.bagTabs = [];
-        // 大底板只保留一层通用空白面板，停用带烘焙控件的背包参考底图。
-        const background = this.uiNode(panel, '背包通用大底板', 0, 0, 921, 1390);
-        void this.skin(background, 'panel');
-        // 标题与内容独立绘制，不再依赖参考底图的标题牌。
+        // 大底板直接复用任务页已清除内置行框的正式底图，只保留这一层。
+        this.dailySprite(panel, 'panel-clean', 0, 0, 921, 1390, true, '背包任务大底板');
+        // 标题与内容独立绘制。
         this.dailyText(panel, '我的背包', -14, 415, 370, 48, 38);
         const close = this.uiNode(panel, '收起背包', 380, 416, 84, 84);
         this.dailySprite(close, 'close', 0, 0, 78, 78);
