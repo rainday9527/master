@@ -1331,8 +1331,10 @@ export class Main extends Component {
     private renderBag() {
         const panel = this.sheet!;
         this.bagSlots = []; this.bagTabs = [];
-        this.bagArt(panel, 'panel', 0, 0, 921, 1390);
-        // 源图标题牌=(280,285,715,347)，当前映射 x=-232..203、y=384..446。
+        // 大底板只保留一层通用空白面板，停用带烘焙控件的背包参考底图。
+        const background = this.uiNode(panel, '背包通用大底板', 0, 0, 921, 1390);
+        void this.skin(background, 'panel');
+        // 标题与内容独立绘制，不再依赖参考底图的标题牌。
         this.dailyText(panel, '我的背包', -14, 415, 370, 48, 38);
         const close = this.uiNode(panel, '收起背包', 380, 416, 84, 84);
         this.dailySprite(close, 'close', 0, 0, 78, 78);
@@ -1348,10 +1350,9 @@ export class Main extends Component {
             tab.on(Node.EventType.TOUCH_END, () => { this.bagFilter = category; this.bagPage = 0; this.updateBag(); }, this);
         });
         for (let i = 0; i < 6; i++) {
-            const node = this.uiNode(panel, '背包槽位-' + i, i % 2 ? 190 : -190, 98 - Math.floor(i / 2) * 244, 366, 230);
-            // 使用无内置按钮/分区的通用物品格，避免参考图卡片残留烘焙控件。
-            void this.skin(node, 'tile');
-            // 内容与真实操作按钮独立叠放，刷新时不重建底板。
+            const node = this.bagArt(panel, 'card', i % 2 ? 190 : -190, 98 - Math.floor(i / 2) * 244, 366, 230);
+            node.name = '背包槽位-' + i;
+            // 恢复原物品卡，本轮仅替换承载六格的大底板。
             const title = this.dailyText(node, '', 0, 76, 320, 33, 25);
             const iconNode = this.uiNode(node, '背包道具图标', -109, 12, 96, 96);
             const icon = iconNode.addComponent(Sprite); icon.sizeMode = Sprite.SizeMode.CUSTOM;
