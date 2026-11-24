@@ -1522,7 +1522,7 @@ export class Main extends Component {
         if (this.rewardedVideoPending) { this.toast('广告播放中，请勿重复请求'); return; }
         const task = DAILY_TASKS.find(task => task.id === id)!;
         const daily = this.dailyCandidate().daily;
-        if (daily.claimed[id] || daily.progress[id] < task.target) { this.updateDailyRows(daily); return; }
+        if (daily.adClaimed[id] || daily.progress[id] < task.target) { this.updateDailyRows(daily); return; }
         const provider = this.rewardedVideoProvider;
         if (!provider) { this.toast('激励视频暂未接入'); return; }
         this.rewardedVideoPending = true;
@@ -1538,13 +1538,14 @@ export class Main extends Component {
             }
             const candidate = this.dailyCandidate();
             // 使用当前余额与权益，不让旧日回调或播放期间的普通领取重复发奖。
-            if (candidate.daily.day !== daily.day || candidate.daily.claimed[id] || candidate.daily.progress[id] < task.target) {
+            if (candidate.daily.day !== daily.day || candidate.daily.adClaimed[id] || candidate.daily.progress[id] < task.target) {
                 this.updateDailyRows(candidate.daily); return;
             }
-            const amount = task.amount * 2;
+            const amount = task.amount * (candidate.daily.claimed[id] ? 1 : 2);
             if (candidate[task.currency] > 100000000 - amount) { this.toast('货币接近存储上限，暂时无法领取'); return; }
             candidate[task.currency] += amount;
             candidate.daily.claimed[id] = true;
+            candidate.daily.adClaimed[id] = true;
             if (!this.commitShop(candidate)) return;
             this.renderHeader(); this.updateDailyRows(); this.toast('每日任务双倍奖励已领取');
         };
@@ -1615,6 +1616,8 @@ export class Main extends Component {
             const adButton = this.dailyButton(row, '广告双倍', 300, 6, 108, 68, () => this.watchDailyRewardedVideo(task.id), 20);
             const title = button.getChildByName('文字')!.getComponent(Label)!;
             const background = button.getChildByName('每日任务底图')!;
+            const adTitle = adButton.getChildByName('文字')!.getComponent(Label)!;
+            const adBackground = adButton.getChildByName('每日任务底图')!;
             this.dailyRows.set(task.id, state => {
                 const claimed = state.claimed[task.id];
                 const complete = state.progress[task.id] >= task.target;
@@ -1624,7 +1627,11 @@ export class Main extends Component {
                 progress.color = this.statusColor(ready);
                 title.color = this.statusColor(ready);
                 button.name = text; title.string = text; background.active = !claimed;
-                adButton.active = complete && !claimed;
+                adButton.active = complete;
+                adButton.name = state.adClaimed[task.id] ? '已双倍' : '广告双倍';
+                adTitle.string = adButton.name;
+                adTitle.color = this.statusColor(state.adClaimed[task.id]);
+                adBackground.active = !state.adClaimed[task.id];
             });
         });
         const pack = this.uiNode(content, '每日免费照顾包', 0, -715, 740, 102);

@@ -19,7 +19,7 @@ function load(name) {
     return exports;
 }
 const { Main } = load('Main');
-const { DAILY_TASKS, restoreDaily, newDaily, recordDaily } = load('DailyTasks');
+const { DAILY_TASKS, restoreDaily, newDaily, advanceDaily, recordDaily } = load('DailyTasks');
 function game() {
     const g = new Main();
     g.toast = () => {}; g.renderHeader = () => {}; g.open = page => { assert.notEqual(page, 'daily', '领奖不得重建任务面板'); };
@@ -100,10 +100,13 @@ assert.deepEqual(Array.from(DAILY_TASKS, t => t.target), [3, 3, 3, 3, 2, 2]);
 for (const task of DAILY_TASKS) {
     assert(!task.title.includes('一次'));
     const legacy = newDaily(10);
+    delete legacy.adClaimed;
     legacy.progress[task.id] = 1; legacy.claimed[task.id] = true;
     const restored = restoreDaily(JSON.parse(JSON.stringify(legacy)), 10, true);
     assert.equal(restored.progress[task.id], 1);
     assert.equal(restored.claimed[task.id], true);
+    assert.equal(restored.adClaimed[task.id], false);
+    assert.equal(advanceDaily(legacy, 10).adClaimed[task.id], false);
     legacy.claimed[task.id] = false;
     assert.equal(restoreDaily(legacy, 10, true).claimed[task.id], false);
     for (let i = 0; i < 8; i++) recordDaily(legacy, task.id);
@@ -135,18 +138,45 @@ for (const task of DAILY_TASKS) {
     callback('completed'); const saved = raw;
     assert.equal(g.data[task.currency], balance + 2 * task.amount);
     assert.equal(g.data.daily.claimed[task.id], true); assert.equal(refreshes, 1);
+    assert.equal(g.data.daily.adClaimed[task.id], true);
     assert.equal(g.rewardedVideoPending, false);
     callback('completed'); callback('failed'); g.claimDaily(task.id);
     assert.equal(raw, saved); assert.equal(g.data[task.currency], balance + 2 * task.amount);
+    g.watchDailyRewardedVideo(task.id); assert.equal(shows, 1);
     g = game(); assert.equal(g.data.daily.claimed[task.id], true);
+    assert.equal(g.data.daily.adClaimed[task.id], true);
+    g.rewardedVideoProvider = { show: () => assert.fail('已双倍不得再次播放') };
+    g.watchDailyRewardedVideo(task.id); g.claimDaily(task.id);
+    assert.equal(raw, saved);
 }
-for (const result of ['cancelled', 'failed', 'throw', 'saveFailed', 'normalClaim', 'crossDay', 'persistedCrossDay', 'overflow', 'conflict']) {
+// 普通领取后可补领广告；播放中普通领取以回调时状态结算，最多两倍。
+for (const task of DAILY_TASKS) for (const duringVideo of [false, true]) {
+    g = ready(task.id);
+    const balance = g.data[task.currency];
+    let callback, shows = 0;
+    g.rewardedVideoProvider = { show: cb => { callback = cb; shows++; } };
+    if (!duringVideo) g.claimDaily(task.id);
+    g.watchDailyRewardedVideo(task.id);
+    if (duringVideo) g.claimDaily(task.id);
+    assert.equal(g.data[task.currency], balance + task.amount);
+    assert.equal(g.data.daily.adClaimed[task.id], false);
+    g.watchDailyRewardedVideo(task.id); g.watchDailyRewardedVideo('clean'); g.watchRewardedVideo('coins');
+    assert.equal(shows, 1);
+    callback('completed');
+    assert.equal(g.data[task.currency], balance + 2 * task.amount);
+    assert.equal(g.data.daily.claimed[task.id], true);
+    assert.equal(g.data.daily.adClaimed[task.id], true);
+    const saved = raw;
+    callback('completed'); g.claimDaily(task.id); g.watchDailyRewardedVideo(task.id);
+    assert.equal(raw, saved); assert.equal(shows, 1);
+    g = game(); assert.equal(g.data.daily.adClaimed[task.id], true);
+}
+for (const result of ['cancelled', 'failed', 'throw', 'saveFailed', 'crossDay', 'persistedCrossDay', 'overflow', 'conflict']) {
     g = ready();
     const balance = g.data.coins;
     let callback;
     g.rewardedVideoProvider = { show: cb => { callback = cb; if (result === 'throw') throw Error('播放失败'); } };
     g.watchDailyRewardedVideo('feedCat');
-    if (result === 'normalClaim') g.claimDaily('feedCat');
     if (result === 'crossDay' || result === 'persistedCrossDay') {
         now += 1000;
         if (result === 'persistedCrossDay') {
@@ -168,6 +198,42 @@ for (const result of ['cancelled', 'failed', 'throw', 'saveFailed', 'normalClaim
         g.claimDaily('feedCat'); assert.equal(g.data.coins, balance + 100);
     }
 }
+// 普通领取后补发按一份奖励检查上限，而非两份。
+g = ready(); g.data.coins = 100000000 - 200; g.claimDaily('feedCat');
+g.rewardedVideoProvider = { show: cb => cb('completed') }; g.watchDailyRewardedVideo('feedCat');
+assert.equal(g.data.coins, 100000000); assert.equal(g.data.daily.adClaimed.feedCat, true);
+// 已普通领取时，广告保存失败不得消耗广告权益，重试只补基础奖励。
+g = ready(); g.claimDaily('feedCat'); const retryBalance = g.data.coins;
+let retryCallback;
+g.rewardedVideoProvider = { show: cb => { retryCallback = cb; } };
+g.watchDailyRewardedVideo('feedCat'); const beforeRetry = raw;
+fail = true; retryCallback('completed'); fail = false;
+assert.equal(raw, beforeRetry); assert.equal(g.data.coins, retryBalance);
+assert.equal(g.data.daily.claimed.feedCat, true); assert.equal(g.data.daily.adClaimed.feedCat, false);
+g.watchDailyRewardedVideo('feedCat'); retryCallback('completed');
+assert.equal(g.data.coins, retryBalance + 100); assert.equal(g.data.daily.adClaimed.feedCat, true);
+// 真实旧存档缺失广告字段：保留普通领取及余额，恢复后仍能补领。
+g = ready(); g.claimDaily('feedCat'); const legacySave = JSON.parse(raw);
+delete legacySave.daily.adClaimed; raw = JSON.stringify(legacySave);
+g = game(); const legacyBalance = g.data.coins;
+assert.equal(g.data.daily.claimed.feedCat, true); assert.equal(g.data.daily.adClaimed.feedCat, false);
+g.rewardedVideoProvider = { show: cb => cb('completed') }; g.watchDailyRewardedVideo('feedCat');
+assert.equal(g.data.coins, legacyBalance + 100);
+// 字段损坏或广告已领但普通未领时，全部权益封闭；次日刷新，克隆互不污染。
+for (const adClaimed of [null, undefined, {}, false, { ...newDaily(10).adClaimed, feedCat: 'true' }, { ...newDaily(10).adClaimed, feedCat: true }]) {
+    const damaged = { ...newDaily(10), adClaimed };
+    const restored = restoreDaily(damaged, 10, true);
+    for (const task of DAILY_TASKS) {
+        assert.equal(restored.claimed[task.id], true);
+        assert.equal(restored.adClaimed[task.id], true);
+    }
+    assert.equal(restored.packClaimed, true);
+    assert.equal(restoreDaily(damaged, 11, true).adClaimed.feedCat, true);
+    assert.equal(advanceDaily(restored, 11).adClaimed.feedCat, false);
+}
+const closed = newDaily(10, true), cloned = advanceDaily(closed, 10);
+cloned.adClaimed.feedCat = false; assert.equal(closed.adClaimed.feedCat, true);
+assert.equal(restoreDaily(closed, 11, true).adClaimed.feedCat, false);
 // 金币、钻石与每日任务互斥；旧回调不能解开新播放的锁。
 for (const currency of ['coins', 'gems']) {
     g = ready(); let callback, shows = 0;
@@ -198,7 +264,11 @@ assert.equal((dailyUI.match(/'row-clean', 0, 0, 740, 102, true/g) || []).length,
 assert(!/'row'|ProgressBar/.test(dailyUI), '不能使用原进度槽素材或进度条组件');
 assert.match(dailyUI, /daily\.progress\[task\.id\] \+ '\/' \+ task\.target/, '显示实际目标');
 assert.match(dailyUI, /state\.progress\[task\.id\] \+ '\/' \+ task\.target/);
-assert.match(dailyUI, /adButton\.active = complete && !claimed/);
+assert.match(dailyUI, /adButton\.active = complete;/);
+assert.match(dailyUI, /adButton\.name = state\.adClaimed\[task\.id\] \? '已双倍' : '广告双倍'/);
+assert.match(dailyUI, /adTitle\.string = adButton\.name/);
+assert.match(dailyUI, /adTitle\.color = this\.statusColor\(state\.adClaimed\[task\.id\]\)/);
+assert.match(dailyUI, /adBackground\.active = !state\.adClaimed\[task\.id\]/);
 assert.match(dailyUI, /'广告双倍', 300, 6, 108, 68/);
 const dailyButtonUI = source.split('private dailyButton(')[1].split('private claimDaily(')[0];
 assert.match(dailyButtonUI, /this\.pressVisualFeedback\(node, node\.children\.slice\(\)\)/);
@@ -219,4 +289,4 @@ assert(x - w / 2 > (687 - 939 / 2) * 1024 / 939, '关闭区不得遮挡中央猫
 assert.match(dailyUI, /this\.dailySprite\(close, 'close', 0, 0, 112, 112, false, '关闭图标'\)/);
 assert.match(source, /Math\.min\(w \/ frame\.originalSize\.width, h \/ frame\.originalSize\.height\)/);
 assert.match(dailyUI, /this\.shopButton\(close, \(\) => this\.open\('home'\)\)/);
-console.log('通过：六任务target及累加夹紧、旧0/1及已领取存档、普通领取目标/上限、真实照顾与冒险事务、广告未接/双倍成功/取消/失败/抛错/重复/跨日/保存失败/快照冲突/余额上限、普通领取竞态、金币钻石共用锁及旧回调隔离、七行原位刷新、滚动与显示层反馈静态契约。cc/存储为桩；未构建、未启动服务或执行浏览器试玩。');
+console.log('通过：六任务target及累加夹紧、旧0/1及已领取存档、普通领取目标/上限、真实照顾与冒险事务、广告未接/双倍成功/取消/失败/抛错/重复/跨日/保存失败/快照冲突/余额上限、普通后广告补base/先广告2base/普通领取竞态、独立广告权益持久化/旧存档迁移/损坏封闭/补领失败重试、金币钻石共用锁及旧回调隔离、七行原位刷新、滚动与显示层反馈静态契约。cc/存储为桩；未构建、未启动服务或执行浏览器试玩。');
