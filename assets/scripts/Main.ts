@@ -1278,7 +1278,7 @@ export class Main extends Component {
         return node;
     }
 
-    private pressFeedback(node: Node, visuals: Node[]) {
+    private pressVisualFeedback(node: Node, visuals: Node[]) {
         // 只缩放显示层，点击热区与布局节点不变；保留各素材九宫格自身缩放。
         let bases: { node: Node; scale: Vec3 }[] = [];
         const restore = () => {
@@ -1300,7 +1300,7 @@ export class Main extends Component {
         this.dailySprite(node, 'button', 0, 0, w, h, true);
         this.dailyText(node, title, 0, 0, w - 18, h - 6, 24);
         this.intercept(node);
-        this.pressFeedback(node, node.children.slice());
+        this.pressVisualFeedback(node, node.children.slice());
         node.on(Node.EventType.TOUCH_END, action, this);
         return node;
     }
@@ -1363,7 +1363,7 @@ export class Main extends Component {
             const label = this.dailyText(tab, name, 0, 0, 145, 40, 26);
             this.bagTabs.push({ category, label });
             this.intercept(tab);
-            this.pressFeedback(tab, tab.children.slice());
+            this.pressVisualFeedback(tab, tab.children.slice());
             tab.on(Node.EventType.TOUCH_END, () => { this.bagFilter = category; this.bagPage = 0; this.updateBag(); }, this);
         });
         for (let i = 0; i < 6; i++) {
