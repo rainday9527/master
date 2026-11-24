@@ -1023,7 +1023,7 @@ export class Main extends Component {
     }
 
     private legacyItem(key: ItemCategory): ItemDefinition {
-        const names = { food: '旧物资·营养餐', soap: '旧物资·清洁包', toy: '旧物资·陪玩球' };
+        const names = { food: '营养餐', soap: '清洁包', toy: '陪玩球' };
         return { id: key, name: names[key], appliesTo: 'both', currency: 'coins', price: 0,
             effects: key === 'food' ? { hunger: 40 } : key === 'soap' ? { clean: 40 } : { joy: 40, energy: -8 },
             category: key, weight: 0, limit: 0 };
@@ -1158,6 +1158,10 @@ export class Main extends Component {
         this.updateShopLabels(); this.renderHeader(); this.toast('已购买' + item.name);
     }
 
+    private statusColor(ready: boolean) {
+        return this.color(ready ? '#268344' : '#C43D35');
+    }
+
     private updateShopLabels() {
         if (this.page !== 'shop' || !this.sheet || !isValid(this.sheet, true)) return;
         const now = Date.now(), shop = this.advanceShop(this.data.shop, now), cost = this.shopRefreshCost(shop);
@@ -1174,7 +1178,13 @@ export class Main extends Component {
         if (this.shopCostIcon && isValid(this.shopCostIcon, true)) this.shopCostIcon.active = cost > 0;
         this.shopCards.forEach(card => {
             const slot = shop.slots.find(entry => entry.id === card.id);
-            if (isValid(card.stock, true)) card.stock.string = '限购 ' + (slot?.remaining || 0) + '  持有 ' + (this.data.itemInventory[card.id] || 0);
+            const owned = this.data.itemInventory[card.id] || 0;
+            if (isValid(card.stock, true)) {
+                card.stock.string = '限购 ' + (slot?.remaining || 0) + '  持有 ' + owned;
+                card.stock.color = this.statusColor(owned > 0);
+            }
+            const item = findItem(card.id);
+            if (item && isValid(card.price, true)) card.price.color = this.statusColor(this.data[item.currency] >= item.price && (slot?.remaining || 0) > 0);
         });
     }
 
@@ -1334,6 +1344,7 @@ export class Main extends Component {
             slot.species.string = this.speciesText(entry.item);
             slot.effect.string = effectText(entry.item);
             slot.count.string = '持有 ×' + entry.count;
+            slot.count.color = this.statusColor(entry.count > 0);
             const pet = this.data.pets.find(p => p.id === this.selected);
             const full = pet && (Object.keys(entry.item.effects) as PetStat[]).filter(stat => entry.item.effects[stat]! > 0).every(stat => pet[stat] >= 100);
             slot.use.string = !this.petSelected ? '先选伙伴' : full ? '状态已满' : '使用';
@@ -1533,6 +1544,9 @@ export class Main extends Component {
                 const claimed = state.claimed[task.id];
                 const text = claimed ? '已领取' : state.progress[task.id] >= 1 ? '领取' : '前往';
                 progress.string = state.progress[task.id] + '/1';
+                const ready = claimed || state.progress[task.id] >= 1;
+                progress.color = this.statusColor(ready);
+                title.color = this.statusColor(ready);
                 button.name = text; title.string = text; background.active = !claimed;
             });
         });
@@ -1546,7 +1560,8 @@ export class Main extends Component {
         const background = button.getChildByName('每日任务底图')!;
         this.dailyRows.set('pack', state => {
             button.name = state.packClaimed ? '已领取' : '免费领取';
-            title.string = button.name; background.active = !state.packClaimed;
+            title.string = button.name; title.color = this.statusColor(true);
+            background.active = !state.packClaimed;
         });
         this.updateDailyRows(daily);
         this.dailyText(panel, '上下滑动查看免费补给 · 完成后手动领奖', -12, -530, 680, 36, 24);
