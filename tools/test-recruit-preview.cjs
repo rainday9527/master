@@ -50,7 +50,7 @@ const fs = require('node:fs');
           return { root: geometry(n), world: [n.worldPosition.x, n.worldPosition.y, n.worldScale.x, n.worldScale.y],
             // Cocos getBoundingBoxToWorld包含子显示层，反馈时其包围盒可变化；热区以根UITransform尺寸及worldScale为准。
             bounds: [n.worldPosition.x, n.worldPosition.y, t.width * n.worldScale.x, t.height * n.worldScale.y],
-            art: geometry(n.children.find(v => v.getComponent('cc.Sprite'))), total: main.data.recruit.total, claimed: main.data.recruit.claimed };
+            art: geometry(n.children.find(v => v.getComponent('cc.Sprite'))), visuals: n.children.map(v => ({ name:v.name, geometry:geometry(v) })), total: main.data.recruit.total, claimed: main.data.recruit.claimed };
         }, name);
         const before = await read(), p = await pointFor(name);
         await page.mouse.move(p.x, p.y); await page.mouse.down();
@@ -60,8 +60,13 @@ const fs = require('node:fs');
         assert.deepEqual(down.world, before.world); assert.deepEqual(down.bounds, before.bounds);
         assert.equal(down.total, before.total); assert.equal(down.claimed, before.claimed, '仅按下不能触发业务');
         assert(Math.abs(down.art[3] - before.art[3] * 0.94) < 1e-6 && Math.abs(down.art[4] - before.art[4] * 0.94) < 1e-6, name + '真实按下必须缩放显示层');
+        down.visuals.forEach((v, i) => {
+          assert.equal(v.name, before.visuals[i].name);
+          assert(Math.abs(v.geometry[3] - before.visuals[i].geometry[3] * 0.94) < 1e-6, name + '所有文字、钻石及美术一同反馈：' + v.name);
+        });
         await page.mouse.up();
         const up = await read();
+        assert.deepEqual(up.visuals, before.visuals, '全部视觉子节点松开后恢复');
         assert.deepEqual(up.root, before.root); assert.deepEqual(up.world, before.world); assert.deepEqual(up.bounds, before.bounds);
         assert.deepEqual(up.art, before.art, name + '松开后显示层恢复');
         pressChecks.push({ name, before, down, up });
@@ -119,14 +124,20 @@ const fs = require('node:fs');
         assert(Math.abs(p.ratio-p.original)<1e-6, p.name+'必须按原始frame等比显示');
         if (['招募素材-normal','招募素材-advanced'].includes(p.name)) assert(p.inside, p.name+'素材必须位于固定热区内');
       });
+      const innerRegions = await page.evaluate(() => {
+        const rect = n => { const t = n.getComponent('cc.UITransform'); return { left:n.position.x-t.width/2,right:n.position.x+t.width/2,bottom:n.position.y-t.height/2,top:n.position.y+t.height/2 }; };
+        return ['招募大标题','招募标题描述'].map(name => ({ name, ...rect(main.sheet.getChildByName(name)) }));
+      });
+      const titleRegions = [ {left:-380,right:20,bottom:582,top:660}, {left:-351,right:-1,bottom:516.5,top:545.5} ];
+      innerRegions.forEach((r,i) => { const inner=titleRegions[i]; assert(r.left>=inner.left && r.right<=inner.right && r.bottom>=inner.bottom && r.top<=inner.top, r.name+'必须位于源图映射的真实内区'); });
       const progressGeometry = await page.evaluate(() => {
         const reward = main.sheet.getChildByName('领取招募累计奖励');
         return ['招募累计进度槽','招募累计进度填充'].map(name => {
           const n = reward.getChildByName(name), t = n.getComponent('cc.UITransform'); return { width:t.width,height:t.height };
         });
       });
-      assert.deepEqual(progressGeometry[0], progressGeometry[1]);
-      assert(Math.abs(progressGeometry[0].width/progressGeometry[0].height - 784/134)<1e-6, '细进度皮肤保持原比例');
+      assert(Math.abs(progressGeometry[0].width/progressGeometry[0].height - 588/120)<1e-6, '新独立进度槽保持原比例');
+      assert.deepEqual(progressGeometry[1], { width: 214, height: 23.6 }, '填充严格适配新槽真实内区，不照搬外框尺寸');
       const layout = await page.evaluate(() => {
         const sheet = main.sheet, t = sheet.getComponent('cc.UITransform'), s = sheet.worldScale;
         window.recruitSheet = sheet; window.recruitNodes = walk(sheet);
@@ -175,7 +186,7 @@ const fs = require('node:fs');
       });
       assert.equal(layout.avatars, 6); assert.equal(layout.operations, 0); assert.equal(layout.obsolete, 0);
       assert.equal(layout.discount, '9折'); assert.equal(layout.resultWrap, true);
-      assert.deepEqual(layout.art, ['background','title','description','chest','badge','normal','advanced','reward'].map(key => '招募素材-' + key).sort(), '新招募素材逐个加载且无旧布局拆件；头像为Graphics');
+      assert.deepEqual(layout.art, ['background','title','description','chest','badge','normal','advanced','reward','discount'].map(key => '招募素材-' + key).sort(), '新招募素材逐个加载且无旧布局拆件；头像为Graphics');
       assert.deepEqual(layout.size, [1000, 1560]); assert(layout.removedBack, '招募页只使用底部导航返回');
       assert.equal(layout.detailsParent, '招募预览横栏');
       assert(layout.details.left >= -470 && layout.details.right <= 470 && layout.details.bottom >= -138 && layout.details.top <= 138, '详情热区嵌在预览横栏内');
@@ -183,6 +194,9 @@ const fs = require('node:fs');
       for (const button of layout.buttons) {
         const expected = button.name.includes('普通') ? ['×300', '招募1次', '随机获得伙伴本体'] : ['×2700', '招募10次', '随机获得伙伴本体', '9折'];
         assert.deepEqual(button.labels.map(l => l.text), expected, '价格、招募标题、说明与折扣必须完整');
+        const foot = button.labels.find(l => l.text === '随机获得伙伴本体');
+        const footY = button.name.includes('普通') ? -53 : -57;
+        assert(foot.left >= -145 && foot.right <= 145 && foot.bottom >= footY-15 && foot.top <= footY+15, button.name+'脚注必须完全位于素材真实深色槽内');
         const contents = [...button.labels, button.diamond];
         for (const item of contents) assert(item.left >= -button.width / 2 && item.right <= button.width / 2 && item.bottom >= -button.height / 2 && item.top <= button.height / 2, button.name + '内容超出固定热区：' + (item.text || item.name));
         for (let i = 0; i < contents.length; i++) for (let j = i + 1; j < contents.length; j++) assert(separated(contents[i], contents[j]), button.name + '价格、标题、说明、折扣和钻石不得相互叠压');
@@ -217,6 +231,7 @@ const fs = require('node:fs');
       assert.equal(reward.claimed, 30); assert.equal(reward.total, 40); assert.equal(reward.copies, 14); assert.equal(reward.gems, 17000); assert(!reward.ready && reward.same && reward.saved); assert.match(reward.progress, /50/); assert(Math.abs(reward.fill - 0.8) < 1e-6, '领奖后进度填充必须原位刷新到40/50');
       await assertStable30();
       await page.waitForTimeout(650); await click('领取招募累计奖励'); assert.deepEqual(await state(), reward); await assertStable30();
+      await page.waitForTimeout(4800); // 等待操作提示消失，截图不得遮挡正文。
       await page.screenshot({ path: `temp/recruit-${width}.png` });
       const assertClean = async () => {
         assert(await page.evaluate(() => main.recruitBackground === null && walk(main.ui).every(n => n.name !== '招募素材-background') && main.recruitLabels.length === 0 && main.recruitProgress === null && main.recruitBadge === null && main.recruitResult === null), '离页背景与招募引用清理');

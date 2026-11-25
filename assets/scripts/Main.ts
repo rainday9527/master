@@ -1169,7 +1169,7 @@ export class Main extends Component {
                 label.node.getComponent(UITransform)!.setContentSize(size.width * fit * 0.75, size.height * fit * 0.50);
             });
         }
-        this.intercept(node); this.pressVisualFeedback(node, node.children.slice());
+        this.intercept(node); this.pressVisualFeedback(node);
         node.on(Node.EventType.TOUCH_END, action, this);
         return node;
     }
@@ -1213,7 +1213,10 @@ export class Main extends Component {
 
     private updateRecruit() {
         const state = this.data.recruit;
-        this.recruitLabels.forEach((label, id) => { label.string = BREEDS[id].name + '\n本体×' + state.copies[id]; });
+        this.recruitLabels.forEach((label, id) => {
+            label.string = BREEDS[id].name + '\n本体×' + state.copies[id];
+            label.color = this.statusColor(state.copies[id] > 0);
+        });
         const next = nextMilestone(state.claimed), ready = state.total >= next;
         if (this.recruitProgress) this.recruitProgress.string = state.total + ' / ' + next;
         const rewardHint = this.sheet?.getChildByName('领取招募累计奖励')?.getChildByName('招募奖励说明')?.getComponent(Label);
@@ -1233,19 +1236,21 @@ export class Main extends Component {
         // 背景独立于正文缩放，位于货币与底栏后方，且不拦截输入。
         this.recruitBackground = this.recruitArt(this.ui, 'background', 0, 0, 1080, 1920);
         this.recruitBackground.setSiblingIndex(0);
-        this.recruitArt(panel, 'title', -180, 606, 600, 210);
-        this.dailyText(panel, '猫狗招募', -180, 635, 470, 92, 76, false, true).node.name = '招募大标题';
-        this.dailyText(panel, '与可爱的毛孩子相遇吧！', -180, 550, 420, 38, 27).node.name = '招募标题描述';
+        this.recruitArt(panel, 'title', -180, 606, 600, 230);
+        // 按1536源图真实内区映射：主牌与下方副条独立定位，不用节点矩形猜测。
+        this.dailyText(panel, '猫狗招募', -180, 621, 400, 78, 64, false, true).node.name = '招募大标题';
+        this.dailyText(panel, '与可爱的毛孩子相遇吧！', -176, 531, 350, 29, 24).node.name = '招募标题描述';
         // 右上奖励与进度独立，不覆盖主体猫狗立绘。
         const reward = this.uiNode(panel, '领取招募累计奖励', 330, 592, 300, 222);
         this.recruitArt(reward, 'description', 0, 0, 300, 222);
-        this.recruitArt(reward, 'chest', -104, 73, 65, 62);
-        this.dailyText(reward, '招募奖励', 30, 73, 190, 40, 32);
-        const hint = this.dailyText(reward, '', 0, 9, 255, 74, 24);
+        this.recruitArt(reward, 'chest', -86, 73, 48, 46);
+        this.dailyText(reward, '招募奖励', 24, 73, 162, 36, 28);
+        const hint = this.dailyText(reward, '', 0, 9, 225, 70, 22);
         hint.node.name = '招募奖励说明'; hint.enableWrapText = true;
-        const track = this.uiNode(reward, '招募累计进度槽', 0, -65, 240, 240 * 134 / 784);
-        this.headerArt(track, 'xp-track');
-        const bar = this.uiNode(reward, '招募累计进度填充', 0, -65, 240, 240 * 134 / 784);
+        const track = this.recruitArt(reward, 'progress-track', 0, -65, 240, 240 * 120 / 588);
+        track.name = '招募累计进度槽';
+        // 新槽真实内区约源像素525×58；填充仅适配内槽，不叠加第二层底板。
+        const bar = this.uiNode(reward, '招募累计进度填充', 0, -65, 214, 23.6);
         const fill = bar.addComponent(Sprite); fill.sizeMode = Sprite.SizeMode.CUSTOM;
         resources.load('art/header/xp-fit/spriteFrame', SpriteFrame, (error, frame) => {
             if (error || !frame || !isValid(fill, true)) return;
@@ -1253,7 +1258,7 @@ export class Main extends Component {
             fill.fillType = Sprite.FillType.HORIZONTAL; fill.fillStart = 0;
             fill.fillRange = Math.min(1, this.data.recruit.total / nextMilestone(this.data.recruit.claimed));
         });
-        this.intercept(reward); this.pressVisualFeedback(reward, reward.children.slice());
+        this.intercept(reward); this.pressVisualFeedback(reward);
         reward.on(Node.EventType.TOUCH_END, () => this.recruitTransaction('reward'), this);
         this.recruitBadge = this.recruitArt(reward, 'badge', 131, 92, 40, 43);
         this.recruitBadge.active = false;
@@ -1269,9 +1274,10 @@ export class Main extends Component {
             this.headerArt(diamond, 'diamond-icon');
             this.dailyText(node, '×' + cost, 32, 62, 140, 38, 31);
             this.dailyText(node, '招募' + count + '次', 0, -2, 300, 62, 46, false, true);
-            this.dailyText(node, '随机获得伙伴本体', 0, -66, 310, 34, 24);
+            this.dailyText(node, '随机获得伙伴本体', 0, node === single ? -53 : -57, 285, 28, 23);
         }
-        this.dailyText(ten, '9折', 164, 82, 66, 32, 26).node.name = '十抽9折文字牌';
+        this.recruitArt(ten, 'discount', 170, 80, 96, 30);
+        this.dailyText(ten, '9折', 170, 80, 62, 26, 22).node.name = '十抽9折文字牌';
         const preview = this.uiNode(panel, '招募预览横栏', 0, -590, 940, 276);
         const previewArt = this.recruitArt(preview, 'reward', 0, 0, 940, 276);
         previewArt.addComponent(UIOpacity).opacity = 200;
@@ -1290,6 +1296,13 @@ export class Main extends Component {
         });
         this.recruitResult = this.dailyText(panel, '', 0, -752, 900, 32, 18);
         this.recruitResult.node.name = '招募最近结果'; this.recruitResult.enableWrapText = true;
+        // 招募页局部减弱浅色描边，其他界面保持原样。
+        const soften = (node: Node) => {
+            const label = node.getComponent(Label);
+            if (label) label.outlineWidth = 1;
+            node.children.forEach(soften);
+        };
+        soften(panel);
         this.updateRecruit();
     }
     private renderAlbum() {
@@ -1498,7 +1511,7 @@ export class Main extends Component {
         return node;
     }
 
-    private pressVisualFeedback(node: Node, visuals: Node[]) {
+    private pressVisualFeedback(node: Node, visuals?: Node[]) {
         // 只缩放显示层，点击热区与布局节点不变；保留各素材九宫格自身缩放。
         let bases: { node: Node; scale: Vec3 }[] = [];
         const restore = () => {
@@ -1507,7 +1520,7 @@ export class Main extends Component {
         };
         node.on(Node.EventType.TOUCH_START, () => {
             if (bases.length) return;
-            bases = visuals.filter(n => isValid(n, true)).map(n => ({ node: n, scale: n.scale.clone() }));
+            bases = (visuals ?? node.children).filter(n => isValid(n, true)).map(n => ({ node: n, scale: n.scale.clone() }));
             bases.forEach(entry => entry.node.setScale(entry.scale.x * 0.94, entry.scale.y * 0.94, entry.scale.z));
         }, this);
         node.on(Node.EventType.TOUCH_CANCEL, restore, this);
