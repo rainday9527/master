@@ -332,6 +332,51 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
     assert.equal(swipeCheck.cards, 12, 'details dialog must render all 12 swipeable Album cards');
     assert.ok(afterSwipe < swipeCheck.before - 100, 'swiping right must advance the card carousel');
 
+    // 10) Verify clicking Normal Recruit (1-draw) and Advanced Recruit (10-draw) open Recruit Result Popups with pet cards!
+    await page.evaluate(() => {
+      main.closeDialog();
+      main.data.gems = 10000;
+      main.renderHeader();
+      main.recruitClickTime = 0;
+      const singleBtn = walk(main.sheet).find(n => n.name.startsWith('招募按钮-普通招募'));
+      singleBtn.emit(cc.Node.EventType.TOUCH_END, { propagationStopped: false });
+    });
+    await page.waitForFunction(() => {
+      if (!main.dialog) return false;
+      const cards = walk(main.dialog).filter(n => n.name.startsWith('招募结果卡片-'));
+      const frames = walk(main.dialog).filter(n => n.name === '图鉴卡片底框');
+      return cards.length === 1 && frames.length === 1 && frames.every(n => !!n.getComponent('cc.Sprite')?.spriteFrame);
+    }, { timeout: 10000 });
+    await page.waitForTimeout(450);
+    const singlePop = await page.evaluate(() => ({
+      title: walk(main.dialog).find(n => n.name === '弹窗独立标题')?.getComponent('cc.Label')?.string,
+      cards: walk(main.dialog).filter(n => n.name.startsWith('招募结果卡片-')).length,
+    }));
+    console.log('single recruit popup check:', JSON.stringify(singlePop));
+    assert.equal(singlePop.cards, 1, '1-draw must open result popup with 1 pet card');
+    await page.screenshot({ path: path.join(OUT_DIR, 'verify-recruit-result-single.png') });
+
+    await page.evaluate(() => {
+      main.closeDialog();
+      main.recruitClickTime = 0;
+      const tenBtn = walk(main.sheet).find(n => n.name.startsWith('招募按钮-高级招募'));
+      tenBtn.emit(cc.Node.EventType.TOUCH_END, { propagationStopped: false });
+    });
+    await page.waitForFunction(() => {
+      if (!main.dialog) return false;
+      const cards = walk(main.dialog).filter(n => n.name.startsWith('招募结果卡片-'));
+      const frames = walk(main.dialog).filter(n => n.name === '图鉴卡片底框');
+      return cards.length === 10 && frames.length === 10 && frames.every(n => !!n.getComponent('cc.Sprite')?.spriteFrame);
+    }, { timeout: 10000 });
+    await page.waitForTimeout(700);
+    const tenPop = await page.evaluate(() => ({
+      title: walk(main.dialog).find(n => n.name === '弹窗独立标题')?.getComponent('cc.Label')?.string,
+      cards: walk(main.dialog).filter(n => n.name.startsWith('招募结果卡片-')).length,
+    }));
+    console.log('ten recruit popup check:', JSON.stringify(tenPop));
+    assert.equal(tenPop.cards, 10, '10-draw must open result popup with 10 pet cards');
+    await page.screenshot({ path: path.join(OUT_DIR, 'verify-recruit-result-ten.png') });
+
     assert.deepEqual(errors, [], 'zero pageerrors');
     assert.deepEqual(failures, [], 'zero HTTP errors');
     console.log('ALL ALBUM + PROFILE + 12-BREED + TRAITS + 3D OUTFITS CHECKS PASSED!');

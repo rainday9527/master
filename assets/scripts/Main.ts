@@ -1831,8 +1831,142 @@ export class Main extends Component {
             if (!this.commitShop(candidate)) return;
             added.forEach(p => this.spawnPet(p));
             this.renderHeader(); this.updateRecruit();
-            this.toast(mode === 'reward' ? '已领取累计' + claimed + '次奖励' : '招募成功，本体已保留');
+            if (this.ui && isValid(this.ui, true) && (mode !== 'reward' || !this.dialog)) {
+                this.showRecruitResultDialog(mode, ids, new Set(added.map(p => p.id)), claimed);
+            } else {
+                this.toast(mode === 'reward' ? '已领取累计' + claimed + '次奖励' : '招募成功，本体已保留');
+            }
         } finally { this.recruitBusy = false; }
+    }
+
+    private showRecruitResultDialog(mode: 'single' | 'ten' | 'reward', ids: number[], newIds: Set<number>, claimedMilestone = 0) {
+        if (this.dialog) this.closeDialog();
+        const isTen = ids.length > 1;
+        const title = mode === 'reward' ? '累计' + claimedMilestone + '次奖励' : isTen ? '十连招募结果' : '招募成功！';
+        const actions: [{ title: string; run: () => void }] | [{ title: string; run: () => void }, { title: string; run: () => void }] =
+            mode === 'reward'
+                ? [{ title: '开心收下', run: () => this.closeDialog() }]
+                : [
+                    { title: isTen ? '再抽10次' : '再抽1次', run: () => { this.recruitClickTime = 0; this.closeDialog(); this.recruitTransaction(mode); } },
+                    { title: '开心收下', run: () => this.closeDialog() },
+                ];
+        this.showDialog(title, '', actions);
+        if (!this.dialog) return;
+
+        const panel = this.dialog.getChildByName('通用弹窗面板')!;
+        const ratio = 900 / 1116;
+        const panelH = isTen ? 1140 : 1080;
+        panel.getComponent(UITransform)!.setContentSize(900, panelH);
+        const art = panel.getChildByName('弹窗底板')!;
+        const sprite = art.getComponent(Sprite)!;
+        resources.load('art/dialog/panel/spriteFrame', SpriteFrame, (error, frame) => {
+            if (error || !frame || !isValid(sprite, true)) return;
+            const sliced = frame.clone();
+            sliced.insetTop = 370; sliced.insetBottom = 134;
+            sliced.insetLeft = 78; sliced.insetRight = 78;
+            sprite.spriteFrame = sliced; sprite.type = Sprite.Type.SLICED;
+            art.getComponent(UITransform)!.setContentSize(1116, panelH / ratio);
+            art.setScale(ratio, ratio, 1);
+        });
+        panel.getChildByName('弹窗独立标题')!.setPosition(0, panelH / 2 - 280 * ratio);
+        panel.getChildByName('商店素材-close')?.setPosition(480 * ratio, panelH / 2 - 335 * ratio);
+
+        const content = panel.getChildByName('弹窗安全内容')!;
+        content.setPosition(0, 0);
+        content.getComponent(UITransform)!.setContentSize(750, panelH - 380);
+        content.getChildByName('弹窗正文')!.active = false;
+
+        const state = this.data.recruit;
+        if (!isTen) {
+            const id = ids[0];
+            const b = BREEDS[id];
+            const rarity = RARITY_INFO[b.rarity];
+            const trait = PET_TRAITS[b.defaultTrait];
+            const isNew = newIds.has(id);
+            const copies = state.copies[id] || 0;
+
+            const cardW = 304, cardH = 328;
+            const card = this.uiNode(content, '招募结果卡片-' + id, 0, 56, cardW, cardH);
+            this.albumArt(card, 'card-' + b.rarity.toLowerCase(), 0, 0, cardW, cardH, '图鉴卡片底框', false);
+            const badgeH = b.rarity === 'SSR' ? 72 : 64;
+            this.albumArt(card, 'rarity-' + b.rarity.toLowerCase(), -102, 112, 60, badgeH, '稀有度徽章-' + b.rarity);
+
+            const tag = this.uiNode(card, '招募结果状态标', 24, 116, 108, 32);
+            const tg = tag.addComponent(Graphics);
+            tg.fillColor = this.color(isNew ? '#E55243' : '#4F9B58');
+            tg.roundRect(-54, -16, 108, 32, 16); tg.fill();
+            const tagLbl = this.text(tag, isNew ? 'NEW 新伙伴' : '本体 +1', 0, 0, 104, 26, 16, '#FFFDF5');
+            tagLbl.isBold = true; tagLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+
+            this.petAvatar(card, id, 0, 15, 148, false);
+            const nameLbl = this.dailyText(card, b.name, 0, -114, 184, 38, 27);
+            nameLbl.color = this.color('#49301E');
+            card.setScale(0.76, 0.76, 1);
+            tween(card).to(0.18, { scale: new Vec3(1.04, 1.04, 1) }, { easing: 'quadOut' }).to(0.1, { scale: new Vec3(1, 1, 1) }).start();
+
+            const info = this.uiNode(content, '招募单抽详情条', 0, -172, 620, 96);
+            const ig = info.addComponent(Graphics);
+            ig.fillColor = this.color('#FFF8EB'); ig.strokeColor = this.color('#DCC097'); ig.lineWidth = 2.5;
+            ig.roundRect(-310, -48, 620, 96, 18); ig.fill(); ig.stroke();
+            const line1Text = (b.kind === 'cat' ? '猫咪' : '狗狗') + ' · ' + rarity.label + (isNew ? '  ·  新伙伴已入驻庭院！' : '  ·  已保留升星本体（现有 ×' + copies + '）');
+            const line1 = this.text(info, line1Text, isNew ? -48 : 0, 21, isNew ? 480 : 590, 30, 20, rarity.badgeBg);
+            line1.isBold = true; line1.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+            if (isNew) this.diamondBadge(info, b.unlockGems, 236, 21, 104, 28, '#E05744', '#FFFDF5', 15);
+            const line2 = this.text(info, '性格·' + trait.name + '  ' + trait.summary, 0, -19, 590, 28, 19, '#6C4D33');
+            line2.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+        } else {
+            const ssrCount = ids.filter(id => BREEDS[id].rarity === 'SSR').length;
+            const srCount = ids.filter(id => BREEDS[id].rarity === 'SR').length;
+            const rCount = ids.length - ssrCount - srCount;
+            const summary = '共获 ' + ids.length + ' 位伙伴' + (newIds.size > 0 ? ' · 新解锁 ' + newIds.size + ' 位' : '') + ' · SSR×' + ssrCount + '  SR×' + srCount + '  R×' + rCount;
+            this.dailyText(content, summary, 0, 240, 720, 38, 23);
+
+            const cols = 5, cardW = 136, cardH = 148, gapX = 12, gapY = 18;
+            const seenNew = new Set<number>();
+            ids.forEach((id, idx) => {
+                const b = BREEDS[id];
+                const col = idx % cols, row = Math.floor(idx / cols);
+                const x = (col - 2) * (cardW + gapX);
+                const y = 112 - row * (cardH + gapY);
+                const isFirstNew = newIds.has(id) && !seenNew.has(id);
+                if (isFirstNew) seenNew.add(id);
+
+                const card = this.uiNode(content, '招募结果卡片-' + idx + '-' + id, x, y, cardW, cardH);
+                this.albumArt(card, 'card-' + b.rarity.toLowerCase(), 0, 0, cardW, cardH, '图鉴卡片底框', false);
+                const badgeH = b.rarity === 'SSR' ? 36 : 32;
+                this.albumArt(card, 'rarity-' + b.rarity.toLowerCase(), -45, 51, 30, badgeH, '稀有度徽章-' + b.rarity);
+
+                const pillW = isFirstNew ? 48 : 38;
+                const tag = this.uiNode(card, '招募结果状态标', 10, 52, pillW, 20);
+                const tg = tag.addComponent(Graphics);
+                tg.fillColor = this.color(isFirstNew ? '#E55243' : '#4F9B58');
+                tg.roundRect(-pillW / 2, -10, pillW, 20, 10); tg.fill();
+                const tagLbl = this.text(tag, isFirstNew ? 'NEW' : '+1', 0, 0, pillW - 4, 18, 12, '#FFFDF5');
+                tagLbl.isBold = true; tagLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+
+                this.petAvatar(card, id, 0, 6, 68, false);
+                const nameLbl = this.dailyText(card, b.name, 0, -51, 94, 22, 14);
+                nameLbl.color = this.color('#49301E');
+                card.setScale(0.75, 0.75, 1);
+                tween(card).delay(idx * 0.035).to(0.15, { scale: new Vec3(1.05, 1.05, 1) }, { easing: 'quadOut' }).to(0.09, { scale: new Vec3(1, 1, 1) }).start();
+            });
+
+            const foot = this.text(content, newIds.size > 0 ? '新解锁伙伴已入驻庭院，前往图鉴可领取钻石奖励！' : '所有重复伙伴已自动保留为升星本体', 0, -206, 700, 30, 20, '#7C5A3E');
+            foot.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+        }
+
+        const btnY = isTen ? -342 : -314;
+        actions.forEach((action, i) => {
+            const btn = content.getChildByName('弹窗按钮-' + action.title)!;
+            btn.setPosition(actions.length === 1 ? 0 : (i === 0 ? -186 : 186), btnY);
+            btn.off(Node.EventType.TOUCH_START); btn.off(Node.EventType.TOUCH_CANCEL); btn.off(Node.EventType.TOUCH_END);
+            const btnArt = this.shopArt(btn, 'buy', 0, 0, 380 * ratio, 380 * ratio * 120 / 321);
+            btnArt.setSiblingIndex(0);
+            btn.getComponent(Sprite)!.enabled = false;
+            this.pressVisualFeedback(btn, btn.children.slice());
+            btn.on(Node.EventType.TOUCH_END, action.run, this);
+        });
+        this.layoutDialog();
     }
 
     private showRecruitRewards() {
