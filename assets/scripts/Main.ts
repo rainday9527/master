@@ -37,13 +37,15 @@ interface Pet {
     trait: TraitId;
     outfit: OutfitId;
     coat: CoatId;
+    ownedOutfits: OutfitId[];
+    ownedCoats: CoatId[];
 }
 interface ShopState { day: number; freeUsed: number; paidUsed: number; maxTime: number; revision: number; slots: ShopSlot[]; }
 interface Save {
     version: number; coins: number; gems: number; xp: number; avatar: number; pets: Pet[];
     food: number; soap: number; toy: number; itemInventory: Record<string, number>;
     adventureEnd: number; lastSeen: number; shop: ShopState; daily: DailyState; recruit: RecruitState;
-    albumClaimed: Record<string, boolean>; ownedOutfits: OutfitId[]; ownedCoats: CoatId[];
+    albumClaimed: Record<string, boolean>;
 }
 type RigPartName = 'body' | 'head' | 'face' | 'earL' | 'earR' | 'legFL' | 'legFR' | 'legBL' | 'legBR' | 'tail';
 interface PetRigAsset {
@@ -204,7 +206,11 @@ export class Main extends Component {
     }
 
     private makePet(id: number, hunger = 70, clean = 80, energy = 85, joy = 75): Pet {
-        return { id, hunger, clean, energy, joy, star: 1, nickname: '', trait: BREEDS[id].defaultTrait, outfit: 'none', coat: 'original' };
+        return {
+            id, hunger, clean, energy, joy, star: 1, nickname: '',
+            trait: BREEDS[id].defaultTrait, outfit: 'none', coat: 'original',
+            ownedOutfits: ['none'], ownedCoats: ['original'],
+        };
     }
 
     private petDisplayName(id: number): string {
@@ -217,7 +223,7 @@ export class Main extends Component {
             pets: [0, 1].map(id => this.makePet(id, 75, 85, 90, 80)),
             food: 5, soap: 4, toy: 3, itemInventory: {}, adventureEnd: 0, lastSeen: Date.now(), shop: this.newShop(Date.now()), daily: newDaily(this.shopDay(Date.now())),
             recruit: restoreRecruit(undefined, [0, 1], BREEDS.map((_, id) => id), false),
-            albumClaimed: {}, ownedOutfits: ['none'], ownedCoats: ['original'] };
+            albumClaimed: {} };
     }
 
     private load(): Save {
@@ -230,6 +236,8 @@ export class Main extends Component {
             if (!s || s.version !== 1 || !['coins', 'gems', 'xp', 'food', 'soap', 'toy'].every(k => validInt((s as any)[k])) ||
                 !validInt(s.avatar, BREEDS.length - 1) || !validInt(s.adventureEnd, 9000000000000000) ||
                 !validInt(s.lastSeen, 9000000000000000) || !Array.isArray(s.pets) || s.pets.length < 2 || s.pets.length > BREEDS.length) throw Error('存档无效');
+            const legacyOutfits = Array.isArray((s as any).ownedOutfits) ? new Set<OutfitId>(((s as any).ownedOutfits as unknown[]).filter(isOutfitId)) : null;
+            const legacyCoats = Array.isArray((s as any).ownedCoats) ? new Set<CoatId>(((s as any).ownedCoats as unknown[]).filter(isCoatId)) : null;
             const ids = new Set<number>();
             s.pets = s.pets.map(p => {
                 if (!p || !validInt(p.id, BREEDS.length - 1) || ids.has(p.id) || !['hunger', 'clean', 'energy', 'joy'].every(k => typeof (p as any)[k] === 'number' && Number.isFinite((p as any)[k]) && (p as any)[k] >= 0 && (p as any)[k] <= 100)) throw Error('宠物数据无效');
@@ -237,9 +245,23 @@ export class Main extends Component {
                 const star = validInt(p.star, MAX_PET_STAR) && p.star >= 1 ? p.star : 1;
                 const nickname = typeof p.nickname === 'string' ? sanitizeNickname(p.nickname) : '';
                 const trait = isTraitId(p.trait) ? p.trait : BREEDS[p.id].defaultTrait;
-                const outfit = isOutfitId(p.outfit) ? p.outfit : 'none';
-                const coat = isCoatId(p.coat) ? p.coat : 'original';
-                return { id: p.id, hunger: p.hunger, clean: p.clean, energy: p.energy, joy: p.joy, star, nickname, trait, outfit, coat };
+                let outfit: OutfitId = isOutfitId(p.outfit) ? p.outfit : 'none';
+                let coat: CoatId = isCoatId(p.coat) ? p.coat : 'original';
+                // 装扮与服装皮肤按每只宠物独立解锁，不跨宠物共享；旧存档仅保留该宠物当前正在穿戴的项。
+                const petOutfits = new Set<OutfitId>(['none']);
+                if (Array.isArray(p.ownedOutfits)) p.ownedOutfits.forEach(o => { if (isOutfitId(o)) petOutfits.add(o); });
+                if (star >= 3) petOutfits.add('gold_crown');
+                if (outfit !== 'none' && legacyOutfits?.has(outfit)) petOutfits.add(outfit);
+                if (!petOutfits.has(outfit)) outfit = 'none';
+                const petCoats = new Set<CoatId>(['original']);
+                if (Array.isArray(p.ownedCoats)) p.ownedCoats.forEach(c => { if (isCoatId(c)) petCoats.add(c); });
+                if (coat !== 'original' && legacyCoats?.has(coat)) petCoats.add(coat);
+                if (!petCoats.has(coat)) coat = 'original';
+                return {
+                    id: p.id, hunger: p.hunger, clean: p.clean, energy: p.energy, joy: p.joy,
+                    star, nickname, trait, outfit, coat,
+                    ownedOutfits: Array.from(petOutfits), ownedCoats: Array.from(petCoats),
+                };
             });
             if (!ids.has(0) || !ids.has(1) || !ids.has(s.avatar)) throw Error('初始伙伴缺失');
             if (s.adventureEnd > Date.now() + 120000) s.adventureEnd = 0;
@@ -266,17 +288,8 @@ export class Main extends Component {
                 BREEDS.forEach(b => { if (s.albumClaimed[b.id] === true && ids.has(b.id)) albumClaimed[b.id] = true; });
             }
             s.albumClaimed = albumClaimed;
-            const outfitSet = new Set<OutfitId>(['none']);
-            if (Array.isArray(s.ownedOutfits)) s.ownedOutfits.forEach(o => { if (isOutfitId(o)) outfitSet.add(o); });
-            if (s.pets.some(p => p.star >= 3)) outfitSet.add('gold_crown');
-            s.ownedOutfits = Array.from(outfitSet);
-            const coatSet = new Set<CoatId>(['original']);
-            if (Array.isArray(s.ownedCoats)) s.ownedCoats.forEach(c => { if (isCoatId(c)) coatSet.add(c); });
-            s.ownedCoats = Array.from(coatSet);
-            s.pets.forEach(p => {
-                if (!outfitSet.has(p.outfit)) p.outfit = 'none';
-                if (!coatSet.has(p.coat)) p.coat = 'original';
-            });
+            delete (s as any).ownedOutfits;
+            delete (s as any).ownedCoats;
             return s;
         } catch { this.saveWarning = true; return this.fresh(); }
     }
@@ -2167,13 +2180,13 @@ export class Main extends Component {
             this.showCoinDialog(); return false;
         }
         const nextStar = req.nextStar;
-        const nextPet: Pet = { ...pet, star: nextStar };
-        const ownedOutfits = this.data.ownedOutfits.slice();
+        const ownedOutfits = pet.ownedOutfits.slice();
         let crownUnlocked = false;
         if (nextStar >= 3 && !ownedOutfits.includes('gold_crown')) {
             ownedOutfits.push('gold_crown');
             crownUnlocked = true;
         }
+        const nextPet: Pet = { ...pet, star: nextStar, ownedOutfits };
         const nextRecruit: RecruitState = {
             ...this.data.recruit,
             copies: { ...this.data.recruit.copies, [petId]: totalCopies - req.extraCopies },
@@ -2183,7 +2196,6 @@ export class Main extends Component {
             coins: this.data.coins - req.coins,
             pets: this.data.pets.map(p => p.id === petId ? nextPet : p),
             recruit: nextRecruit,
-            ownedOutfits,
         };
         if (!this.commitShop(candidate)) return false;
         const actor = this.actors.find(a => a.pet.id === petId);
@@ -2216,9 +2228,9 @@ export class Main extends Component {
         const pet = this.data.pets.find(p => p.id === petId);
         const def = PET_OUTFITS.find(o => o.id === outfitId);
         if (!pet || !def) return false;
-        let owned = this.data.ownedOutfits.includes(outfitId) || (def.freeAtStar !== undefined && pet.star >= def.freeAtStar);
+        let owned = pet.ownedOutfits.includes(outfitId) || (def.freeAtStar !== undefined && pet.star >= def.freeAtStar);
         let coins = this.data.coins, gems = this.data.gems;
-        const ownedOutfits = this.data.ownedOutfits.slice();
+        const ownedOutfits = pet.ownedOutfits.slice();
         if (!owned) {
             if (def.currency === 'coins') {
                 if (coins < def.price) { this.showCoinDialog(); return false; }
@@ -2230,10 +2242,10 @@ export class Main extends Component {
             owned = true;
         }
         if (owned && !ownedOutfits.includes(outfitId)) ownedOutfits.push(outfitId);
-        const nextPet: Pet = { ...pet, outfit: outfitId };
+        const nextPet: Pet = { ...pet, outfit: outfitId, ownedOutfits };
         const candidate: Save = {
             ...this.dailyCandidate(),
-            coins, gems, ownedOutfits,
+            coins, gems,
             pets: this.data.pets.map(p => p.id === petId ? nextPet : p),
         };
         if (!this.commitShop(candidate)) return false;
@@ -2248,9 +2260,9 @@ export class Main extends Component {
         const pet = this.data.pets.find(p => p.id === petId);
         const def = PET_COATS.find(c => c.id === coatId);
         if (!pet || !def) return false;
-        const owned = this.data.ownedCoats.includes(coatId);
+        const owned = pet.ownedCoats.includes(coatId);
         let coins = this.data.coins, gems = this.data.gems;
-        const ownedCoats = this.data.ownedCoats.slice();
+        const ownedCoats = pet.ownedCoats.slice();
         if (!owned) {
             if (def.currency === 'coins') {
                 if (coins < def.price) { this.showCoinDialog(); return false; }
@@ -2261,10 +2273,10 @@ export class Main extends Component {
             }
             ownedCoats.push(coatId);
         }
-        const nextPet: Pet = { ...pet, coat: coatId };
+        const nextPet: Pet = { ...pet, coat: coatId, ownedCoats };
         const candidate: Save = {
             ...this.dailyCandidate(),
-            coins, gems, ownedCoats,
+            coins, gems,
             pets: this.data.pets.map(p => p.id === petId ? nextPet : p),
         };
         if (!this.commitShop(candidate)) return false;
@@ -2647,7 +2659,7 @@ export class Main extends Component {
         PET_OUTFITS.forEach((o, i) => {
             const x = -232 + (i % 3) * 232, y = 130 - Math.floor(i / 3) * 110;
             const equipped = pet.outfit === o.id;
-            const owned = this.data.ownedOutfits.includes(o.id) || (o.freeAtStar !== undefined && pet.star >= o.freeAtStar);
+            const owned = pet.ownedOutfits.includes(o.id) || (o.freeAtStar !== undefined && pet.star >= o.freeAtStar);
             const tile = this.uiNode(body, '装扮项-' + o.id, x, y, 214, 96);
             const g = tile.addComponent(Graphics);
             g.fillColor = this.color(equipped ? '#E6F5E3' : '#FFF8EA');
@@ -2674,7 +2686,7 @@ export class Main extends Component {
         PET_COATS.forEach((c, i) => {
             const x = -261 + i * 174, y = -164;
             const equipped = pet.coat === c.id;
-            const owned = this.data.ownedCoats.includes(c.id);
+            const owned = pet.ownedCoats.includes(c.id);
             const tile = this.uiNode(body, '毛色项-' + c.id, x, y, 162, 114);
             const g = tile.addComponent(Graphics);
             g.fillColor = this.color(equipped ? '#E6F5E3' : '#FFF8EA');

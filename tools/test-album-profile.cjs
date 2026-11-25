@@ -120,10 +120,15 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
       const up2 = main.upgradePetStar(7);
       const up3 = main.upgradePetStar(7);
       const pet = main.data.pets.find(p => p.id === 7);
-      return { up2, up3, star: pet.star, copiesLeft: main.data.recruit.copies[7], copiesSpent: c0 - main.data.recruit.copies[7], hasCrown: main.data.ownedOutfits.includes('gold_crown') };
+      const pet0 = main.data.pets.find(p => p.id === 0);
+      return {
+        up2, up3, star: pet.star, copiesLeft: main.data.recruit.copies[7], copiesSpent: c0 - main.data.recruit.copies[7],
+        hasCrown: pet.ownedOutfits.includes('gold_crown'),
+        otherPetHasCrown: pet0.ownedOutfits.includes('gold_crown'),
+      };
     });
     console.log('star upgrade:', JSON.stringify(starRes));
-    assert.deepEqual(starRes, { up2: true, up3: true, star: 3, copiesLeft: 2, copiesSpent: 3, hasCrown: true });
+    assert.deepEqual(starRes, { up2: true, up3: true, star: 3, copiesLeft: 2, copiesSpent: 3, hasCrown: true, otherPetHasCrown: false });
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-pet-profile-star.png') });
 
     // 5) Switch to Outfit & Skin tab -> buy/equip 3D outfits & verify NO jump on equip + all outfits visible!
@@ -159,6 +164,18 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
       main.selectPetOutfit(0, 'none');
       main.selectPetCoat(0, 'cream_glow');
     });
+    const perPetIsolation = await page.evaluate(() => {
+      const p0 = main.data.pets.find(p => p.id === 0);
+      const p7 = main.data.pets.find(p => p.id === 7);
+      return {
+        p0OwnsScarf: p0.ownedOutfits.includes('blue_scarf'),
+        p7OwnsScarf: p7.ownedOutfits.includes('blue_scarf'),
+        p0OwnsSailor: p0.ownedCoats.includes('cream_glow'),
+        p7OwnsSailor: p7.ownedCoats.includes('cream_glow'),
+      };
+    });
+    console.log('per-pet outfit/skin isolation:', JSON.stringify(perPetIsolation));
+    assert.deepEqual(perPetIsolation, { p0OwnsScarf: false, p7OwnsScarf: true, p0OwnsSailor: true, p7OwnsSailor: false });
     await page.waitForTimeout(300);
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-pet-skin-sailor.png') });
 
