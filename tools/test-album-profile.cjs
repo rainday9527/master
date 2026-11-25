@@ -126,9 +126,35 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
     assert.deepEqual(starRes, { up2: true, up3: true, star: 3, copiesLeft: 2, copiesSpent: 3, hasCrown: true });
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-pet-profile-star.png') });
 
-    // 5) Switch to Outfit & Skin tab -> buy/equip 3D outfits (gold_crown on #7, bell_collar on #0, straw_hat on #9) & coat tint -> inspect garden!
-    await page.evaluate(() => {
+    // 5) Switch to Outfit & Skin tab -> buy/equip 3D outfits & verify NO jump on equip + all outfits visible!
+    const hopCheck = await page.evaluate(() => {
       main.openProfile(7, 'outfit');
+      main.previewHop = 0;
+      main.selectPetOutfit(7, 'blue_scarf');
+      const hopAfterScarf = main.previewHop;
+      return { hopAfterScarf };
+    });
+    assert.equal(hopCheck.hopAfterScarf, 0, 'equipping outfit must NOT trigger jump/hop');
+    await page.waitForFunction(() => {
+      const icons = walk(main.sheet).filter(n => n.name.startsWith('装扮图标-'));
+      return icons.length === 6 && icons.every(n => !!n.getComponent('cc.Sprite')?.spriteFrame) && !!main.previewRig?.outfitNode;
+    }, { timeout: 10000 });
+    await page.waitForTimeout(250);
+    await page.screenshot({ path: path.join(OUT_DIR, 'verify-pet-profile-scarf.png') });
+
+    await page.evaluate(() => {
+      main.selectPetOutfit(7, 'bell_collar');
+    });
+    await page.waitForTimeout(220);
+    await page.screenshot({ path: path.join(OUT_DIR, 'verify-pet-profile-collar.png') });
+
+    await page.evaluate(() => {
+      main.selectPetOutfit(7, 'straw_hat');
+    });
+    await page.waitForTimeout(220);
+    await page.screenshot({ path: path.join(OUT_DIR, 'verify-pet-profile-hat.png') });
+
+    await page.evaluate(() => {
       main.selectPetOutfit(7, 'gold_crown');
       main.selectPetCoat(7, 'sakura_blush');
       main.selectPetOutfit(0, 'bell_collar');
@@ -136,11 +162,7 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
       main.selectPetOutfit(11, 'blue_scarf');
       main.selectPetOutfit(6, 'pink_bow');
     });
-    await page.waitForFunction(() => {
-      const icons = walk(main.sheet).filter(n => n.name.startsWith('装扮图标-'));
-      return icons.length === 6 && icons.every(n => !!n.getComponent('cc.Sprite')?.spriteFrame) && !!main.previewRig?.outfitNode;
-    }, { timeout: 10000 });
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(250);
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-pet-profile-outfit.png') });
 
     // 6) Verify trait gameplay effect (glutton #4 gets +25% hunger on food care!)
