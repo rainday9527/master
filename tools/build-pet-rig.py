@@ -735,6 +735,118 @@ BREED_SKINS = {
         "socks": True,
         "tail_tip": "#FFF8EE",
     },
+    "cat_yingduan": {
+        "kind": "cat",
+        "base": "#8596A8",
+        "secondary": "#6E7F92",
+        "stripe": "#5C6D80",
+        "cream": "#DCE3EC",
+        "ear_outer": "#728496",
+        "ear_inner": "#EBAAB2",
+        "blush": "#EBA4AE",
+        "nose": "#6A5C63",
+        "eye": "#281D12",
+        "eye_iris": "#E09A2E",
+        "mouth": "#5E545A",
+        "pattern": "british_blue",
+        "blaze": False,
+        "socks": False,
+        "tail_tip": "#6E7F92",
+    },
+    "cat_buou": {
+        "kind": "cat",
+        "base": "#FBF5EB",
+        "secondary": "#EFE4D3",
+        "stripe": "#6B4E3F",
+        "cream": "#FFFDF8",
+        "ear_outer": "#684B3C",
+        "ear_inner": "#EBB0B2",
+        "blush": "#F3A0A8",
+        "nose": "#5C4034",
+        "eye": "#1D2842",
+        "eye_iris": "#4D8EE6",
+        "mouth": "#755547",
+        "pattern": "ragdoll_point",
+        "blaze": False,
+        "socks": True,
+        "tail_tip": "#6B4E3F",
+    },
+    "cat_sanhua": {
+        "kind": "cat",
+        "base": "#FAF6EE",
+        "secondary": "#F0E8DA",
+        "stripe": "#E68A3E",
+        "patch_dark": "#564741",
+        "cream": "#FFFFFF",
+        "ear_outer": "#E2843A",
+        "ear_inner": "#F5A8AC",
+        "blush": "#F4999B",
+        "nose": "#EE9596",
+        "eye": "#2A1F18",
+        "eye_iris": "#8E5E2D",
+        "mouth": "#8C5B4D",
+        "pattern": "calico",
+        "blaze": False,
+        "socks": True,
+        "tail_tip": "#564741",
+    },
+    "dog_keji": {
+        "kind": "dog",
+        "base": "#E79443",
+        "secondary": "#D27928",
+        "stripe": "#B8641C",
+        "cream": "#FFF9EF",
+        "ear_outer": "#DE8534",
+        "ear_inner": "#F4AAA8",
+        "blush": "#F39A8E",
+        "nose": "#32231D",
+        "eye": "#241914",
+        "eye_iris": "#6B4326",
+        "mouth": "#6C4535",
+        "pattern": "corgi",
+        "blaze": True,
+        "eyebrows": False,
+        "socks": True,
+        "tail_tip": "#FFF9EF",
+    },
+    "dog_chaiquan": {
+        "kind": "dog",
+        "base": "#DA8238",
+        "secondary": "#C26B24",
+        "stripe": "#A8591C",
+        "cream": "#FFF5E2",
+        "ear_outer": "#C9722A",
+        "ear_inner": "#EFA69E",
+        "blush": "#F09784",
+        "nose": "#2B201C",
+        "eye": "#221814",
+        "eye_iris": "#5F3B24",
+        "mouth": "#664032",
+        "pattern": "shiba",
+        "blaze": False,
+        "eyebrows": True,
+        "socks": True,
+        "tail_tip": "#FFF5E2",
+    },
+    "dog_jinmao": {
+        "kind": "dog",
+        "base": "#EDB95E",
+        "secondary": "#DBA042",
+        "stripe": "#C1842A",
+        "cream": "#FFF3D8",
+        "ear_outer": "#CE8D34",
+        "ear_inner": "#E8A698",
+        "blush": "#F29D8A",
+        "nose": "#3B2820",
+        "eye": "#251A13",
+        "eye_iris": "#6E4624",
+        "mouth": "#724936",
+        "pattern": "golden",
+        "blaze": False,
+        "eyebrows": False,
+        "socks": False,
+        "tail_tip": "#FFF3D8",
+    },
 }
 
 
@@ -820,11 +932,25 @@ def generate_skin_texture(skin_key: str, cfg: dict, fur_noise: Image.Image) -> I
             draw_soft_line(img, [(256 + sx * 40, 168), (256 + sx * 52, 122)], stripe, width=10, alpha=135, blur=5)
     elif pattern == "sesame_collie":
         draw_soft_ellipse(img, 256, 145, 235, 145, sec, alpha=170, blur=24)
+    elif pattern == "ragdoll_point":
+        # Iconic soft chocolate-seal face mask centered around eyes/muzzle!
+        draw_soft_ellipse(img, 256, 250, 96, 68, stripe, alpha=210, blur=22)
+        draw_soft_ellipse(img, 256, 285, 62, 42, stripe, alpha=185, blur=16)
+    elif pattern == "calico":
+        # Distinct cute asymmetric ginger-orange (left) & charcoal-brown (right) calico patches!
+        dark_patch = hex_rgb(cfg["patch_dark"])
+        draw_soft_ellipse(img, 165, 155, 88, 72, stripe, alpha=240, blur=14)
+        draw_soft_ellipse(img, 348, 155, 86, 70, dark_patch, alpha=235, blur=14)
+        draw_soft_ellipse(img, 120, 230, 56, 48, dark_patch, alpha=195, blur=14)
+    elif pattern == "british_blue":
+        draw_soft_ellipse(img, 256, 145, 220, 130, sec, alpha=140, blur=32)
 
     # Fluffy cream muzzle, lower cheeks, chin (ZERO grey halo!)
-    draw_soft_ellipse(img, 256, 345, 170, 118, cream, alpha=252, blur=16)
-    draw_soft_ellipse(img, 256, 304, 98, 60, cream, alpha=250, blur=12)
-    draw_soft_ellipse(img, 256, 440, 245, 90, cream, alpha=252, blur=18)
+    muzzle_alpha = 145 if pattern == "british_blue" else 135 if pattern == "ragdoll_point" else 252
+    draw_soft_ellipse(img, 256, 345, 170, 118, cream, alpha=muzzle_alpha, blur=16)
+    if pattern != "ragdoll_point":
+        draw_soft_ellipse(img, 256, 304, 98, 60, cream, alpha=muzzle_alpha, blur=12)
+    draw_soft_ellipse(img, 256, 440, 245, 90, cream, alpha=250 if pattern != "british_blue" else 180, blur=18)
 
     if cfg.get("blaze"):
         top_y = 66 if cfg["kind"] == "dog" else 118
@@ -859,11 +985,19 @@ def generate_skin_texture(skin_key: str, cfg: dict, fur_noise: Image.Image) -> I
         # Soft curved dorsal tabby stripes across back flanks
         for r_off in (55, 110, 165):
             draw_soft_line(img, [(565, 85 + r_off // 2), (660, 130 + r_off // 2), (768, 145 + r_off // 2), (876, 130 + r_off // 2), (971, 85 + r_off // 2)], stripe, width=20, alpha=alpha_s, blur=8)
-    elif pattern in ("pudding_dog", "peach_dog", "sesame_collie"):
+    elif pattern in ("pudding_dog", "peach_dog", "sesame_collie", "corgi", "shiba", "golden", "british_blue"):
         draw_soft_ellipse(img, 768, 125, 220, 120, sec, alpha=145, blur=34)
+    elif pattern == "calico":
+        dark_patch = hex_rgb(cfg["patch_dark"])
+        draw_soft_ellipse(img, 650, 145, 95, 78, stripe, alpha=235, blur=16)
+        draw_soft_ellipse(img, 885, 165, 92, 76, dark_patch, alpha=230, blur=16)
+        draw_soft_ellipse(img, 768, 85, 84, 58, stripe, alpha=210, blur=16)
+    elif pattern == "ragdoll_point":
+        draw_soft_ellipse(img, 768, 125, 210, 100, sec, alpha=165, blur=34)
 
     # Fluffy white chest bib (front +Z centered at x=768, y=240..420)
-    draw_soft_ellipse(img, 768, 310, 108, 115, cream, alpha=250, blur=18)
+    chest_rx = 148 if pattern == "corgi" else 108
+    draw_soft_ellipse(img, 768, 310, chest_rx, 115, cream, alpha=250 if pattern != "british_blue" else 175, blur=18)
     # Fluffy cream belly band along the bottom of Quadrant 2 (y=415..512) -> ZERO rump pinch!
     d = ImageDraw.Draw(img)
     draw_soft_ellipse(img, 768, 475, 285, 78, cream, alpha=252, blur=18)

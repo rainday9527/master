@@ -23,6 +23,15 @@ GRID_ORDER = [
     ("dog_taotao", 2, 1),
 ]
 
+GRID_ORDER_BATCH2 = [
+    ("cat_yingduan", 0, 0),
+    ("cat_buou", 1, 0),
+    ("cat_sanhua", 2, 0),
+    ("dog_keji", 0, 1),
+    ("dog_chaiquan", 1, 1),
+    ("dog_jinmao", 2, 1),
+]
+
 
 def detect_card_boxes(img: Image.Image) -> list[tuple[int, int, int, int]]:
     """Detect exact bounding boxes of the 6 inner cream portrait cards via background diff."""
@@ -199,18 +208,23 @@ def ensure_sprite_frame_meta(png_path: Path, display_name: str, size: int = 256)
 
 
 def main():
-    if len(sys.argv) > 1:
-        src = Path(sys.argv[1])
-        GEN_SOURCE.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src, GEN_SOURCE)
-    if not GEN_SOURCE.exists():
-        raise FileNotFoundError(f"Missing avatar sheet: {GEN_SOURCE}")
+    args = sys.argv[1:]
+    batch2 = "--batch2" in args
+    args = [a for a in args if a != "--batch2"]
+    target_source = (ROOT / "art" / "generated" / "pet-avatars-new6-v1.jpg") if batch2 else GEN_SOURCE
+    order = GRID_ORDER_BATCH2 if batch2 else GRID_ORDER
+    if args:
+        src = Path(args[0])
+        target_source.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, target_source)
+    if not target_source.exists():
+        raise FileNotFoundError(f"Missing avatar sheet: {target_source}")
 
     AVATARS_DIR.mkdir(parents=True, exist_ok=True)
-    img = Image.open(GEN_SOURCE)
+    img = Image.open(target_source)
     boxes = detect_card_boxes(img)
     print(f"Sheet {img.size}, detected {len(boxes)} boxes: {boxes}")
-    for idx, (skin_key, col, row) in enumerate(GRID_ORDER):
+    for idx, (skin_key, col, row) in enumerate(order):
         box = boxes[row * 3 + col]
         crop = img.crop(box)
         avatar = make_circular_avatar(crop, 256)

@@ -24,7 +24,7 @@ assert.equal(backgroundMeta.uuid, '4e7e4e59-a693-4d3a-9afc-bb3ef2875ae1');
 const backgroundFrame = Object.values(backgroundMeta.subMetas).find(m => m.importer === 'sprite-frame').userData;
 assert.deepEqual([backgroundFrame.width,backgroundFrame.height,backgroundFrame.rawWidth,backgroundFrame.rawHeight], [1080,1920,1080,1920]);
 const { Main } = load('Main');
-const R = load('Recruitment'), pool = [0, 1, 2, 3, 4, 5];
+const R = load('Recruitment'), pool = Array.from({ length: 12 }, (_, i) => i);
 const plain = v => JSON.parse(JSON.stringify(v));
 function game(saved) {
     raw = saved || null; fail = false; rolls = [];
@@ -36,7 +36,7 @@ function game(saved) {
 }
 function act(g, mode, values = []) { clock += 601; rolls = values.slice(); g.recruitTransaction(mode); }
 let g = game();
-assert.deepEqual(plain(g.data.recruit.copies), { 0: 1, 1: 1, 2: 0, 3: 0, 4: 0, 5: 0 });
+assert.deepEqual(plain(g.data.recruit.copies), { 0: 1, 1: 1, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0, 10: 0, 11: 0 });
 const legacy = plain(g.data); delete legacy.recruit;
 legacy.pets.push({ ...legacy.pets[0], id: 3 });
 g = game(JSON.stringify(legacy));
@@ -47,10 +47,10 @@ assert.equal(g.data.coins, legacy.coins); assert.equal(g.data.food, legacy.food)
 g.data.gems = 20000;
 act(g, 'single', [0]); assert.equal(g.data.gems, 19700); assert.equal(g.data.recruit.total, 1);
 assert.equal(g.data.recruit.copies[0], 2); assert.equal(g.spawned.length, 0);
-act(g, 'ten', [0.4, 0.4, 0.6, 0.8, 0.99, 0, 0.2, 0, 0, 0]);
+act(g, 'ten', [2/12 + 0.01, 2/12 + 0.01, 4/12 + 0.01, 5/12 + 0.01, 11/12 + 0.01, 0, 1/12 + 0.01, 0, 0, 0]);
 assert.equal(g.data.gems, 17000); assert.equal(g.data.recruit.total, 11);
 assert.equal(g.data.recruit.recent.length, 10); assert.equal(g.data.recruit.copies[2], 2);
-assert.equal(g.spawned.length, 3); assert.equal(new Set(g.data.pets.map(p => p.id)).size, 6);
+assert.equal(g.spawned.length, 4); assert.equal(new Set(g.data.pets.map(p => p.id)).size, 7);
 const snap = JSON.stringify(g.data), spawnCount = g.spawned.length;
 g.recruitTransaction('ten'); assert.equal(JSON.stringify(g.data), snap); assert.match(g.messages.at(-1), /太快/);
 fail = true; act(g, 'ten', [0.4]); assert.equal(JSON.stringify(g.data), snap); assert.equal(g.spawned.length, spawnCount); fail = false;
@@ -61,7 +61,7 @@ assert.equal(g.dialogs, 2); assert.equal(JSON.stringify(g.data), low);
 g = game(); g.data.gems = 10000;
 const freshBefore = JSON.stringify(g.data); fail = true; act(g, 'ten', Array(10).fill(0.99));
 assert.equal(JSON.stringify(g.data), freshBefore); assert.equal(g.spawned.length, 0); fail = false;
-act(g, 'ten', Array(10).fill(0.99)); assert.equal(g.spawned.length, 1); assert.equal(g.data.recruit.copies[5], 10);
+act(g, 'ten', Array(10).fill(0.99)); assert.equal(g.spawned.length, 1); assert.equal(g.data.recruit.copies[11], 10);
 // 重入交易必须挡住，即使从持久化回调触发也不扣第二笔。
 g = game(); g.data.gems = 10000;
 const commit = g.commitShop.bind(g); g.commitShop = c => { g.recruitTransaction('ten'); return commit(c); };
@@ -74,11 +74,11 @@ for (const n of expected) {
     fail = true; act(g, 'reward', [0.99]); assert.equal(JSON.stringify(g.data), before); assert.equal(g.spawned.length, count); fail = false;
     act(g, 'reward', [0.99]); assert.equal(g.data.recruit.claimed, n); assert.equal(g.data.recruit.total, 300); assert.equal(g.data.gems, 100);
 }
-assert.equal(g.data.recruit.copies[5], 6); assert.equal(g.spawned.length, 1);
+assert.equal(g.data.recruit.copies[11], 6); assert.equal(g.spawned.length, 1);
 g = game(raw); const claimed = JSON.stringify(g.data); act(g, 'reward'); assert.equal(JSON.stringify(g.data), claimed);
 assert.deepEqual([0, 10, 30, 50, 100, 200, 300].map(R.nextMilestone), [10, 30, 50, 100, 200, 300, 400]);
 // 所有池成员等宽区间，不加稀有率；安全上限整笔回滚。
-assert.deepEqual(plain(R.drawRecruit(pool, 6, (() => { let i = 0; return () => (i++ + 0.5) / 6; })())), pool);
+assert.deepEqual(plain(R.drawRecruit(pool, 12, (() => { let i = 0; return () => (i++ + 0.5) / 12; })())), pool);
 assert.throws(() => R.drawRecruit(pool, 1, () => 1));
 g = game(); g.data.gems = 10000; g.data.recruit.copies[0] = R.RECRUIT_CONFIG.maxCopies;
 let before = JSON.stringify(g.data); act(g, 'ten'); assert.equal(JSON.stringify(g.data), before);

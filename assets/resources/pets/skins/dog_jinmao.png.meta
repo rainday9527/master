@@ -1,0 +1,42 @@
+{
+  "ver": "1.0.27",
+  "importer": "image",
+  "imported": true,
+  "uuid": "e0b42d98-708b-4846-8c5e-ad040a4ec062",
+  "files": [
+    ".json",
+    ".png"
+  ],
+  "subMetas": {
+    "6c48a": {
+      "ver": "1.0.22",
+      "importer": "texture",
+      "uuid": "e0b42d98-708b-4846-8c5e-ad040a4ec062@6c48a",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {},
+      "userData": {
+        "wrapModeS": "clamp-to-edge",
+        "wrapModeT": "clamp-to-edge",
+        "minfilter": "linear",
+        "magfilter": "linear",
+        "mipfilter": "none",
+        "isUuid": true,
+        "imageUuidOrDatabaseUri": "e0b42d98-708b-4846-8c5e-ad040a4ec062",
+        "visible": false,
+        "anisotropy": 0
+      },
+      "displayName": "dog_jinmao",
+      "id": "6c48a",
+      "name": "texture"
+    }
+  },
+  "userData": {
+    "type": "texture",
+    "redirect": "e0b42d98-708b-4846-8c5e-ad040a4ec062@6c48a",
+    "hasAlpha": true,
+    "fixAlphaTransparencyArtifacts": false
+  }
+}
