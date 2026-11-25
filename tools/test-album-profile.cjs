@@ -377,6 +377,67 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
     assert.equal(tenPop.cards, 10, '10-draw must open result popup with 10 pet cards');
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-recruit-result-ten.png') });
 
+    // 11) Verify Shop page: green stock when purchasable, blue stock when unpurchasable (independent of owned count), snappy rapid buy, and larger mobile layout!
+    await page.evaluate(() => {
+      main.closeDialog();
+      main.data.coins = 260; main.data.gems = 100;
+      main.open('shop');
+    });
+    await page.waitForFunction(() => main.page === 'shop' && main.shopCards.length === 6 && main.shopCards.every(c => !!c.icon.spriteFrame), { timeout: 10000 });
+    await page.waitForTimeout(300);
+    const shopBefore = await page.evaluate(() => {
+      const s = main.data.shop;
+      return main.shopCards.map(c => {
+        const slot = s.slots.find(e => e.id === c.id);
+        const col = c.stock.color;
+        const ownCol = c.owned.color;
+        return {
+          id: c.id,
+          stockText: c.stock.string,
+          ownedText: c.owned.string,
+          stockRgb: [col.r, col.g, col.b],
+          ownedRgb: [ownCol.r, ownCol.g, ownCol.b],
+          remaining: slot.remaining,
+          iconSize: c.icon.node.getComponent('cc.UITransform').width,
+          buyW: c.price.node.parent.getComponent('cc.UITransform').width,
+        };
+      });
+    });
+    console.log('shop cards check:', JSON.stringify(shopBefore.slice(0, 3)));
+    assert.ok(shopBefore.every(c => c.iconSize >= 86 && c.buyW >= 170), 'shop icons and buy buttons must be enlarged for mobile');
+    assert.ok(shopBefore.every(c => c.stockText.startsWith('限购 ') && c.ownedText.startsWith('持有 ')), 'stock and owned must be separate labels');
+    // Test rapid buying (200ms apart) of an affordable item until sold out, then verify stock turns blue!
+    const buyTarget = await page.evaluate(() => {
+      main.data.coins = 5000; main.data.gems = 5000;
+      main.updateShopLabels();
+      const first = main.shopCards[0];
+      const slot = main.data.shop.slots.find(e => e.id === first.id);
+      return { id: first.id, initialRem: slot.remaining, greenRgb: [first.stock.color.r, first.stock.color.g, first.stock.color.b] };
+    });
+    assert.deepEqual(buyTarget.greenRgb, [34, 139, 60], 'purchasable stock label must be green');
+    for (let k = 0; k < buyTarget.initialRem; k++) {
+      await page.waitForTimeout(200);
+      await page.evaluate(id => main.buyShopItem(id), buyTarget.id);
+    }
+    const afterRapidBuy = await page.evaluate(id => {
+      const card = main.shopCards.find(c => c.id === id);
+      const slot = main.data.shop.slots.find(e => e.id === id);
+      return {
+        remaining: slot.remaining,
+        stockText: card.stock.string,
+        ownedText: card.owned.string,
+        soldOutRgb: [card.stock.color.r, card.stock.color.g, card.stock.color.b],
+        ownedRgb: [card.owned.color.r, card.owned.color.g, card.owned.color.b],
+      };
+    }, buyTarget.id);
+    console.log('shop rapid buy & sold-out color check:', JSON.stringify(afterRapidBuy));
+    assert.equal(afterRapidBuy.remaining, 0, 'rapid clicking 200ms apart must smoothly buy out every stock');
+    assert.deepEqual(afterRapidBuy.soldOutRgb, [45, 114, 200], 'sold-out stock label must turn blue');
+    assert.deepEqual(afterRapidBuy.ownedRgb, [110, 83, 60], 'owned label must stay neutral brown independent of stock');
+    await page.evaluate(() => { main.data.coins = 260; main.data.gems = 100; main.updateShopLabels(); main.renderHeader(); });
+    await page.waitForTimeout(200);
+    await page.screenshot({ path: path.join(OUT_DIR, 'verify-shop-after.png') });
+
     assert.deepEqual(errors, [], 'zero pageerrors');
     assert.deepEqual(failures, [], 'zero HTTP errors');
     console.log('ALL ALBUM + PROFILE + 12-BREED + TRAITS + 3D OUTFITS CHECKS PASSED!');

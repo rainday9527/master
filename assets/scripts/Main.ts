@@ -154,7 +154,7 @@ export class Main extends Component {
     private shopTimerLabel: Label | null = null;
     private shopCostLabel: Label | null = null;
     private shopCostIcon: Node | null = null;
-    private shopCards: { node: Node; id: string; title: Label; icon: Sprite; species: Label; effect: Label; stock: Label; price: Label; currency: Sprite }[] = [];
+    private shopCards: { node: Node; id: string; title: Label; icon: Sprite; species: Label; effect: Label; stock: Label; owned: Label; price: Label; currency: Sprite }[] = [];
     private spriteRequests = new WeakMap<Sprite, object>();
     private header: { profile: Node; avatar: number; level: Label; xp: Label; fill: Sprite; gems: Label; coins: Label } | null = null;
     private recruitLabels: Label[] = [];
@@ -1168,7 +1168,10 @@ export class Main extends Component {
             if (this.page === 'shop' || this.page === 'daily' || this.page === 'bag' || this.page === 'album' || this.page === 'profile') {
                 const pw = this.page === 'daily' || this.page === 'album' || this.page === 'profile' ? 1024 : this.page === 'bag' ? 921 : 900;
                 const ph = this.page === 'daily' ? 1400 : this.page === 'bag' ? 1390 : (this.page === 'album' || this.page === 'profile') ? 1372 : 1300;
-                const scale = Math.min(1, (this.width - 40) / pw, (this.height - 420) / ph);
+                const maxScale = this.page === 'shop' ? 1.08 : 1;
+                const padW = this.page === 'shop' ? 28 : 40;
+                const padH = this.page === 'shop' ? 370 : 420;
+                const scale = Math.min(maxScale, (this.width - padW) / pw, (this.height - padH) / ph);
                 this.sheet.setScale(scale, scale, 1);
             }
         }
@@ -3289,15 +3292,15 @@ export class Main extends Component {
         node.on(Node.EventType.TOUCH_END, () => { restore(); action(); }, this);
     }
 
-    private shopClick(): boolean {
+    private shopClick(cooldownMs = 160): boolean {
         const now = performance.now();
-        if (now - this.shopClickTime < 600) return false;
+        if (now - this.shopClickTime < cooldownMs) return false;
         this.shopClickTime = now;
         return true;
     }
 
     private refreshShop() {
-        if (!this.shopClick()) return;
+        if (!this.shopClick(350)) return;
         const now = Date.now(), shop = this.advanceShop(this.data.shop, now), cost = this.shopRefreshCost(shop);
         if (this.data.gems < cost) { this.showGemDialog(); return; }
         if (shop.revision >= Number.MAX_SAFE_INTEGER - 1 || shop.paidUsed >= Number.MAX_SAFE_INTEGER - 1) {
@@ -3311,7 +3314,7 @@ export class Main extends Component {
     }
 
     private buyShopItem(id: string) {
-        if (!this.shopClick()) return;
+        if (!this.shopClick(160)) return;
         const item = findItem(id);
         if (!item) return;
         const now = Date.now(), shop = this.advanceShop(this.data.shop, now);
@@ -3346,19 +3349,26 @@ export class Main extends Component {
         }
         if (this.shopCostLabel && isValid(this.shopCostLabel, true)) {
             this.shopCostLabel.string = cost ? String(cost) : '免费刷新（' + (3 - shop.freeUsed) + '/3）';
-            this.shopCostLabel.node.setPosition(cost ? -24 : 0, 0, 0);
-            this.shopCostLabel.node.getComponent(UITransform)!.setContentSize(cost ? 92 : 230, 42);
+            this.shopCostLabel.node.setPosition(cost ? -28 : 0, 0, 0);
+            this.shopCostLabel.node.getComponent(UITransform)!.setContentSize(cost ? 112 : 268, 48);
         }
         if (this.shopCostIcon && isValid(this.shopCostIcon, true)) this.shopCostIcon.active = cost > 0;
         this.shopCards.forEach(card => {
             const slot = shop.slots.find(entry => entry.id === card.id);
+            const remaining = slot?.remaining || 0;
             const owned = this.data.itemInventory[card.id] || 0;
-            if (isValid(card.stock, true)) {
-                card.stock.string = '限购 ' + (slot?.remaining || 0) + '  持有 ' + owned;
-                card.stock.color = this.statusColor(owned > 0);
-            }
             const item = findItem(card.id);
-            if (item && isValid(card.price, true)) card.price.color = this.statusColor(this.data[item.currency] >= item.price && (slot?.remaining || 0) > 0);
+            const canBuy = !!item && remaining > 0 && this.data[item.currency] >= item.price;
+            // 限购文字独立显示：可购买时绿色，无法购买（售罄或货币不足）时蓝色；与玩家持有数量分离，不再混用颜色。
+            if (isValid(card.stock, true)) {
+                card.stock.string = '限购 ' + remaining;
+                card.stock.color = this.color(canBuy ? '#228B3C' : '#2D72C8');
+            }
+            if (isValid(card.owned, true)) {
+                card.owned.string = '持有 ' + owned;
+                card.owned.color = this.color('#6E533C');
+            }
+            if (item && isValid(card.price, true)) card.price.color = this.statusColor(canBuy);
         });
     }
 
@@ -3386,7 +3396,7 @@ export class Main extends Component {
                 this.updateShopSprite(card.icon, 'art/items/' + item.id);
                 if (!previous || previous.currency !== item.currency) {
                     const aspect = item.currency === 'coins' ? 348 / 341 : 315 / 353;
-                    card.currency.node.getComponent(UITransform)!.setContentSize(30, 30 * aspect);
+                    card.currency.node.getComponent(UITransform)!.setContentSize(38, 38 * aspect);
                     this.updateShopSprite(card.currency, 'art/header/' + (item.currency === 'coins' ? 'coin-icon' : 'diamond-icon'));
                 }
             }
@@ -3398,47 +3408,50 @@ export class Main extends Component {
         const panel = this.sheet!;
         this.shopCards = [];
         this.shopArt(panel, 'stall', 0, 0, 900, 1300);
-        // 源图 656×947 的连续奶油内板为像素 [55,410]–[600,835]，不是整张装饰摊位。
-        // 映射到 900×1300 后安全范围为 x[-374.54,373.17]、y[-496.25,87.17]。
-        const content = this.uiNode(panel, '商店安全内容', 0, -205, 760, 580);
-        content.setScale(0.94, 0.94, 1);
-        const tab = this.shopArt(panel, 'tab', -265, 190, 180, 70);
-        this.headerText(tab, '道具', 0, 0, 145, 38, 28);
-        const close = this.shopArt(panel, 'close', 385, 130, 71, 72);
+        // 源图 656×947 的连续奶油内板为像素 [55,410]–[600,835]；映射到 900×1300 后安全范围为 x[-374.5,373.2]、y[-496.2,87.2]。
+        // 取消额外 0.94 缩小并充分利用内板空间，放大卡片、道具图标、字号与购买按钮以提升手机可读性。
+        const content = this.uiNode(panel, '商店安全内容', 0, -206, 748, 580);
+        const tab = this.shopArt(panel, 'tab', -262, 190, 206, 78);
+        this.headerText(tab, '道具', 0, 0, 168, 44, 32);
+        const close = this.shopArt(panel, 'close', 385, 130, 84, 85);
         this.shopButton(close, () => this.open('home'));
         const goods = this.data.shop.slots.map(slot => findItem(slot.id)!);
         for (let i = 0; i < 6; i++) {
-            // 抵消内容层缩放，面板内实际卡片为 210×245，行间距 20。
-            const card = this.shopArt(content, 'card', (-245 + (i % 3) * 245) / 0.94,
-                ((i < 3 ? -50 : -315) + 205) / 0.94, 210 / 0.94, 245 / 0.94);
+            const col = i % 3, row = Math.floor(i / 3);
+            const card = this.shopArt(content, 'card', (col - 1) * 248, row === 0 ? 147 : -147, 236, 278);
             if (i >= goods.length) continue;
             const item = goods[i];
-            const title = this.headerText(card, item.name, 0, 105, 210, 30, 25);
-            title.lineHeight = 30; title.overflow = Label.Overflow.CLAMP;
-            const icon = this.uiNode(card, '道具图标-' + item.id, 0, 48, 66, 66).addComponent(Sprite);
+            const title = this.headerText(card, item.name, 0, 116, 222, 34, 28);
+            title.lineHeight = 34; title.overflow = Label.Overflow.CLAMP;
+            const icon = this.uiNode(card, '道具图标-' + item.id, 0, 56, 86, 86).addComponent(Sprite);
             icon.sizeMode = Sprite.SizeMode.CUSTOM;
-            const species = this.text(card, this.speciesText(item), 0, 3, 210, 22, 18, C.muted);
-            species.lineHeight = 22; species.overflow = Label.Overflow.CLAMP;
-            const effect = this.text(card, effectText(item), 0, -31, 210, 44, 18, C.ink);
-            effect.lineHeight = 21; effect.overflow = Label.Overflow.CLAMP;
-            const stock = this.text(card, '', 0, -68, 210, 24, 18, C.muted);
-            stock.lineHeight = 24; stock.overflow = Label.Overflow.CLAMP;
-            const buy = this.shopArt(card, 'buy', 0, -105, 120, 120 * 120 / 321);
-            const price = this.headerText(buy, String(item.price), -20, 0, 72, 36, 26);
-            price.lineHeight = 32; price.overflow = Label.Overflow.CLAMP;
+            const species = this.text(card, this.speciesText(item), 0, 2, 222, 26, 21, C.muted);
+            species.lineHeight = 26; species.overflow = Label.Overflow.CLAMP;
+            const effect = this.text(card, effectText(item), 0, -27, 224, 30, 21, C.ink);
+            effect.isBold = true; effect.lineHeight = 28; effect.overflow = Label.Overflow.CLAMP;
+            const stock = this.text(card, '', -52, -57, 110, 26, 21, '#228B3C');
+            stock.node.name = '限购状态文字';
+            stock.isBold = true; stock.lineHeight = 26; stock.overflow = Label.Overflow.CLAMP;
+            const owned = this.text(card, '', 54, -57, 110, 26, 21, '#6E533C');
+            owned.node.name = '持有数量文字';
+            owned.isBold = true; owned.lineHeight = 26; owned.overflow = Label.Overflow.CLAMP;
+            const buy = this.shopArt(card, 'buy', 0, -104, 172, 172 * 120 / 321);
+            const price = this.headerText(buy, String(item.price), -24, 0, 98, 42, 32);
+            price.lineHeight = 38; price.overflow = Label.Overflow.CLAMP;
             const currencyAspect = item.currency === 'coins' ? 348 / 341 : 315 / 353;
-            const coin = this.uiNode(buy, '购买货币图标', 38, 0, 30, 30 * currencyAspect);
+            const coin = this.uiNode(buy, '购买货币图标', 48, 0, 38, 38 * currencyAspect);
             const currency = coin.addComponent(Sprite); currency.sizeMode = Sprite.SizeMode.CUSTOM;
-            const binding = { node: card, id: '', title, icon, species, effect, stock, price, currency };
+            const binding = { node: card, id: '', title, icon, species, effect, stock, owned, price, currency };
             this.shopCards.push(binding);
             this.shopButton(buy, () => this.buyShopItem(binding.id));
         }
-        const timer = this.shopArt(panel, 'timer-panel', -195, -550, 310, 72);
-        this.shopArt(timer, 'clock', -113, 0, 34, 40);
-        this.shopTimerLabel = this.text(timer, '', 18, 0, 210, 40, 27, C.white);
-        const refresh = this.shopArt(panel, 'buy', 205, -550, 240, 240 * 120 / 321);
-        this.shopCostLabel = this.headerText(refresh, '', 0, 0, 230, 42, 25);
-        this.shopCostIcon = this.uiNode(refresh, '刷新钻石图标', 52, 0, 40, 40 * 315 / 353);
+        const timer = this.shopArt(panel, 'timer-panel', -192, -552, 326, 80);
+        this.shopArt(timer, 'clock', -118, 0, 40, 47);
+        this.shopTimerLabel = this.text(timer, '', 20, 0, 220, 46, 32, C.white);
+        this.shopTimerLabel.isBold = true;
+        const refresh = this.shopArt(panel, 'buy', 202, -552, 266, 266 * 120 / 321);
+        this.shopCostLabel = this.headerText(refresh, '', 0, 0, 250, 46, 29);
+        this.shopCostIcon = this.uiNode(refresh, '刷新钻石图标', 58, 0, 42, 42 * 315 / 353);
         this.headerArt(this.shopCostIcon, 'diamond-icon');
         this.shopButton(refresh, () => this.refreshShop());
         this.updateShopCards();
