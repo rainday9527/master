@@ -262,6 +262,76 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
     assert.ok(crowdStats.bubbles <= 4, 'concurrent social bubbles must be capped cleanly');
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-garden-12pets-roaming.png') });
 
+    // 9) Verify Recruit page: signboard aligned left with avatar, reward panel shifted right, Album cards in preview strip, and swipeable card details dialog!
+    await page.evaluate(() => main.open('recruit'));
+    await page.waitForFunction(() => {
+      if (main.page !== 'recruit' || !main.sheet) return false;
+      const cards = walk(main.sheet).filter(n => n.name.startsWith('招募本体-'));
+      const frames = walk(main.sheet).filter(n => n.name === '图鉴卡片底框');
+      const badges = walk(main.sheet).filter(n => n.name.startsWith('稀有度徽章-'));
+      const avatars = walk(main.sheet).filter(n => n.name === '伙伴头像图');
+      const titleArt = walk(main.sheet).find(n => n.name === '招募素材-title');
+      return cards.length === 12 && frames.length === 12 && badges.length === 12 && avatars.length === 12
+        && frames.every(n => !!n.getComponent('cc.Sprite')?.spriteFrame)
+        && badges.every(n => !!n.getComponent('cc.Sprite')?.spriteFrame)
+        && avatars.every(n => !!n.getComponent('cc.Sprite')?.spriteFrame)
+        && !!titleArt?.getComponent('cc.Sprite')?.spriteFrame;
+    }, { timeout: 15000 });
+    await page.waitForTimeout(300);
+    const recruitLayout = await page.evaluate(() => {
+      const sheet = main.sheet;
+      const titleArt = sheet.getChildByName('招募素材-title');
+      const reward = sheet.getChildByName('领取招募累计奖励');
+      const profile = main.top.getChildByName('头像等级经验');
+      const vp = walk(sheet).find(n => n.name === '招募预览可视窗口');
+      const sv = vp?.getComponent('cc.ScrollView');
+      const titleLeft = (titleArt.position.x - titleArt.getComponent('cc.UITransform').width / 2) * sheet.scale.x;
+      const profileLeft = profile.position.x - profile.getComponent('cc.UITransform').width / 2;
+      return {
+        titleX: titleArt.position.x,
+        rewardX: reward.position.x,
+        titleLeft: +titleLeft.toFixed(1),
+        profileLeft: +profileLeft.toFixed(1),
+        previewHorizontal: !!sv?.horizontal,
+        previewCards: walk(sheet).filter(n => n.name.startsWith('招募本体-')).length,
+      };
+    });
+    console.log('recruit layout check:', JSON.stringify(recruitLayout));
+    assert.ok(Math.abs(recruitLayout.titleLeft - recruitLayout.profileLeft) <= 8, 'signboard left edge must align with top-left avatar');
+    assert.ok(recruitLayout.rewardX >= 380, 'recruit reward panel must be shifted right');
+    assert.equal(recruitLayout.previewHorizontal, true, 'recruit preview must use horizontal scrollable Album cards');
+    assert.equal(recruitLayout.previewCards, 12, 'recruit preview must include all 12 Album cards');
+    await page.screenshot({ path: path.join(OUT_DIR, 'verify-recruit-after.png') });
+
+    // Open swipeable Card Details dialog via "查看详情 ›"
+    await page.evaluate(() => {
+      const detailsBtn = walk(main.sheet).find(n => n.name === '查看招募卡池');
+      detailsBtn.emit(cc.Node.EventType.TOUCH_END, { propagationStopped: false });
+    });
+    await page.waitForFunction(() => {
+      if (!main.dialog) return false;
+      const cards = walk(main.dialog).filter(n => n.name.startsWith('卡池详情卡片-'));
+      const frames = walk(main.dialog).filter(n => n.name === '图鉴卡片底框');
+      return cards.length === 12 && frames.length === 12 && frames.every(n => !!n.getComponent('cc.Sprite')?.spriteFrame);
+    }, { timeout: 15000 });
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: path.join(OUT_DIR, 'verify-recruit-details.png') });
+    // Verify swiping / scrolling horizontally advances the card carousel!
+    const swipeCheck = await page.evaluate(() => {
+      const vp = walk(main.dialog).find(n => n.name === '招募卡池可视窗口');
+      const sv = vp.getComponent('cc.ScrollView');
+      const before = sv.getScrollOffset().x;
+      const nextBtn = walk(main.dialog).find(n => n.name === '卡池右滑按钮');
+      nextBtn.emit(cc.Node.EventType.TOUCH_END, { propagationStopped: false });
+      return { horizontal: sv.horizontal, cards: walk(main.dialog).filter(n => n.name.startsWith('卡池详情卡片-')).length, before };
+    });
+    await page.waitForTimeout(350);
+    const afterSwipe = await page.evaluate(() => walk(main.dialog).find(n => n.name === '招募卡池可视窗口').getComponent('cc.ScrollView').getScrollOffset().x);
+    console.log('recruit details swipe check:', JSON.stringify({ ...swipeCheck, after: +afterSwipe.toFixed(1) }));
+    assert.equal(swipeCheck.horizontal, true, 'details dialog must be horizontally swipeable');
+    assert.equal(swipeCheck.cards, 12, 'details dialog must render all 12 swipeable Album cards');
+    assert.ok(afterSwipe < swipeCheck.before - 100, 'swiping right must advance the card carousel');
+
     assert.deepEqual(errors, [], 'zero pageerrors');
     assert.deepEqual(failures, [], 'zero HTTP errors');
     console.log('ALL ALBUM + PROFILE + 12-BREED + TRAITS + 3D OUTFITS CHECKS PASSED!');

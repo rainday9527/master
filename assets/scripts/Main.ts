@@ -158,6 +158,7 @@ export class Main extends Component {
     private spriteRequests = new WeakMap<Sprite, object>();
     private header: { profile: Node; avatar: number; level: Label; xp: Label; fill: Sprite; gems: Label; coins: Label } | null = null;
     private recruitLabels: Label[] = [];
+    private recruitCards: { id: number; pill: Graphics; countLabel: Label }[] = [];
     private recruitProgress: Label | null = null;
     private recruitBadge: Node | null = null;
     private recruitResult: Label | null = null;
@@ -1953,26 +1954,152 @@ export class Main extends Component {
         label.color = this.statusColor(state.total >= next);
     }
 
+    private recruitPoolOrder(): number[] {
+        const rank: Record<'SSR' | 'SR' | 'R', number> = { SSR: 0, SR: 1, R: 2 };
+        return BREEDS.map(b => b.id).sort((a, b) => rank[BREEDS[a].rarity] - rank[BREEDS[b].rarity] || a - b);
+    }
+
+    private showRecruitPoolDialog(focusBreedId?: number) {
+        if (this.dialog) return;
+        this.showDialog('招募卡池详情', '', [
+            { title: '知道了', run: () => this.closeDialog() }
+        ]);
+        if (!this.dialog) return;
+        const panel = this.dialog.getChildByName('通用弹窗面板')!;
+        const ratio = 900 / 1116;
+        panel.getComponent(UITransform)!.setContentSize(900, 1120);
+        const art = panel.getChildByName('弹窗底板')!;
+        const sprite = art.getComponent(Sprite)!;
+        resources.load('art/dialog/panel/spriteFrame', SpriteFrame, (error, frame) => {
+            if (error || !frame || !isValid(sprite, true)) return;
+            const sliced = frame.clone();
+            sliced.insetTop = 370; sliced.insetBottom = 134;
+            sliced.insetLeft = 78; sliced.insetRight = 78;
+            sprite.spriteFrame = sliced; sprite.type = Sprite.Type.SLICED;
+            art.getComponent(UITransform)!.setContentSize(1116, 1120 / ratio);
+            art.setScale(ratio, ratio, 1);
+        });
+        panel.getChildByName('弹窗独立标题')!.setPosition(0, 560 - 280 * ratio);
+        panel.getChildByName('商店素材-close')?.setPosition(480 * ratio, 560 - 335 * ratio);
+
+        const content = panel.getChildByName('弹窗安全内容')!;
+        content.setPosition(0, 0);
+        content.getComponent(UITransform)!.setContentSize(740, 720);
+        content.getChildByName('弹窗正文')!.active = false;
+
+        this.dailyText(content, '共 ' + BREEDS.length + ' 位猫狗伙伴 · 左右滑动卡片查看详情', 0, 232, 700, 38, 25);
+        const sub = this.dailyText(content, '所有伙伴等权抽取 · 重复伙伴自动转为本体用于升星', 0, 194, 700, 30, 20);
+        sub.color = this.color('#876447'); sub.outlineWidth = 0;
+
+        const viewW = 716, viewH = 420;
+        const viewport = this.uiNode(content, '招募卡池可视窗口', 0, -28, viewW, viewH);
+        viewport.addComponent(Mask).type = Mask.Type.GRAPHICS_RECT;
+        const track = this.uiNode(viewport, '招募卡池滚动内容', -viewW / 2, 0, viewW, viewH);
+        track.getComponent(UITransform)!.setAnchorPoint(0, 0.5);
+        const scroll = viewport.addComponent(ScrollView);
+        scroll.content = track; scroll.horizontal = true; scroll.vertical = false;
+        scroll.cancelInnerEvents = true; scroll.elastic = true; scroll.inertia = true;
+
+        const order = this.recruitPoolOrder();
+        const slotW = 282, slotH = 408, gap = 20, pad = 16;
+        const pitch = slotW + gap;
+        const totalW = Math.max(viewW, pad * 2 + order.length * slotW + (order.length - 1) * gap);
+        track.getComponent(UITransform)!.setContentSize(totalW, viewH);
+
+        order.forEach((id, idx) => {
+            const b = BREEDS[id];
+            const rarity = RARITY_INFO[b.rarity];
+            const trait = PET_TRAITS[b.defaultTrait];
+            const copies = this.data.recruit.copies[id] || 0;
+            const owned = this.data.pets.some(p => p.id === id);
+            const x = pad + slotW / 2 + idx * pitch;
+            const slot = this.uiNode(track, '卡池详情卡片-' + id, x, 0, slotW, slotH);
+
+            // 上半部分：原版手绘稀有度图鉴卡片（零变形）
+            const cardW = 274, cardH = 296;
+            const cardBox = this.uiNode(slot, '卡池图鉴卡面', 0, 50, cardW, cardH);
+            this.albumArt(cardBox, 'card-' + b.rarity.toLowerCase(), 0, 0, cardW, cardH, '图鉴卡片底框', false);
+            const badgeH = b.rarity === 'SSR' ? 66 : 58;
+            this.albumArt(cardBox, 'rarity-' + b.rarity.toLowerCase(), -92, 101, 55, badgeH, '稀有度徽章-' + b.rarity);
+
+            // 右上拥有/本体胶囊（居中落在左上徽章与右上星星之间，不压星角）
+            const pill = this.uiNode(cardBox, '卡池拥有状态', 22, 105, 96, 28);
+            const pg = pill.addComponent(Graphics);
+            pg.fillColor = this.color(owned ? '#4F9B58' : '#8B7460');
+            pg.roundRect(-48, -14, 96, 28, 14); pg.fill();
+            const pillLbl = this.text(pill, owned ? '本体 ×' + copies : '未获得', 0, 0, 90, 24, 16, '#FFFDF5');
+            pillLbl.isBold = true; pillLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+
+            // 中央头像 + 骨头铭牌名称
+            this.petAvatar(cardBox, id, 0, 14, 134, false);
+            const nameLbl = this.dailyText(cardBox, b.name, 0, -102, 164, 34, 24);
+            nameLbl.color = this.color('#49301E');
+
+            // 下半部分：紧凑详情卡条（品类/稀有度、图鉴首获钻石、性格词条）
+            const info = this.uiNode(slot, '卡池详情信息条', 0, -152, 274, 88);
+            const ig = info.addComponent(Graphics);
+            ig.fillColor = this.color('#FFF8EB'); ig.strokeColor = this.color('#DCC097'); ig.lineWidth = 2.5;
+            ig.roundRect(-137, -44, 274, 88, 16); ig.fill(); ig.stroke();
+            const meta = this.text(info, (b.kind === 'cat' ? '猫咪' : '狗狗') + ' · ' + rarity.label, -48, 19, 164, 28, 18, rarity.badgeBg);
+            meta.isBold = true; meta.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+            this.diamondBadge(info, b.unlockGems, 80, 19, 92, 25, '#E05744', '#FFFDF5', 14);
+            const traitLbl = this.text(info, '性格·' + trait.name + '  ' + trait.summary, 0, -18, 258, 28, 16, '#6C4D33');
+            traitLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+        });
+
+        // 左右快捷翻卡箭头（兼顾触屏滑动与鼠标轻点翻页）
+        const maxScroll = Math.max(0, totalW - viewW);
+        const nudge = (dir: number) => {
+            const cur = scroll.getScrollOffset().x;
+            const next = Math.max(0, Math.min(maxScroll, -cur + dir * pitch));
+            scroll.scrollToOffset(new Vec2(next, 0), 0.22);
+        };
+        for (const [label, dir, ax] of [['‹', -1, -356], ['›', 1, 356]] as const) {
+            const arrow = this.uiNode(content, dir < 0 ? '卡池左滑按钮' : '卡池右滑按钮', ax, -28, 46, 72);
+            const ag = arrow.addComponent(Graphics);
+            ag.fillColor = new Color(111, 72, 43, 195);
+            ag.roundRect(-23, -36, 46, 72, 23); ag.fill();
+            const txt = this.text(arrow, label, 0, 2, 40, 48, 36, '#FFF8E8');
+            txt.isBold = true;
+            this.intercept(arrow); this.pressVisualFeedback(arrow);
+            arrow.on(Node.EventType.TOUCH_END, () => nudge(dir), this);
+        }
+
+        if (focusBreedId !== undefined) {
+            const idx = order.indexOf(focusBreedId);
+            if (idx >= 0) {
+                const centerX = pad + slotW / 2 + idx * pitch;
+                const target = Math.max(0, Math.min(maxScroll, centerX - viewW / 2));
+                scroll.scrollToOffset(new Vec2(target, 0), 0);
+            } else {
+                scroll.scrollToLeft(0);
+            }
+        } else {
+            scroll.scrollToLeft(0);
+        }
+
+        const closeBtn = content.getChildByName('弹窗按钮-知道了')!;
+        closeBtn.setPosition(0, -334);
+        closeBtn.off(Node.EventType.TOUCH_START); closeBtn.off(Node.EventType.TOUCH_CANCEL); closeBtn.off(Node.EventType.TOUCH_END);
+        const btnArt = this.shopArt(closeBtn, 'buy', 0, 0, 380 * ratio, 380 * ratio * 120 / 321);
+        btnArt.setSiblingIndex(0);
+        closeBtn.getComponent(Sprite)!.enabled = false;
+        this.pressVisualFeedback(closeBtn, closeBtn.children.slice());
+        closeBtn.on(Node.EventType.TOUCH_END, () => this.closeDialog(), this);
+        this.layoutDialog();
+    }
+
     private updateRecruit() {
         this.updateRecruitRewards();
         const state = this.data.recruit;
-        const pages = Math.max(1, Math.ceil(BREEDS.length / 6));
-        this.recruitPreviewPage = ((this.recruitPreviewPage % pages) + pages) % pages;
-        const offset = this.recruitPreviewPage * 6;
-        const preview = this.sheet?.getChildByName('招募预览横栏');
-        this.recruitLabels.forEach((label, slot) => {
-            const id = offset + slot;
-            const b = BREEDS[id];
-            if (!b) return;
-            label.string = b.name + '\n本体×' + (state.copies[id] || 0);
-            label.color = this.statusColor((state.copies[id] || 0) > 0);
-            const card = preview?.getChildByName('招募本体-' + slot);
-            const avatar = card?.children.find(n => n.name.startsWith('伙伴头像-'));
-            const sprite = avatar?.getChildByName('伙伴头像图')?.getComponent(Sprite);
-            if (sprite && isValid(sprite, true)) {
-                void this.loadPetAvatar(b.skin).then(frame => {
-                    if (frame && isValid(sprite, true)) sprite.spriteFrame = frame;
-                });
+        this.recruitCards.forEach(item => {
+            const count = state.copies[item.id] || 0;
+            item.countLabel.string = '×' + count;
+            if (isValid(item.pill, true)) {
+                item.pill.clear();
+                item.pill.fillColor = this.color(count > 0 ? '#4F9B58' : '#8B7460');
+                item.pill.roundRect(-29, -12, 58, 24, 12);
+                item.pill.fill();
             }
         });
         const next = nextMilestone(state.claimed), ready = state.total >= next;
@@ -1991,15 +2118,17 @@ export class Main extends Component {
     private renderRecruit() {
         const panel = this.sheet!;
         this.recruitLabels = [];
+        this.recruitCards = [];
         // 背景独立于正文缩放，位于货币与底栏后方，且不拦截输入。
         this.recruitBackground = this.recruitArt(this.ui, 'background', 0, 0, 1080, 1920);
         this.recruitBackground.setSiblingIndex(0);
-        this.recruitArt(panel, 'title', -180, 606, 600, 230);
+        // 招牌向左移并与左上玩家头像左缘对齐（(-236-300)*0.9551 ≈ -512 ≈ 头像框左缘 -511）。
+        this.recruitArt(panel, 'title', -236, 606, 600, 230);
         // 按1536源图真实内区映射：主牌与下方副条独立定位，不用节点矩形猜测。
-        this.dailyText(panel, '猫狗招募', -180, 621, 400, 78, 64, false, true).node.name = '招募大标题';
-        this.dailyText(panel, '与可爱的毛孩子相遇吧！', -176, 531, 350, 29, 24).node.name = '招募标题描述';
-        // 右上奖励与进度独立，不覆盖主体猫狗立绘。
-        const reward = this.uiNode(panel, '领取招募累计奖励', 330, 592, 300, 222);
+        this.dailyText(panel, '猫狗招募', -236, 621, 400, 78, 64, false, true).node.name = '招募大标题';
+        this.dailyText(panel, '与可爱的毛孩子相遇吧！', -232, 531, 350, 29, 24).node.name = '招募标题描述';
+        // 招募奖励整个功能面板向右移，与左侧招牌形成舒展对称留白，不遮挡中央猫狗立绘。
+        const reward = this.uiNode(panel, '领取招募累计奖励', 388, 592, 300, 222);
         this.recruitArt(reward, 'description', 0, 0, 300, 222);
         void this.navArt(reward, 'label0', 20, 50, 150, 70);
         this.recruitArt(reward, 'chest', -88, 50, 40, 38);
@@ -2041,34 +2170,63 @@ export class Main extends Component {
         }
         this.recruitArt(ten, 'discount', 170, 80, 96, 30);
         this.dailyText(ten, '9折', 170, 80, 62, 26, 22).node.name = '十抽9折文字牌';
-        const preview = this.uiNode(panel, '招募预览横栏', 0, -590, 940, 276);
-        const previewArt = this.uiNode(preview, '招募预览半透明底板', 0, 0, 940, 276);
+        const preview = this.uiNode(panel, '招募预览横栏', 0, -592, 964, 286);
+        const previewArt = this.uiNode(preview, '招募预览半透明底板', 0, 0, 964, 286);
         const previewFill = previewArt.addComponent(Graphics);
         previewFill.fillColor = new Color(111, 72, 43, 185);
-        previewFill.roundRect(-470, -138, 940, 276, 26); previewFill.fill();
-        this.dailyText(preview, '宠物预览', -300, 110, 280, 38, 28, true).node.name = '宠物预览标题';
-        const details = this.uiNode(preview, '查看招募卡池', 345, 104, 230, 64);
+        previewFill.roundRect(-482, -143, 964, 286, 26); previewFill.fill();
+        this.dailyText(preview, '宠物预览', -326, 114, 260, 38, 28, true).node.name = '宠物预览标题';
+        const swipeHint = this.text(preview, '左右滑动卡片浏览 · 点击看详情', -30, 114, 340, 28, 19, '#FFF3DC');
+        swipeHint.node.name = '招募预览滑动提示';
+        swipeHint.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+        swipeHint.outlineColor = this.color('#4A2B14'); swipeHint.outlineWidth = 1.5;
+        const details = this.uiNode(preview, '查看招募卡池', 356, 112, 226, 62);
         void this.navArt(details, 'label0', 0, 0, 170, 80);
         this.dailyText(details, '查看详情 ›', 0, 0, 132, 32, 24);
         this.intercept(details); this.pressVisualFeedback(details, details.children.slice());
-        details.on(Node.EventType.TOUCH_END, () => {
-            const byRarity = (r: 'SSR' | 'SR' | 'R') => BREEDS.filter(b => b.rarity === r).map(b => b.name).join('、');
-            this.showDialog('招募卡池（共' + BREEDS.length + '种）',
-                '【珍稀 SSR】' + byRarity('SSR') + '\n【稀有 SR】' + byRarity('SR') + '\n【普通 R】' + byRarity('R') + '\n所有伙伴等权 · 重复伙伴保留本体用于升星 · 累计满档赠本体',
-                [{ title: '换一批预览', run: () => { this.recruitPreviewPage++; this.updateRecruit(); this.closeDialog(); } }, { title: '知道了', run: () => this.closeDialog() }]);
-        }, this);
-        for (let slot = 0; slot < 6; slot++) {
-            const id = (this.recruitPreviewPage * 6 + slot) % BREEDS.length;
-            const card = this.uiNode(preview, '招募本体-' + slot, -375 + slot * 150, -13, 144, 154);
-            this.petAvatar(card, id, 0, 30, 94);
-            const stock = this.dailyText(card, '', 0, -43, 142, 58, 21);
-            stock.enableWrapText = true;
-            this.recruitLabels.push(stock);
-        }
-        this.recruitResult = this.dailyText(panel, '', 0, -752, 900, 32, 18);
+        details.on(Node.EventType.TOUCH_END, () => this.showRecruitPoolDialog(), this);
+
+        // 招募预览采用正式手绘稀有度图鉴卡片 + 横向流畅滑动条，展示全部 12 位猫狗伙伴。
+        const viewW = 928, viewH = 204;
+        const viewport = this.uiNode(preview, '招募预览可视窗口', 0, -24, viewW, viewH);
+        viewport.addComponent(Mask).type = Mask.Type.GRAPHICS_RECT;
+        const strip = this.uiNode(viewport, '招募预览滚动内容', -viewW / 2, 0, viewW, viewH);
+        strip.getComponent(UITransform)!.setAnchorPoint(0, 0.5);
+        const previewScroll = viewport.addComponent(ScrollView);
+        previewScroll.content = strip; previewScroll.horizontal = true; previewScroll.vertical = false;
+        previewScroll.cancelInnerEvents = true; previewScroll.elastic = true; previewScroll.inertia = true;
+
+        const order = this.recruitPoolOrder();
+        const cardW = 172, cardH = 186, gap = 12, pad = 10;
+        const totalW = Math.max(viewW, pad * 2 + order.length * cardW + (order.length - 1) * gap);
+        strip.getComponent(UITransform)!.setContentSize(totalW, viewH);
+
+        order.forEach((id, idx) => {
+            const b = BREEDS[id];
+            const x = pad + cardW / 2 + idx * (cardW + gap);
+            const card = this.uiNode(strip, '招募本体-' + id, x, 0, cardW, cardH);
+            this.albumArt(card, 'card-' + b.rarity.toLowerCase(), 0, 0, cardW, cardH, '图鉴卡片底框', false);
+            const badgeH = b.rarity === 'SSR' ? 45 : 40;
+            this.albumArt(card, 'rarity-' + b.rarity.toLowerCase(), -58, 65, 38, badgeH, '稀有度徽章-' + b.rarity);
+            const pillNode = this.uiNode(card, '招募本体数标签', 12, 67, 58, 24);
+            const pill = pillNode.addComponent(Graphics);
+            const countLabel = this.text(pillNode, '×0', 0, 0, 54, 22, 15, '#FFFDF5');
+            countLabel.isBold = true; countLabel.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+            this.petAvatar(card, id, 0, 9, 86, false);
+            const nameLabel = this.dailyText(card, b.name, 0, -64, 114, 26, 17);
+            nameLabel.color = this.color('#49301E');
+            this.pressVisualFeedback(card, card.children.slice());
+            this.scrollTap(card, () => this.showRecruitPoolDialog(id));
+            this.recruitLabels.push(countLabel);
+            this.recruitCards.push({ id, pill, countLabel });
+        });
+        previewScroll.scrollToLeft(0);
+
+        this.recruitResult = this.dailyText(panel, '', 0, -756, 900, 32, 18);
         this.recruitResult.node.name = '招募最近结果'; this.recruitResult.enableWrapText = true;
         // 招募页局部减弱浅色描边，其他界面保持原样。
         const soften = (node: Node) => {
+            if (node.name === '招募本体数标签' || node.name === '招募预览滑动提示') return;
             const label = node.getComponent(Label);
             if (label) label.outlineWidth = 1;
             node.children.forEach(soften);
