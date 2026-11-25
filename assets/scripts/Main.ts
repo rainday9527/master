@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Camera, Canvas, UITransform, Graphics, Label, Color, Vec3, Vec2, MeshRenderer, Material, primitives, utils, view, ResolutionPolicy, Layers, input, Input, EventTouch, sys, BlockInputEvents, Sprite, SpriteFrame, resources, DirectionalLight, Vec4, JsonAsset, Texture2D, isValid, tween, Tween, ScrollView, Mask, UIOpacity } from 'cc';
+import { _decorator, Component, Node, Camera, Canvas, UITransform, Graphics, Label, Color, Vec3, Vec2, MeshRenderer, Material, primitives, utils, view, ResolutionPolicy, Layers, input, Input, EventTouch, sys, BlockInputEvents, Sprite, SpriteFrame, resources, DirectionalLight, Vec4, JsonAsset, Texture2D, isValid, tween, Tween, ScrollView, Mask, UIOpacity, profiler } from 'cc';
 
 import { ITEM_CATALOG, ItemDefinition, ItemCategory, PetStat, ShopSlot, findItem, itemApplies, effectText, drawShopSlots } from './ItemCatalog';
 
@@ -107,6 +107,7 @@ export class Main extends Component {
     private rewardedVideoPending = false;
 
     onLoad() {
+        profiler.hideStats();
         this.data = this.load();
         // 立即保存商店迁移结果；失败时后续商店事务仍须先落盘才会生效。
         this.commitShop(this.data);
@@ -588,7 +589,7 @@ export class Main extends Component {
             this.sheet.setPosition(0, this.page === 'pet' ? -this.height / 2 + 350 : this.page === 'shop' ? -this.height / 2 + 850 : -this.height / 2 + 640, 0);
             if (this.page === 'recruit') {
                 this.sheet.setPosition(0, -10, 0);
-                const scale = Math.min(1, (this.width - 40) / 1000, (this.height - 430) / 1420);
+                const scale = Math.min(1, (this.width - 40) / 1000, (this.height - 430) / 1560);
                 this.sheet.setScale(scale, scale, 1);
             }
             if (this.page === 'daily' || this.page === 'bag') this.sheet.setPosition(0, -10, 0);
@@ -1023,7 +1024,7 @@ export class Main extends Component {
         if (dailyEntry) dailyEntry.active = page === 'home';
         if (page === 'home') return;
         if (page === 'recruit') {
-            this.sheet = this.uiNode(this.ui, '招募面板', 0, 0, 1000, 1420);
+            this.sheet = this.uiNode(this.ui, '招募面板', 0, 0, 1000, 1560);
             this.intercept(this.sheet); this.renderRecruit(); this.layout(); this.animatePanelOpen(); return;
         }
         if (page === 'bag') {
@@ -1214,7 +1215,9 @@ export class Main extends Component {
         const state = this.data.recruit;
         this.recruitLabels.forEach((label, id) => { label.string = BREEDS[id].name + '\n本体×' + state.copies[id]; });
         const next = nextMilestone(state.claimed), ready = state.total >= next;
-        if (this.recruitProgress) this.recruitProgress.string = '累计 ' + state.total + ' / ' + next + ' 次 · ' + (ready ? '领取1只伙伴' : '达标送1只伙伴');
+        if (this.recruitProgress) this.recruitProgress.string = state.total + ' / ' + next;
+        const rewardHint = this.sheet?.getChildByName('领取招募累计奖励')?.getChildByName('招募奖励说明')?.getComponent(Label);
+        if (rewardHint) rewardHint.string = ready ? '已达标，点击领取\n获得1只伙伴本体' : '再招募 ' + (next - state.total) + ' 次\n达标送1只伙伴本体';
         if (this.recruitBadge) this.recruitBadge.active = ready;
         const fill = this.sheet?.getChildByName('领取招募累计奖励')?.getChildByName('招募累计进度填充')?.getComponent(Sprite);
         if (fill) fill.fillRange = Math.min(1, state.total / next);
@@ -1230,32 +1233,19 @@ export class Main extends Component {
         // 背景独立于正文缩放，位于货币与底栏后方，且不拦截输入。
         this.recruitBackground = this.recruitArt(this.ui, 'background', 0, 0, 1080, 1920);
         this.recruitBackground.setSiblingIndex(0);
-        this.recruitArt(panel, 'title', 0, 632, 400, 140);
-        this.dailyText(panel, '遇见新的毛茸茸', 0, 632, 370, 46, 34);
-        const back = this.recruitButton(panel, '返回', 'normal', -408, 638, 154, 70, () => this.open('home'));
-        back.name = '招募返回';
-        const search = this.recruitButton(panel, '', 'search', 420, 638, 78, 80, () => this.showDialog('招募卡池', BREEDS.map(b => b.name).join('、') + '\n普通与高级共用卡池，所有伙伴等权', [{ title: '知道了', run: () => this.closeDialog() }]));
-        search.name = '查看招募卡池';
-        // y=560 至 -210 留给背景立绘，不叠加说明板或库存卡片。
-        this.recruitArt(panel, 'preview', 0, -300, 916, 160);
-        BREEDS.forEach((b, id) => {
-            const x = -375 + id * 150;
-            const card = this.uiNode(panel, '招募本体-' + id, x, -300, 144, 160);
-            this.petAvatar(card, id, 0, 25, 86);
-            const stock = this.dailyText(card, '', 0, -44, 142, 54, 20);
-            stock.enableWrapText = true;
-            this.recruitLabels.push(stock);
-        });
-        this.recruitButton(panel, '普通招募 · 300钻 / 1次', 'normal', -235, -470, 430, 144, () => this.recruitTransaction('single'));
-        const ten = this.recruitButton(panel, '高级招募 · 2700钻 / 10次', 'advanced', 235, -470, 430, 144, () => this.recruitTransaction('ten'));
-        this.dailyText(ten, '9折', 100, 40, 70, 26, 22).node.name = '十抽9折文字牌';
-        this.recruitResult = this.dailyText(panel, '', 0, -578, 880, 48, 18);
-        this.recruitResult.node.name = '招募最近结果';
-        this.recruitResult.enableWrapText = true;
-        const reward = this.uiNode(panel, '领取招募累计奖励', 0, -656, 900, 88);
-        const track = this.uiNode(reward, '招募累计进度槽', 0, 0, 500, 500 * 134 / 784);
+        this.recruitArt(panel, 'title', -180, 606, 600, 210);
+        this.dailyText(panel, '猫狗招募', -180, 635, 470, 92, 76, false, true).node.name = '招募大标题';
+        this.dailyText(panel, '与可爱的毛孩子相遇吧！', -180, 550, 420, 38, 27).node.name = '招募标题描述';
+        // 右上奖励与进度独立，不覆盖主体猫狗立绘。
+        const reward = this.uiNode(panel, '领取招募累计奖励', 330, 592, 300, 222);
+        this.recruitArt(reward, 'description', 0, 0, 300, 222);
+        this.recruitArt(reward, 'chest', -104, 73, 65, 62);
+        this.dailyText(reward, '招募奖励', 30, 73, 190, 40, 32);
+        const hint = this.dailyText(reward, '', 0, 9, 255, 74, 24);
+        hint.node.name = '招募奖励说明'; hint.enableWrapText = true;
+        const track = this.uiNode(reward, '招募累计进度槽', 0, -65, 240, 240 * 134 / 784);
         this.headerArt(track, 'xp-track');
-        const bar = this.uiNode(reward, '招募累计进度填充', 0, 0, 500, 500 * 134 / 784);
+        const bar = this.uiNode(reward, '招募累计进度填充', 0, -65, 240, 240 * 134 / 784);
         const fill = bar.addComponent(Sprite); fill.sizeMode = Sprite.SizeMode.CUSTOM;
         resources.load('art/header/xp-fit/spriteFrame', SpriteFrame, (error, frame) => {
             if (error || !frame || !isValid(fill, true)) return;
@@ -1265,10 +1255,41 @@ export class Main extends Component {
         });
         this.intercept(reward); this.pressVisualFeedback(reward, reward.children.slice());
         reward.on(Node.EventType.TOUCH_END, () => this.recruitTransaction('reward'), this);
-        this.recruitArt(reward, 'chest', -350, 0, 84, 80);
-        this.recruitBadge = this.recruitArt(reward, 'badge', 351, 0, 44, 46);
+        this.recruitBadge = this.recruitArt(reward, 'badge', 131, 92, 40, 43);
         this.recruitBadge.active = false;
-        this.recruitProgress = this.dailyText(reward, '', 0, 0, 440, 42, 22);
+        this.recruitProgress = this.dailyText(reward, '', 0, -65, 210, 34, 24);
+        this.recruitProgress.node.name = '招募累计进度文字';
+        // 两个固定热区只缩放内部美术，价格使用原有钻石图标。
+        const single = this.recruitButton(panel, '', 'normal', -240, -334, 460, 216, () => this.recruitTransaction('single'));
+        single.name = '招募按钮-普通招募 · 300钻 / 1次';
+        const ten = this.recruitButton(panel, '', 'advanced', 240, -334, 460, 216, () => this.recruitTransaction('ten'));
+        ten.name = '招募按钮-高级招募 · 2700钻 / 10次';
+        for (const [node, cost, count] of [[single, '300', '1'], [ten, '2700', '10']] as const) {
+            const diamond = this.uiNode(node, '招募价格钻石', -66, 62, 46, 46 * 315 / 353);
+            this.headerArt(diamond, 'diamond-icon');
+            this.dailyText(node, '×' + cost, 32, 62, 140, 38, 31);
+            this.dailyText(node, '招募' + count + '次', 0, -2, 300, 62, 46, false, true);
+            this.dailyText(node, '随机获得伙伴本体', 0, -66, 310, 34, 24);
+        }
+        this.dailyText(ten, '9折', 164, 82, 66, 32, 26).node.name = '十抽9折文字牌';
+        const preview = this.uiNode(panel, '招募预览横栏', 0, -590, 940, 276);
+        const previewArt = this.recruitArt(preview, 'reward', 0, 0, 940, 276);
+        previewArt.addComponent(UIOpacity).opacity = 200;
+        this.dailyText(preview, '伙伴预览', -300, 81, 280, 38, 28, true);
+        const details = this.uiNode(preview, '查看招募卡池', 355, 81, 190, 52);
+        void this.navArt(details, 'label0', 0, 0, 190, 52);
+        this.dailyText(details, '查看详情 ›', 0, 0, 174, 42, 26);
+        this.intercept(details); this.pressVisualFeedback(details, details.children.slice());
+        details.on(Node.EventType.TOUCH_END, () => this.showDialog('招募卡池', BREEDS.map(b => b.name).join('、') + '\n普通与高级共用卡池，所有伙伴等权\n累计10、30、50、100次，之后每100次送1只伙伴本体', [{ title: '知道了', run: () => this.closeDialog() }]), this);
+        BREEDS.forEach((b, id) => {
+            const card = this.uiNode(preview, '招募本体-' + id, -375 + id * 150, -13, 144, 154);
+            this.petAvatar(card, id, 0, 30, 94);
+            const stock = this.dailyText(card, '', 0, -43, 142, 58, 21);
+            stock.enableWrapText = true;
+            this.recruitLabels.push(stock);
+        });
+        this.recruitResult = this.dailyText(panel, '', 0, -752, 900, 32, 18);
+        this.recruitResult.node.name = '招募最近结果'; this.recruitResult.enableWrapText = true;
         this.updateRecruit();
     }
     private renderAlbum() {

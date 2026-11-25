@@ -27,7 +27,7 @@ const fs = require('node:fs');
         cc.sys.localStorage.setItem(main.key, JSON.stringify(s));
       });
       await page.reload(); await attach();
-      const click = async name => {
+      const pointFor = async name => {
         const point = await page.evaluate(name => {
           const n = walk(main.ui).find(n => n.name === name && n.activeInHierarchy);
           if (!n) throw Error('缺少真实点击目标 ' + name);
@@ -36,14 +36,57 @@ const fs = require('node:fs');
           return { x: r.x + v.x / canvas.width * r.width, y: r.y + (1 - v.y / canvas.height) * r.height };
         }, name);
         assert(point.x >= 0 && point.x <= width && point.y >= 0 && point.y <= 844);
-        await page.mouse.click(point.x, point.y);
+        return point;
+      };
+      const click = async name => { const p = await pointFor(name); await page.mouse.click(p.x, p.y); };
+      const pressChecks = [];
+      const pressClick = async name => {
+        const read = () => page.evaluate(name => {
+          const n = walk(main.sheet).find(n => n.name === name), t = n.getComponent('cc.UITransform');
+          const geometry = v => {
+            const t = v.getComponent('cc.UITransform'), p = v.position, s = v.scale;
+            return [p.x, p.y, p.z, s.x, s.y, s.z, t.width, t.height];
+          };
+          return { root: geometry(n), world: [n.worldPosition.x, n.worldPosition.y, n.worldScale.x, n.worldScale.y],
+            // Cocos getBoundingBoxToWorld包含子显示层，反馈时其包围盒可变化；热区以根UITransform尺寸及worldScale为准。
+            bounds: [n.worldPosition.x, n.worldPosition.y, t.width * n.worldScale.x, t.height * n.worldScale.y],
+            art: geometry(n.children.find(v => v.getComponent('cc.Sprite'))), total: main.data.recruit.total, claimed: main.data.recruit.claimed };
+        }, name);
+        const before = await read(), p = await pointFor(name);
+        await page.mouse.move(p.x, p.y); await page.mouse.down();
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        const down = await read();
+        assert.deepEqual(down.root, before.root, name + '按下时根热区几何不变');
+        assert.deepEqual(down.world, before.world); assert.deepEqual(down.bounds, before.bounds);
+        assert.equal(down.total, before.total); assert.equal(down.claimed, before.claimed, '仅按下不能触发业务');
+        assert(Math.abs(down.art[3] - before.art[3] * 0.94) < 1e-6 && Math.abs(down.art[4] - before.art[4] * 0.94) < 1e-6, name + '真实按下必须缩放显示层');
+        await page.mouse.up();
+        const up = await read();
+        assert.deepEqual(up.root, before.root); assert.deepEqual(up.world, before.world); assert.deepEqual(up.bounds, before.bounds);
+        assert.deepEqual(up.art, before.art, name + '松开后显示层恢复');
+        pressChecks.push({ name, before, down, up });
+      };
+      const assertStable30 = async () => {
+        const result = await page.evaluate(() => new Promise(resolve => {
+          let frames = 0;
+          const check = () => {
+            const nodes = walk(main.sheet);
+            const refs = [main.sheet, main.recruitBackground, ...main.recruitLabels, main.recruitProgress, main.recruitBadge, main.recruitResult];
+            const same = main.sheet === window.recruitSheet && nodes.length === window.recruitNodes.length && nodes.every((n, i) => n === window.recruitNodes[i]) && refs.length === window.recruitRefs.length && refs.every((r, i) => r === window.recruitRefs[i]);
+            const geometry = JSON.stringify(nodes.map(window.recruitGeometry));
+            if (!same || geometry !== window.recruitGeometryBaseline) { cc.director.off(cc.Director.EVENT_AFTER_UPDATE, check); resolve({ frames, same, geometry: geometry === window.recruitGeometryBaseline }); return; }
+            if (++frames === 30) { cc.director.off(cc.Director.EVENT_AFTER_UPDATE, check); resolve({ frames, same, geometry: true }); }
+          };
+          cc.director.on(cc.Director.EVENT_AFTER_UPDATE, check);
+        }));
+        assert.deepEqual(result, { frames: 30, same: true, geometry: true }, '操作后连续30帧保持节点、组件引用及全部正文几何');
       };
       const state = () => page.evaluate(() => ({ gems: main.data.gems, total: main.data.recruit.total, claimed: main.data.recruit.claimed,
         copies: Object.values(main.data.recruit.copies).reduce((a,b) => a+b, 0), pets: main.data.pets.length, actors: main.actors.length,
         recent: main.data.recruit.recent.length, ready: main.recruitBadge.active, progress: main.recruitProgress.string,
         fill: main.sheet.getChildByName('领取招募累计奖励').getChildByName('招募累计进度填充').getComponent('cc.Sprite').fillRange,
         saved: JSON.stringify(main.data.recruit) === JSON.stringify(JSON.parse(cc.sys.localStorage.getItem(main.key)).recruit),
-        same: main.sheet === window.recruitSheet && walk(main.sheet).every((n,i) => n === window.recruitNodes[i]),
+        same: main.sheet === window.recruitSheet && walk(main.sheet).length === window.recruitNodes.length && walk(main.sheet).every((n,i) => n === window.recruitNodes[i]),
         nodes: walk(main.sheet).length })) ;
       await click('导航-recruit');
       await page.waitForFunction(() => main.page === 'recruit' && main.sheet?.name === '招募面板');
@@ -70,15 +113,11 @@ const fs = require('node:fs');
         const sprite = n.getComponent('cc.Sprite'), t = n.getComponent('cc.UITransform'), size = sprite.spriteFrame.originalSize;
         const parent = n.parent.getComponent('cc.UITransform');
         return { name: n.name, ratio: t.width/t.height, original: size.width/size.height, width: t.width, height: t.height,
-          inside: t.width <= parent.width + 1e-6 && t.height <= parent.height + 1e-6,
-          label: n.parent.children.filter(v => v.getComponent('cc.Label')).map(v => { const z = v.getComponent('cc.UITransform'); return [z.width/t.width,z.height/t.height]; }) };
+          inside: Math.abs(n.position.x) + t.width / 2 <= parent.width / 2 + 1e-6 && Math.abs(n.position.y) + t.height / 2 <= parent.height / 2 + 1e-6 };
       }));
       proportions.forEach(p => {
         assert(Math.abs(p.ratio-p.original)<1e-6, p.name+'必须按原始frame等比显示');
-        if (['招募素材-normal','招募素材-advanced','招募素材-search'].includes(p.name)) {
-          assert(p.inside, p.name+'素材必须位于固定热区内');
-          p.label.forEach(([w,h]) => assert(w <= 0.76 && h <= 0.51, p.name+'文字必须留在内区'));
-        }
+        if (['招募素材-normal','招募素材-advanced'].includes(p.name)) assert(p.inside, p.name+'素材必须位于固定热区内');
       });
       const progressGeometry = await page.evaluate(() => {
         const reward = main.sheet.getChildByName('领取招募累计奖励');
@@ -92,7 +131,16 @@ const fs = require('node:fs');
         const sheet = main.sheet, t = sheet.getComponent('cc.UITransform'), s = sheet.worldScale;
         window.recruitSheet = sheet; window.recruitNodes = walk(sheet);
         const rect = { left: sheet.position.x - t.width * s.x / 2, right: sheet.position.x + t.width * s.x / 2, top: sheet.position.y + t.height * s.y / 2, bottom: sheet.position.y - t.height * s.y / 2 };
-        return { rect, headerBottom: main.top.position.y - 70, navTop: main.bottom.position.y + 95,
+        const localRect = n => {
+          const t = n.getComponent('cc.UITransform');
+          return { name: n.name, text: n.getComponent('cc.Label')?.string, left: n.position.x - t.width / 2, right: n.position.x + t.width / 2, top: n.position.y + t.height / 2, bottom: n.position.y - t.height / 2 };
+        };
+        return { rect, size: [t.width, t.height], headerBottom: main.top.position.y - 70, navTop: main.bottom.position.y + 95,
+          detailsParent: walk(sheet).find(n => n.name === '查看招募卡池')?.parent.name,
+          details: localRect(walk(sheet).find(n => n.name === '查看招募卡池')),
+          buttons: sheet.children.filter(n => n.name.startsWith('招募按钮-')).map(n => ({ name: n.name, width: n.getComponent('cc.UITransform').width, height: n.getComponent('cc.UITransform').height,
+            labels: n.children.filter(v => v.getComponent('cc.Label')).map(localRect), diamond: localRect(n.getChildByName('招募价格钻石')) })),
+          removedBack: !walk(sheet).some(n => n.name === '招募返回'),
           avatars: walk(sheet).filter(n => n.name.startsWith('伙伴头像-')).length,
           sprites: walk(sheet).filter(n => n.getComponent('cc.Sprite')?.spriteFrame).length,
           art: walk(main.ui).filter(n => n.name.startsWith('招募素材-') && n.getComponent('cc.Sprite')?.spriteFrame).map(n => n.name).sort(),
@@ -116,36 +164,59 @@ const fs = require('node:fs');
       assert.equal(await page.evaluate(() => walk(main.ui).filter(n => n.name === '招募素材-background').length), 0, '离页立即移除背景');
       await click('导航-recruit'); await page.waitForTimeout(350);
       assertBackground(await backgroundLayout());
-      await page.evaluate(() => { window.recruitSheet = main.sheet; window.recruitNodes = walk(main.sheet); });
+      await page.evaluate(() => {
+        window.recruitSheet = main.sheet; window.recruitNodes = walk(main.sheet);
+        window.recruitRefs = [main.sheet, main.recruitBackground, ...main.recruitLabels, main.recruitProgress, main.recruitBadge, main.recruitResult];
+        window.recruitGeometry = n => {
+          const t = n.getComponent('cc.UITransform'), p = n.position, s = n.scale;
+          return [n.name, p.x, p.y, p.z, s.x, s.y, s.z, t.width, t.height, t.anchorX, t.anchorY];
+        };
+        window.recruitGeometryBaseline = JSON.stringify(window.recruitNodes.map(window.recruitGeometry));
+      });
       assert.equal(layout.avatars, 6); assert.equal(layout.operations, 0); assert.equal(layout.obsolete, 0);
       assert.equal(layout.discount, '9折'); assert.equal(layout.resultWrap, true);
-      assert.deepEqual(layout.art, ['background','title','normal','search','preview','normal','advanced','chest','badge'].map(key => '招募素材-' + key).sort(), '正式背景、标题、预览栏、按钮与奖励拆件逐个加载；头像为Graphics');
+      assert.deepEqual(layout.art, ['background','title','description','chest','badge','normal','advanced','reward'].map(key => '招募素材-' + key).sort(), '新招募素材逐个加载且无旧布局拆件；头像为Graphics');
+      assert.deepEqual(layout.size, [1000, 1560]); assert(layout.removedBack, '招募页只使用底部导航返回');
+      assert.equal(layout.detailsParent, '招募预览横栏');
+      assert(layout.details.left >= -470 && layout.details.right <= 470 && layout.details.bottom >= -138 && layout.details.top <= 138, '详情热区嵌在预览横栏内');
+      const separated = (a, b) => a.right <= b.left || b.right <= a.left || a.top <= b.bottom || b.top <= a.bottom;
+      for (const button of layout.buttons) {
+        const expected = button.name.includes('普通') ? ['×300', '招募1次', '随机获得伙伴本体'] : ['×2700', '招募10次', '随机获得伙伴本体', '9折'];
+        assert.deepEqual(button.labels.map(l => l.text), expected, '价格、招募标题、说明与折扣必须完整');
+        const contents = [...button.labels, button.diamond];
+        for (const item of contents) assert(item.left >= -button.width / 2 && item.right <= button.width / 2 && item.bottom >= -button.height / 2 && item.top <= button.height / 2, button.name + '内容超出固定热区：' + (item.text || item.name));
+        for (let i = 0; i < contents.length; i++) for (let j = i + 1; j < contents.length; j++) assert(separated(contents[i], contents[j]), button.name + '价格、标题、说明、折扣和钻石不得相互叠压');
+      }
+      assert.equal(layout.buttons.length, 2);
       assert.equal(layout.stock.length, 6); layout.stock.forEach(text => assert.match(text, /\n本体×\d+/));
       for (const zone of layout.zones) {
-        assert(zone.left >= -500 && zone.right <= 500 && zone.top <= 710 && zone.bottom >= -710, zone.name + '超出面板');
-        assert(zone.bottom >= 560 || zone.top <= -210, zone.name + '侵入主立绘留白区');
+        assert(zone.left >= -500 && zone.right <= 500 && zone.top <= 780 && zone.bottom >= -780, zone.name + '超出1560高正文面板');
+        assert(zone.bottom >= 480 || zone.top <= -210, zone.name + '侵入主立绘留白区');
       }
       const zone = name => layout.zones.find(z => z.name === name);
-      const preview = zone('招募素材-preview'), singleZone = zone('招募按钮-普通招募 · 300钻 / 1次'), tenZone = zone('招募按钮-高级招募 · 2700钻 / 10次');
+      const preview = zone('招募预览横栏'), singleZone = zone('招募按钮-普通招募 · 300钻 / 1次'), tenZone = zone('招募按钮-高级招募 · 2700钻 / 10次');
       const resultZone = zone('招募最近结果'), rewardZone = zone('领取招募累计奖励');
-      assert(preview.bottom - singleZone.top >= 15 && preview.bottom - tenZone.top >= 15);
+      assert(singleZone.bottom > preview.top && tenZone.bottom > preview.top, '按钮在预览横栏之前，底边必须高于预览顶边');
       assert(tenZone.left - singleZone.right >= 20 && singleZone.top === tenZone.top);
-      assert(singleZone.bottom - resultZone.top >= 10 && resultZone.bottom - rewardZone.top >= 10);
-      assert.equal(resultZone.top - resultZone.bottom, 48, '最近结果限制为紧凑状态文本');
-      await click('查看招募卡池');
+      assert(preview.bottom - resultZone.top >= 8, '最近结果在预览下方且不叠压');
+      assert(rewardZone.left > 0 && rewardZone.bottom > 0, '累计奖励位于正文右上');
+      for (const name of ['招募素材-title', '招募大标题', '招募标题描述']) assert(zone(name).right < rewardZone.left && separated(zone(name), rewardZone), '左侧标题与右上奖励不得相交');
+      assert.equal(resultZone.top - resultZone.bottom, 32, '最近结果限制为32高紧凑状态文本');
+      await pressClick('查看招募卡池');
       const poolText = await page.evaluate(() => walk(main.dialog).find(n => n.name === '弹窗正文').getComponent('cc.Label').string);
       for (const name of ['奶糖猫','布丁犬','云朵猫','芝麻犬','橘子猫','桃桃犬']) assert(poolText.includes(name));
-      assert.match(poolText, /等权/); await click('弹窗按钮-知道了');
+      assert.match(poolText, /等权/); await click('弹窗按钮-知道了'); await assertStable30();
       const single = '招募按钮-普通招募 · 300钻 / 1次', ten = '招募按钮-高级招募 · 2700钻 / 10次';
-      await click(single); const one = await state();
+      await pressClick(single); const one = await state();
       assert.equal(one.gems, 19700); assert.equal(one.total, 30); assert.equal(one.copies, 3); assert(one.ready && one.same && one.saved); assert.equal(one.pets, one.actors); assert.equal(one.fill, 1);
       await click(ten); const rapid = await state(); assert.equal(rapid.gems, one.gems); assert.equal(rapid.total, one.total);
-      assert.match(await page.evaluate(() => main.notice.string), /太快/);
-      await page.waitForTimeout(650); await click(ten); const batch = await state();
-      assert.equal(batch.gems, 17000); assert.equal(batch.total, 40); assert.equal(batch.copies, 13); assert.equal(batch.recent, 10); assert(batch.same && batch.saved); assert.equal(batch.pets, batch.actors);
-      await page.waitForTimeout(650); await click('领取招募累计奖励'); const reward = await state();
+      assert.match(await page.evaluate(() => main.notice.string), /太快/); await assertStable30();
+      await page.waitForTimeout(650); await pressClick(ten); const batch = await state();
+      assert.equal(batch.gems, 17000); assert.equal(batch.total, 40); assert.equal(batch.copies, 13); assert.equal(batch.recent, 10); assert(batch.same && batch.saved); assert.equal(batch.pets, batch.actors); await assertStable30();
+      await page.waitForTimeout(650); await pressClick('领取招募累计奖励'); const reward = await state();
       assert.equal(reward.claimed, 30); assert.equal(reward.total, 40); assert.equal(reward.copies, 14); assert.equal(reward.gems, 17000); assert(!reward.ready && reward.same && reward.saved); assert.match(reward.progress, /50/); assert(Math.abs(reward.fill - 0.8) < 1e-6, '领奖后进度填充必须原位刷新到40/50');
-      await page.waitForTimeout(650); await click('领取招募累计奖励'); assert.deepEqual(await state(), reward);
+      await assertStable30();
+      await page.waitForTimeout(650); await click('领取招募累计奖励'); assert.deepEqual(await state(), reward); await assertStable30();
       await page.screenshot({ path: `temp/recruit-${width}.png` });
       const assertClean = async () => {
         assert(await page.evaluate(() => main.recruitBackground === null && walk(main.ui).every(n => n.name !== '招募素材-background') && main.recruitLabels.length === 0 && main.recruitProgress === null && main.recruitBadge === null && main.recruitResult === null), '离页背景与招募引用清理');
@@ -155,7 +226,7 @@ const fs = require('node:fs');
         await click('导航-recruit');
         await page.waitForFunction(() => main.recruitBackground?.getComponent('cc.Sprite')?.spriteFrame);
         assertBackground(await backgroundLayout());
-        await click('招募返回'); await page.waitForFunction(() => main.page === 'home' && main.sheet === null); await assertClean();
+        await click('导航-home'); await page.waitForFunction(() => main.page === 'home' && main.sheet === null); await assertClean();
       }
       await page.reload(); await attach(); await click('导航-recruit'); await page.waitForTimeout(350);
       assert.equal((await state()).claimed, 30); assert.equal((await state()).copies, 14);
@@ -167,7 +238,7 @@ const fs = require('node:fs');
       await page.evaluate(() => { window.destroyedRecruitBackground = main.recruitBackground; main.destroy(); });
       await page.waitForFunction(() => !cc.isValid(window.destroyedRecruitBackground, true) && main.recruitBackground === null);
       assert.deepEqual(failures, []);
-      report.checks.push({ width, proportions, progressGeometry, layout, background, headerClickable: true, navClickable: true, reopenCleanup: true, one, batch, reward, persisted: true, insufficientDialog: true, httpFailures: failures });
+      report.checks.push({ width, proportions, progressGeometry, layout, background, pressChecks, stableFrames: 30, headerClickable: true, navClickable: true, reopenCleanup: true, one, batch, reward, persisted: true, insufficientDialog: true, httpFailures: failures });
       } catch (error) {
         report.errors.push(`${width}×844：${error.message}`);
       } finally { await context.close(); }
