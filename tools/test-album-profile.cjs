@@ -227,6 +227,19 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
     assert.ok(outfitsOnYard.find(x => x.id === 9).attached, 'Corgi #9 has 3D straw hat attached');
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-garden-newbreeds-outfits.png') });
 
+    // 8) Verify GM debug panel opens cleanly, executes commands, and closes cleanly
+    await page.evaluate(() => main.toggleGmPanel());
+    await page.waitForTimeout(200);
+    const gmCheck = await page.evaluate(() => ({
+      open: !!main.gmPanel,
+      btnCount: main.gmPanel ? walk(main.gmPanel).filter(n => n.name.startsWith('GM按钮-')).length : 0,
+    }));
+    console.log('GM panel check:', JSON.stringify(gmCheck));
+    assert.equal(gmCheck.open, true, 'GM debug panel must open');
+    assert.equal(gmCheck.btnCount, 14, 'GM debug panel must show all 14 quick debug buttons');
+    await page.screenshot({ path: path.join(OUT_DIR, 'verify-gm-panel.png') });
+    await page.evaluate(() => main.toggleGmPanel());
+
     assert.deepEqual(errors, [], 'zero pageerrors');
     assert.deepEqual(failures, [], 'zero HTTP errors');
     console.log('ALL ALBUM + PROFILE + 12-BREED + TRAITS + 3D OUTFITS CHECKS PASSED!');

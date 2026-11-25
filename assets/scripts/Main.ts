@@ -185,6 +185,7 @@ export class Main extends Component {
     private outfitIcons = new Map<string, Promise<SpriteFrame | null>>();
     public rewardedVideoProvider: RewardedVideoProvider | null = null;
     private dialog: Node | null = null;
+    private gmPanel: Node | null = null;
     private rewardedVideoPending = false;
 
     onLoad() {
@@ -834,7 +835,7 @@ export class Main extends Component {
 
     private updateProfilePreview(dt: number) {
         if (!this.previewCamera || !isValid(this.previewCamera, true)) return;
-        const active = this.page === 'profile' && !this.dialog && !!this.previewRig && !!this.previewStage &&
+        const active = this.page === 'profile' && !this.dialog && !this.gmPanel && !!this.previewRig && !!this.previewStage &&
             isValid(this.previewStage, true) && !!this.previewViewportNode && isValid(this.previewViewportNode, true);
         if (!active) {
             this.previewCamera.enabled = false;
@@ -1032,6 +1033,17 @@ export class Main extends Component {
         this.dailySprite(daily, 'task', 0, 26, 108, 98, false, '每日入口图标');
         this.navCaption(daily, '任务', 0);
         daily.on(Node.EventType.TOUCH_END, () => this.open('daily'), this);
+
+        // GM 预览调试悬浮入口（位于左上头像栏下方，不遮挡顶栏/底栏与主操作区）
+        const gm = this.uiNode(this.ui, 'GM调试入口', -440, 730, 104, 46);
+        const gmg = gm.addComponent(Graphics);
+        gmg.fillColor = new Color(92, 58, 36, 215); gmg.strokeColor = this.color('#F5C86B'); gmg.lineWidth = 3;
+        gmg.roundRect(-52, -23, 104, 46, 23); gmg.fill(); gmg.stroke();
+        const gmLbl = this.text(gm, 'GM 调试', 0, 0, 96, 36, 20, '#FFF6DC');
+        gmLbl.isBold = true; gmLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+        this.intercept(gm); this.pressVisualFeedback(gm, gm.children.slice());
+        gm.on(Node.EventType.TOUCH_END, () => this.toggleGmPanel(), this);
+
         this.layout(); this.renderHeader(); this.renderNav();
     }
 
@@ -1123,7 +1135,9 @@ export class Main extends Component {
         this.top.setPosition(0, this.height / 2 - 110, 0);
         // 入口宽190：右边缘距设计画布右侧4，按确认位置进一步靠右。
         this.ui.getChildByName('每日任务入口')?.setPosition(this.width / 2 - 4 - 190 / 2, this.height / 2 - 295, 0);
+        this.ui.getChildByName('GM调试入口')?.setPosition(-Math.min(this.width / 2 - 72, 416), this.height / 2 - 226, 0);
         this.bottom.setPosition(0, -this.height / 2 + 90, 0);
+        this.layoutGmPanel();
         if (this.page !== 'home' && Date.now() > this.noticeUntil && this.notice) {
             this.notice.string = '';
             this.notice.node.parent?.getComponent(Graphics)?.clear();
@@ -2060,8 +2074,231 @@ export class Main extends Component {
         const node = this.uiNode(parent, name, x, y, w, h);
         const sprite = node.addComponent(Sprite); sprite.sizeMode = Sprite.SizeMode.CUSTOM;
         if (sliced) sprite.type = Sprite.Type.SLICED;
-        this.updateShopSprite(sprite, 'art/album/' + key);
+        const request = {};
+        this.spriteRequests.set(sprite, request);
+        resources.load('art/album/' + key + '/spriteFrame', SpriteFrame, (error, frame) => {
+            if (error || !frame || !isValid(node, true) || !isValid(sprite, true) || this.spriteRequests.get(sprite) !== request) return;
+            sprite.spriteFrame = frame;
+            if (sliced) {
+                // 等比缩放九宫格节点，防止高分辨率圆角贴图在较矮的页签/横卡上被纵向压扁成尖角。
+                const scale = Math.min(1, w / frame.originalSize.width, h / frame.originalSize.height);
+                node.getComponent(UITransform)!.setContentSize(w / scale, h / scale);
+                node.setScale(scale, scale, 1);
+            }
+        });
         return node;
+    }
+
+    private closeGmPanel() {
+        if (!this.gmPanel) return;
+        this.gmPanel.active = false;
+        this.gmPanel.removeFromParent();
+        this.gmPanel.destroy();
+        this.gmPanel = null;
+        this.blockedUntil = Date.now() + 300;
+    }
+
+    private layoutGmPanel() {
+        if (!this.gmPanel || !isValid(this.gmPanel, true)) return;
+        this.gmPanel.getComponent(UITransform)!.setContentSize(this.width, this.height);
+        const shade = this.gmPanel.getComponent(Graphics)!;
+        shade.clear(); shade.fillColor = new Color(0, 0, 0, 150);
+        shade.rect(-this.width / 2, -this.height / 2, this.width, this.height); shade.fill();
+        const card = this.gmPanel.getChildByName('GM卡片');
+        if (card) {
+            const scale = Math.min(1, (this.width - 40) / 860, (this.height - 80) / 1180);
+            card.setScale(scale, scale, 1);
+        }
+    }
+
+    public toggleGmPanel() {
+        if (this.gmPanel) { this.closeGmPanel(); return; }
+        const overlay = this.uiNode(this.ui, 'GM调试面板', 0, 0, this.width, this.height);
+        this.gmPanel = overlay;
+        overlay.addComponent(Graphics); this.intercept(overlay);
+        const card = this.uiNode(overlay, 'GM卡片', 0, 0, 860, 1120);
+        this.intercept(card);
+        const bg = card.addComponent(Graphics);
+        bg.fillColor = this.color('#FFF9EC'); bg.strokeColor = this.color('#B87B44'); bg.lineWidth = 6;
+        bg.roundRect(-430, -560, 860, 1120, 32); bg.fill(); bg.stroke();
+        this.dailyText(card, 'GM 预览调试面板', 0, 500, 480, 54, 38);
+        const closeBtn = this.bagButton(card, '关闭', 330, 500, 120, 52, () => this.closeGmPanel());
+        closeBtn.name = '关闭GM按钮';
+
+        const refreshVisible = () => {
+            this.renderHeader();
+            if (this.page === 'album') this.renderAlbumGrid();
+            else if (this.page === 'profile') this.refreshProfileInPlace();
+            else if (this.page === 'pet') this.renderPet();
+            else if (this.page === 'bag') this.updateBag();
+            else if (this.page === 'recruit') this.updateRecruit();
+            else if (this.page === 'adventure') this.updateAdventureLabel();
+            else if (this.page === 'shop') this.updateShopLabels();
+        };
+        const activePetId = () => (this.page === 'profile' ? this.profilePetId : this.selected);
+
+        const actions: [string, () => void][] = [
+            ['钻石 +10000', () => {
+                const c = this.dailyCandidate();
+                c.gems = Math.min(100000000, c.gems + 10000);
+                if (this.commitShop(c)) { refreshVisible(); this.toast('GM：钻石 +10000'); }
+            }],
+            ['金币 +10000', () => {
+                const c = this.dailyCandidate();
+                c.coins = Math.min(100000000, c.coins + 10000);
+                if (this.commitShop(c)) { refreshVisible(); this.toast('GM：金币 +10000'); }
+            }],
+            ['解锁全部 12 伙伴', () => {
+                const c = this.dailyCandidate();
+                const owned = new Set(c.pets.map(p => p.id));
+                const added: Pet[] = [];
+                const copies = { ...c.recruit.copies };
+                BREEDS.forEach(b => {
+                    if (!owned.has(b.id)) {
+                        const np = this.makePet(b.id, 78, 84, 88, 82);
+                        c.pets = [...c.pets, np];
+                        added.push(np);
+                        copies[b.id] = Math.max(1, copies[b.id] || 0);
+                    }
+                });
+                c.recruit = { ...c.recruit, copies };
+                if (this.commitShop(c)) {
+                    added.forEach(p => this.spawnPet(p));
+                    refreshVisible();
+                    this.toast('GM：已解锁全部 ' + BREEDS.length + ' 只伙伴');
+                }
+            }],
+            ['全伙伴本体 +5', () => {
+                const c = this.dailyCandidate();
+                const copies = { ...c.recruit.copies };
+                BREEDS.forEach(b => { copies[b.id] = Math.min(999, (copies[b.id] || 0) + 5); });
+                c.recruit = { ...c.recruit, copies };
+                if (this.commitShop(c)) { refreshVisible(); this.toast('GM：全伙伴升星本体 +5'); }
+            }],
+            ['当前伙伴升 1 星', () => {
+                const pid = activePetId();
+                const pet = this.data.pets.find(p => p.id === pid);
+                if (!pet) { this.toast('请先选中已解锁伙伴'); return; }
+                const nextStar = Math.min(MAX_PET_STAR, pet.star + 1);
+                const ownedOutfits = pet.ownedOutfits.slice();
+                if (nextStar >= 3 && !ownedOutfits.includes('gold_crown')) ownedOutfits.push('gold_crown');
+                const nextPet: Pet = { ...pet, star: nextStar, ownedOutfits };
+                const c = this.dailyCandidate();
+                c.pets = c.pets.map(p => p.id === pid ? nextPet : p);
+                if (this.commitShop(c)) {
+                    const a = this.actors.find(x => x.pet.id === pid);
+                    if (a) a.pet = nextPet;
+                    refreshVisible();
+                    this.toast('GM：' + this.petDisplayName(pid) + ' 已升至 ' + nextStar + ' 星');
+                }
+            }],
+            ['重置图鉴领奖', () => {
+                const c = this.dailyCandidate();
+                c.albumClaimed = {};
+                if (this.commitShop(c)) { refreshVisible(); this.toast('GM：图鉴解锁钻石已可重新领取'); }
+            }],
+            ['全伙伴状态回满', () => {
+                const c = this.dailyCandidate();
+                c.pets = c.pets.map(p => ({ ...p, hunger: 100, clean: 100, energy: 100, joy: 100 }));
+                if (this.commitShop(c)) {
+                    c.pets.forEach(p => { const a = this.actors.find(x => x.pet.id === p.id); if (a) a.pet = p; });
+                    refreshVisible(); this.toast('GM：全部伙伴状态已回满 100');
+                }
+            }],
+            ['全状态降到 50', () => {
+                const c = this.dailyCandidate();
+                c.pets = c.pets.map(p => ({ ...p, hunger: 50, clean: 50, energy: 50, joy: 50 }));
+                if (this.commitShop(c)) {
+                    c.pets.forEach(p => { const a = this.actors.find(x => x.pet.id === p.id); if (a) a.pet = p; });
+                    refreshVisible(); this.toast('GM：全部状态已设为 50（偏低状态）');
+                }
+            }],
+            ['全状态归 0', () => {
+                const c = this.dailyCandidate();
+                c.pets = c.pets.map(p => ({ ...p, hunger: 0, clean: 0, energy: 0, joy: 0 }));
+                if (this.commitShop(c)) {
+                    c.pets.forEach(p => { const a = this.actors.find(x => x.pet.id === p.id); if (a) a.pet = p; });
+                    refreshVisible(); this.toast('GM：全部状态已归 0（危急气泡测试）');
+                }
+            }],
+            ['触发相遇气泡', () => {
+                this.closeGmPanel();
+                this.open('home');
+                this.actors.slice(0, 4).forEach((a, i) => this.showSocialBubble(a, i % 2 === 0 ? -1 : 1));
+                this.toast('GM：已触发庭院相遇气泡');
+            }],
+            ['当前宠全装扮皮肤', () => {
+                const pid = activePetId();
+                const pet = this.data.pets.find(p => p.id === pid);
+                if (!pet) { this.toast('请先选中已解锁伙伴'); return; }
+                const allOutfits = PET_OUTFITS.map(o => o.id);
+                const allCoats = PET_COATS.map(co => co.id);
+                const nextPet: Pet = { ...pet, ownedOutfits: allOutfits, ownedCoats: allCoats };
+                const c = this.dailyCandidate();
+                c.pets = c.pets.map(p => p.id === pid ? nextPet : p);
+                if (this.commitShop(c)) {
+                    const a = this.actors.find(x => x.pet.id === pid);
+                    if (a) a.pet = nextPet;
+                    refreshVisible(); this.toast('GM：已为' + this.petDisplayName(pid) + '解锁全部装扮与服装皮肤');
+                }
+            }],
+            ['全伙伴随机换装', () => {
+                const outfits = PET_OUTFITS.filter(o => o.id !== 'none').map(o => o.id);
+                const coats = PET_COATS.filter(co => co.id !== 'original').map(co => co.id);
+                const c = this.dailyCandidate();
+                c.pets = c.pets.map((p, idx) => {
+                    const o = outfits[idx % outfits.length];
+                    const co = coats[idx % coats.length];
+                    const ownedOutfits = Array.from(new Set<OutfitId>([...p.ownedOutfits, o]));
+                    const ownedCoats = Array.from(new Set<CoatId>([...p.ownedCoats, co]));
+                    return { ...p, outfit: o, coat: co, ownedOutfits, ownedCoats };
+                });
+                if (this.commitShop(c)) {
+                    c.pets.forEach(p => { void this.refreshPetAppearance(p.id); });
+                    refreshVisible(); this.toast('GM：已为全部伙伴换上随机装扮与皮肤');
+                }
+            }],
+            ['全道具 +5 / 经验+100', () => {
+                const c = this.dailyCandidate();
+                const inv = { ...c.itemInventory };
+                ITEM_CATALOG.forEach(item => { inv[item.id] = Math.min(9999, (inv[item.id] || 0) + 5); });
+                c.itemInventory = inv;
+                c.food += 5; c.soap += 5; c.toy += 5;
+                c.xp = Math.min(100000000, c.xp + 100);
+                if (this.commitShop(c)) { refreshVisible(); this.toast('GM：全道具 +5，玩家经验 +100'); }
+            }],
+            ['寻宝立即完成', () => {
+                const c = this.dailyCandidate();
+                c.adventureEnd = Date.now() - 1000;
+                if (this.commitShop(c)) { refreshVisible(); this.toast('GM：林间寻宝已完成，可立即领奖'); }
+            }],
+        ];
+
+        actions.forEach(([title, run], idx) => {
+            const col = idx % 2, row = Math.floor(idx / 2);
+            const x = col === 0 ? -195 : 195;
+            const y = 390 - row * 116;
+            const btn = this.bagButton(card, title, x, y, 360, 82, run);
+            btn.name = 'GM按钮-' + title;
+        });
+
+        const resetBtn = this.bagButton(card, '清空存档重置初始态', 0, -456, 460, 74, () => {
+            const fresh = this.fresh();
+            if (!this.commitShop(fresh)) return;
+            this.actors.forEach(a => { if (isValid(a.node, true)) a.node.destroy(); });
+            this.actors = [];
+            this.data.pets.forEach(p => this.spawnPet(p));
+            this.selected = 0; this.petSelected = false;
+            this.closeGmPanel();
+            this.open('home');
+            this.renderHeader();
+            this.toast('GM：已重置为初始庭院存档');
+        });
+        resetBtn.name = 'GM重置存档按钮';
+        const rLbl = resetBtn.getChildByName('文字')?.getComponent(Label);
+        if (rLbl) rLbl.color = this.statusColor(false);
+
+        this.layoutGmPanel();
     }
 
     private scrollTap(node: Node, action: () => void) {
@@ -2352,7 +2589,7 @@ export class Main extends Component {
         ];
         tabs.forEach(([title, filter, iconKey], i) => {
             const tab = this.uiNode(panel, '图鉴筛选-' + filter, -240 + i * 240, 174, 214, 58);
-            this.albumArt(tab, this.albumFilter === filter ? 'tab-active' : 'tab-normal', 0, 0, 214, 58, '页签底图', true);
+            this.albumArt(tab, this.albumFilter === filter ? 'tab-active' : 'tab-normal', 0, 0, 214, 58, '页签底图', false);
             this.albumArt(tab, iconKey, -64, 0, 34, 30, '页签图标-' + filter);
             const label = this.dailyText(tab, title, 18, 0, 140, 38, 22);
             label.node.name = '页签文字';
@@ -2470,7 +2707,7 @@ export class Main extends Component {
         const tabs: [string, 'overview' | 'star' | 'outfit'][] = [['状态与词条', 'overview'], ['升星强化', 'star'], ['装扮换肤', 'outfit']];
         tabs.forEach(([title, key], i) => {
             const tab = this.uiNode(panel, '主页页签-' + key, -242 + i * 242, -56, 224, 58);
-            this.albumArt(tab, this.profileTab === key ? 'tab-active' : 'tab-normal', 0, 0, 224, 58, '页签底图', true);
+            this.albumArt(tab, this.profileTab === key ? 'tab-active' : 'tab-normal', 0, 0, 224, 58, '页签底图', false);
             const label = this.dailyText(tab, title, 0, 0, 200, 36, 23);
             label.node.name = '页签文字';
             this.intercept(tab); this.pressVisualFeedback(tab, tab.children.slice());
@@ -3331,7 +3568,7 @@ export class Main extends Component {
 
     private onWorldTouch(event: EventTouch) {
         const location = event.getLocation();
-        if (this.dialog || Date.now() < this.blockedUntil) return;
+        if (this.dialog || this.gmPanel || Date.now() < this.blockedUntil) return;
         const screen = new Vec3(location.x, location.y, 0), uiWorld = new Vec3(); this.uiCamera.screenToWorld(screen, uiWorld);
         const point = this.ui.getComponent(UITransform)!.convertToNodeSpaceAR(uiWorld);
         const hits = (n: Node) => {
@@ -3838,6 +4075,7 @@ export class Main extends Component {
     onDestroy() {
         this.clearProfilePreview();
         this.clearRecruitBackground();
+        this.closeGmPanel();
         this.closeDialog();
         this.rewardedVideoProvider = null;
         input.off(Input.EventType.TOUCH_END, this.onWorldTouch, this);
