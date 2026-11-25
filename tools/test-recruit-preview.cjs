@@ -54,14 +54,33 @@ const fs = require('node:fs');
         return { rect, headerBottom: main.top.position.y - 70, navTop: main.bottom.position.y + 95,
           avatars: walk(sheet).filter(n => n.name.startsWith('伙伴头像-')).length,
           sprites: walk(sheet).filter(n => n.getComponent('cc.Sprite')?.spriteFrame).length,
+          art: walk(sheet).filter(n => n.name.startsWith('招募素材-') && n.getComponent('cc.Sprite')?.spriteFrame).map(n => n.name).sort(),
           obsolete: walk(sheet).filter(n => /定向|待配置/.test(n.name)).length,
           discount: walk(sheet).find(n => n.name === '十抽9折文字牌')?.getComponent('cc.Label')?.string,
           resultWrap: main.recruitResult.enableWrapText,
+          zones: sheet.children.filter(n => n.name !== '招募素材-background').map(n => {
+            const t = n.getComponent('cc.UITransform');
+            return { name: n.name, left: n.position.x - t.width / 2, right: n.position.x + t.width / 2, top: n.position.y + t.height / 2, bottom: n.position.y - t.height / 2 };
+          }),
+          stock: main.recruitLabels.map(label => label.string),
           operations: walk(main.ui).filter(n => n.name === '操作卡片' && n.activeInHierarchy).length };
       });
       assert(layout.rect.top < layout.headerBottom && layout.rect.bottom > layout.navTop);
-      assert.equal(layout.avatars, 10); assert.equal(layout.operations, 0); assert.equal(layout.obsolete, 0);
-      assert.equal(layout.discount, '9折'); assert.equal(layout.resultWrap, true); assert(layout.sprites >= 17, '正式底板、6张库存卡、按钮与奖励拆件必须加载');
+      assert.equal(layout.avatars, 6); assert.equal(layout.operations, 0); assert.equal(layout.obsolete, 0);
+      assert.equal(layout.discount, '9折'); assert.equal(layout.resultWrap, true);
+      assert.deepEqual(layout.art, ['background','title','normal','search','preview','normal','advanced','reward','chest','badge'].map(key => '招募素材-' + key).sort(), '正式背景、标题、预览栏、按钮与奖励拆件逐个加载；头像为Graphics');
+      assert.equal(layout.stock.length, 6); layout.stock.forEach(text => assert.match(text, /\n本体×\d+/));
+      for (const zone of layout.zones) {
+        assert(zone.left >= -500 && zone.right <= 500 && zone.top <= 710 && zone.bottom >= -710, zone.name + '超出面板');
+        assert(zone.bottom >= 560 || zone.top <= -210, zone.name + '侵入主立绘留白区');
+      }
+      const zone = name => layout.zones.find(z => z.name === name);
+      const preview = zone('招募素材-preview'), singleZone = zone('招募按钮-普通招募 · 300钻 / 1次'), tenZone = zone('招募按钮-高级招募 · 2700钻 / 10次');
+      const resultZone = zone('招募最近结果'), rewardZone = zone('领取招募累计奖励');
+      assert(preview.bottom - singleZone.top >= 15 && preview.bottom - tenZone.top >= 15);
+      assert(tenZone.left - singleZone.right >= 20 && singleZone.top === tenZone.top);
+      assert(singleZone.bottom - resultZone.top >= 10 && resultZone.bottom - rewardZone.top >= 10);
+      assert.equal(resultZone.top - resultZone.bottom, 48, '最近结果限制为紧凑状态文本');
       await click('查看招募卡池');
       const poolText = await page.evaluate(() => walk(main.dialog).find(n => n.name === '弹窗正文').getComponent('cc.Label').string);
       for (const name of ['奶糖猫','布丁犬','云朵猫','芝麻犬','橘子猫','桃桃犬']) assert(poolText.includes(name));

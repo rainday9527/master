@@ -1184,11 +1184,14 @@ export class Main extends Component {
 
     private updateRecruit() {
         const state = this.data.recruit;
-        this.recruitLabels.forEach((label, id) => { label.string = BREEDS[id].name + ' · 本体×' + state.copies[id]; });
+        this.recruitLabels.forEach((label, id) => { label.string = BREEDS[id].name + '\n本体×' + state.copies[id]; });
         const next = nextMilestone(state.claimed), ready = state.total >= next;
         if (this.recruitProgress) this.recruitProgress.string = '累计 ' + state.total + ' / ' + next + ' 次 · ' + (ready ? '领取1只伙伴' : '达标送1只伙伴');
         if (this.recruitBadge) this.recruitBadge.active = ready;
-        if (this.recruitResult) this.recruitResult.string = state.recent.length ? '最近获得：' + state.recent.map(id => BREEDS[id].name).join('、') : '还未招募 · 重复伙伴保留本体，未来可用于升星';
+        if (this.recruitResult) {
+            const counts = BREEDS.map((b, id) => ({ name: b.name, count: state.recent.filter(value => value === id).length })).filter(item => item.count);
+            this.recruitResult.string = counts.length ? '最近获得：' + counts.map(item => item.name + '×' + item.count).join('、') : '重复伙伴保留本体 · 可在头像下查看库存';
+        }
     }
 
     private renderRecruit() {
@@ -1196,34 +1199,29 @@ export class Main extends Component {
         this.recruitLabels = [];
         // 背景只属于独立招募面板，不覆盖顶部货币与主城导航。
         this.recruitArt(panel, 'background', 0, 0, 1000, 1420);
-        this.recruitArt(panel, 'title', 0, 571, 660, 245);
-        this.dailyText(panel, '遇见新的毛茸茸', 0, 586, 560, 60, 42);
-        const back = this.recruitButton(panel, '返回', 'normal', -408, 645, 154, 70, () => this.open('home'));
+        this.recruitArt(panel, 'title', 0, 632, 400, 104);
+        this.dailyText(panel, '遇见新的毛茸茸', 0, 632, 370, 46, 34);
+        const back = this.recruitButton(panel, '返回', 'normal', -408, 638, 154, 70, () => this.open('home'));
         back.name = '招募返回';
-        const search = this.recruitButton(panel, '', 'search', 420, 627, 78, 80, () => this.showDialog('招募卡池', BREEDS.map(b => b.name).join('、') + '\n普通与高级共用卡池，所有伙伴等权', [{ title: '知道了', run: () => this.closeDialog() }]));
+        const search = this.recruitButton(panel, '', 'search', 420, 638, 78, 80, () => this.showDialog('招募卡池', BREEDS.map(b => b.name).join('、') + '\n普通与高级共用卡池，所有伙伴等权', [{ title: '知道了', run: () => this.closeDialog() }]));
         search.name = '查看招募卡池';
-        this.recruitArt(panel, 'description', 0, 367, 750, 215);
-        this.dailyText(panel, '猫狗伙伴 · 每位等权相遇', 0, 405, 660, 45, 30);
-        this.dailyText(panel, '单抽300钻 · 十抽2700钻 · 重复保留本体', 0, 343, 690, 42, 26);
-        this.recruitArt(panel, 'preview', 0, 128, 890, 230);
-        for (let i = 0; i < 4; i++) {
-            const x = -322 + i * 214;
-            this.petAvatar(panel, i + 2, x, 145, 114);
-            this.dailyText(panel, BREEDS[i + 2].name, x, 55, 200, 38, 26);
-        }
-        this.recruitButton(panel, '普通招募 · 300钻 / 1次', 'normal', -235, -71, 430, 136, () => this.recruitTransaction('single'));
-        const ten = this.recruitButton(panel, '高级招募 · 2700钻 / 10次', 'advanced', 235, -71, 430, 136, () => this.recruitTransaction('ten'));
-        this.dailyText(ten, '9折', 155, 48, 90, 34, 25).node.name = '十抽9折文字牌';
-        this.recruitResult = this.dailyText(panel, '', 0, -190, 850, 120, 26);
-        this.recruitResult.enableWrapText = true;
+        // y=560 至 -210 留给背景立绘，不叠加说明板或库存卡片。
+        this.recruitArt(panel, 'preview', 0, -316, 916, 180);
         BREEDS.forEach((b, id) => {
-            const x = id % 3 * 290 - 290, y = -344 - Math.floor(id / 3) * 165;
-            const card = this.uiNode(panel, '招募本体-' + id, x, y, 280, 152);
-            this.recruitArt(card, 'description', 0, 0, 280, 152);
-            this.petAvatar(card, id, 0, 24, 82);
-            this.recruitLabels.push(this.dailyText(card, '', 0, -48, 275, 38, 24));
+            const x = -375 + id * 150;
+            const card = this.uiNode(panel, '招募本体-' + id, x, -316, 144, 160);
+            this.petAvatar(card, id, 0, 25, 86);
+            const stock = this.dailyText(card, '', 0, -44, 142, 54, 20);
+            stock.enableWrapText = true;
+            this.recruitLabels.push(stock);
         });
-        const reward = this.recruitButton(panel, '', 'reward', 0, -638, 840, 94, () => this.recruitTransaction('reward'));
+        this.recruitButton(panel, '普通招募 · 300钻 / 1次', 'normal', -235, -477, 430, 112, () => this.recruitTransaction('single'));
+        const ten = this.recruitButton(panel, '高级招募 · 2700钻 / 10次', 'advanced', 235, -477, 430, 112, () => this.recruitTransaction('ten'));
+        this.dailyText(ten, '9折', 155, 38, 90, 30, 24).node.name = '十抽9折文字牌';
+        this.recruitResult = this.dailyText(panel, '', 0, -568, 880, 48, 18);
+        this.recruitResult.node.name = '招募最近结果';
+        this.recruitResult.enableWrapText = true;
+        const reward = this.recruitButton(panel, '', 'reward', 0, -650, 900, 88, () => this.recruitTransaction('reward'));
         reward.name = '领取招募累计奖励';
         this.recruitArt(reward, 'chest', -350, 0, 84, 80);
         this.recruitBadge = this.recruitArt(reward, 'badge', 351, 0, 44, 46);

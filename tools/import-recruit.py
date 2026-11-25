@@ -93,14 +93,21 @@ def main():
         for i in indices:
             out[i%image.width-l+8,i//image.width-t+8] = (*image.getpixel((i%image.width,i//image.width)),255)
         canvas.save(target / (name+'.png'))
-        daily.write_meta(target,name,canvas.size)
+        meta_path = target / (name+'.png.meta')
+        if not meta_path.exists():
+            daily.write_meta(target,name,canvas.size)
         assert canvas.getbbox() == (8,8,canvas.width-8,canvas.height-8)
         assert all(not external[i] for i in indices)
         print('正式导入',name,canvas.size,'仅保留非外部背景连通域')
-    background = Image.open(ROOT / 'art/generated/Create_a_PURE_BACKGROUND_ILLUS_2026-11-25T06-45-55.png')
+    clean = ROOT / 'art/generated/recruit-background-clean.png'
+    source = clean if clean.is_file() else target / 'background.png'
+    assert source.is_file(), '缺少清理来源或正式背景，拒绝回退到未清理原图'
+    background = Image.open(source)
+    assert background.size == (1024, 1536), '背景尺寸变化，拒绝覆盖正式资源'
     background.save(target / 'background.png')
-    daily.write_meta(target,'background',background.size)
-    print('背景原尺寸接入，未改写源图')
+    if not (target / 'background.png.meta').exists():
+        daily.write_meta(target,'background',background.size)
+    print('背景原尺寸接入，优先使用清理后的稳定来源', source.name)
 
 if __name__ == '__main__':
     main()
