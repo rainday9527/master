@@ -4,6 +4,8 @@ import { ITEM_CATALOG, ItemDefinition, ItemCategory, PetStat, ShopSlot, findItem
 
 import { DAILY_TASKS, DAILY_PACK, DailyState, DailyTaskId, newDaily, restoreDaily, advanceDaily, recordDaily } from './DailyTasks';
 
+import { RecruitState, RECRUIT_CONFIG, restoreRecruit, drawRecruit, grantRecruit, nextMilestone } from './Recruitment';
+
 const { ccclass } = _decorator;
 type Kind = 'cat' | 'dog';
 type Currency = 'gems' | 'coins';
@@ -20,7 +22,7 @@ export interface RewardedVideoProvider {
 }
 interface Pet { id: number; hunger: number; clean: number; energy: number; joy: number; }
 interface ShopState { day: number; freeUsed: number; paidUsed: number; maxTime: number; revision: number; slots: ShopSlot[]; }
-interface Save { version: number; coins: number; gems: number; xp: number; avatar: number; pets: Pet[]; food: number; soap: number; toy: number; itemInventory: Record<string, number>; adventureEnd: number; lastSeen: number; shop: ShopState; daily: DailyState; }
+interface Save { version: number; coins: number; gems: number; xp: number; avatar: number; pets: Pet[]; food: number; soap: number; toy: number; itemInventory: Record<string, number>; adventureEnd: number; lastSeen: number; shop: ShopState; daily: DailyState; recruit: RecruitState; }
 interface Actor { node: Node; visual: Node; pet: Pet; target: Vec3; timer: number; phase: number; socialUntil?: number; facing?: number; }
 interface SocialBubble { node: Node; actor: Actor; until: number; side: number; }
 const BREEDS: { name: string; kind: Kind; color: string; accent: string; cost: number }[] = [
@@ -88,6 +90,10 @@ export class Main extends Component {
     private header: { profile: Node; avatar: number; level: Label; xp: Label; fill: Sprite; gems: Label; coins: Label } | null = null;
     private recruitLabels: Label[] = [];
     private recruitProgress: Label | null = null;
+    private recruitBadge: Node | null = null;
+    private recruitResult: Label | null = null;
+    private recruitClickTime = -Infinity;
+    private recruitBusy = false;
     private bagPage = 0;
     private bagFilter: ItemCategory | null = null;
     private bagSlots: { node: Node; entry: { item: ItemDefinition; legacy: ItemCategory | null } | null; title: Label; icon: Sprite; species: Label; effect: Label; count: Label; use: Label }[] = [];
@@ -119,7 +125,8 @@ export class Main extends Component {
     private fresh(): Save {
         return { version: 1, coins: 260, gems: 100, xp: 0, avatar: 0,
             pets: [0, 1].map(id => ({ id, hunger: 75, clean: 85, energy: 90, joy: 80 })),
-            food: 5, soap: 4, toy: 3, itemInventory: {}, adventureEnd: 0, lastSeen: Date.now(), shop: this.newShop(Date.now()), daily: newDaily(this.shopDay(Date.now())) };
+            food: 5, soap: 4, toy: 3, itemInventory: {}, adventureEnd: 0, lastSeen: Date.now(), shop: this.newShop(Date.now()), daily: newDaily(this.shopDay(Date.now())),
+            recruit: restoreRecruit(undefined, [0, 1], BREEDS.map((_, id) => id), false) };
     }
 
     private load(): Save {
@@ -150,6 +157,7 @@ export class Main extends Component {
             s.shop = this.restoreShop(s.shop, Object.prototype.hasOwnProperty.call(s, 'shop'));
             s.shop = this.advanceShop(s.shop, Date.now());
             s.daily = restoreDaily(s.daily, s.shop.day, Object.prototype.hasOwnProperty.call(s, 'daily'));
+            s.recruit = restoreRecruit(s.recruit, s.pets.map(p => p.id), BREEDS.map((_, id) => id), Object.prototype.hasOwnProperty.call(s, 'recruit'));
             return s;
         } catch { this.saveWarning = true; return this.fresh(); }
     }
@@ -1137,11 +1145,50 @@ export class Main extends Component {
         return node;
     }
 
+    private recruitTransaction(mode: 'single' | 'ten' | 'reward') {
+        const now = Date.now();
+        if (this.recruitBusy || now - this.recruitClickTime < 600) { this.toast('操作太快啦，请稍候'); return; }
+        this.recruitClickTime = now;
+        this.recruitBusy = true;
+        try {
+            const state = this.data.recruit;
+            let count: number, cost = 0, total = state.total, claimed = state.claimed;
+            if (mode === 'reward') {
+                const next = nextMilestone(claimed);
+                if (next > total) { this.toast('尚未达到下一档累计奖励'); return; }
+                // 每次领取最早未领档位，可连续补领；高水位确保此前档位不会重发。
+                claimed = next; count = RECRUIT_CONFIG.rewardCopies;
+            } else {
+                const config = RECRUIT_CONFIG[mode];
+                count = config.count; cost = config.cost; total += count;
+                if (this.data.gems < cost) { this.showGemDialog(); return; }
+            }
+            if (total > RECRUIT_CONFIG.maxTotal) { this.toast('招募次数已达安全上限'); return; }
+            const ids = drawRecruit(BREEDS.map((_, id) => id), count);
+            const recruit = grantRecruit(state, ids, total, claimed);
+            if (!recruit) { this.toast('本体库存已达安全上限，本次未扣费'); return; }
+            const pets = this.data.pets.slice();
+            const added: Pet[] = [];
+            ids.forEach(id => {
+                if (pets.some(p => p.id === id)) return;
+                const pet = { id, hunger: 70, clean: 80, energy: 85, joy: 75 };
+                pets.push(pet); added.push(pet);
+            });
+            const candidate = { ...this.dailyCandidate(now), gems: this.data.gems - cost, pets, recruit };
+            if (!this.commitShop(candidate)) return;
+            added.forEach(p => this.spawnPet(p));
+            this.renderHeader(); this.updateRecruit();
+            this.toast(mode === 'reward' ? '已领取累计' + claimed + '次奖励' : '招募成功，本体已保留');
+        } finally { this.recruitBusy = false; }
+    }
+
     private updateRecruit() {
-        this.recruitLabels.forEach((label, i) => {
-            label.string = this.data.pets.some(p => p.id === i + 2) ? '已经在家' : BREEDS[i + 2].cost + ' 钻石 · 迎接';
-        });
-        if (this.recruitProgress) this.recruitProgress.string = '相遇进度 ' + this.data.pets.filter(p => p.id >= 2).length + ' / 4 · 奖励待配置';
+        const state = this.data.recruit;
+        this.recruitLabels.forEach((label, id) => { label.string = BREEDS[id].name + ' · 本体×' + state.copies[id]; });
+        const next = nextMilestone(state.claimed), ready = state.total >= next;
+        if (this.recruitProgress) this.recruitProgress.string = '累计 ' + state.total + ' / ' + next + ' 次 · ' + (ready ? '领取1只伙伴' : '达标送1只伙伴');
+        if (this.recruitBadge) this.recruitBadge.active = ready;
+        if (this.recruitResult) this.recruitResult.string = state.recent.length ? '最近获得：' + state.recent.map(id => BREEDS[id].name).join('、') : '还未招募 · 重复伙伴保留本体，未来可用于升星';
     }
 
     private renderRecruit() {
@@ -1153,43 +1200,34 @@ export class Main extends Component {
         this.dailyText(panel, '遇见新的毛茸茸', 0, 586, 560, 60, 42);
         const back = this.recruitButton(panel, '返回', 'normal', -408, 645, 154, 70, () => this.open('home'));
         back.name = '招募返回';
-        this.recruitButton(panel, '', 'search', 420, 627, 78, 80, () => this.toast('搜索功能待配置'));
+        const search = this.recruitButton(panel, '', 'search', 420, 627, 78, 80, () => this.showDialog('招募卡池', BREEDS.map(b => b.name).join('、') + '\n普通与高级共用卡池，所有伙伴等权', [{ title: '知道了', run: () => this.closeDialog() }]));
+        search.name = '查看招募卡池';
         this.recruitArt(panel, 'description', 0, 367, 750, 215);
-        this.dailyText(panel, '定向迎接 · 四位伙伴不重复', 0, 405, 660, 45, 30);
-        this.dailyText(panel, '选择下方伙伴，使用钻石迎接回家', 0, 343, 650, 42, 26);
+        this.dailyText(panel, '猫狗伙伴 · 每位等权相遇', 0, 405, 660, 45, 30);
+        this.dailyText(panel, '单抽300钻 · 十抽2700钻 · 重复保留本体', 0, 343, 690, 42, 26);
         this.recruitArt(panel, 'preview', 0, 128, 890, 230);
         for (let i = 0; i < 4; i++) {
             const x = -322 + i * 214;
             this.petAvatar(panel, i + 2, x, 145, 114);
             this.dailyText(panel, BREEDS[i + 2].name, x, 55, 200, 38, 26);
         }
-        this.recruitButton(panel, '普通招募 · 待配置', 'normal', -235, -71, 430, 136, () => this.toast('普通招募待配置，请使用下方定向迎接'));
-        this.recruitButton(panel, '高级招募 · 待配置', 'advanced', 235, -71, 430, 136, () => this.toast('高级招募待配置，请使用下方定向迎接'));
-        this.dailyText(panel, '定向迎接', 0, -176, 600, 42, 31);
-        BREEDS.slice(2).forEach((b, i) => {
-            const x = i % 2 ? 235 : -235, y = -293 - Math.floor(i / 2) * 190;
-            const card = this.uiNode(panel, '定向伙伴-' + (i + 2), x, y, 440, 164);
-            this.recruitArt(card, 'description', 0, 0, 440, 164);
-            this.petAvatar(card, i + 2, -146, 10, 90);
-            this.dailyText(card, b.name, 46, 39, 245, 38, 28);
-            const button = this.recruitButton(card, '', i % 2 ? 'advanced' : 'normal', 51, -29, 267, 76, () => {
-                if (this.data.pets.some(p => p.id === i + 2)) { this.toast('伙伴已经在庭院里等你啦'); return; }
-                if (this.data.gems < b.cost) { this.showGemDialog(); return; }
-                const p = { id: i + 2, hunger: 70, clean: 80, energy: 85, joy: 75 };
-                const candidate = { ...this.dailyCandidate(), gems: this.data.gems - b.cost, pets: [...this.data.pets, p] };
-                if (!this.commitShop(candidate)) return;
-                this.spawnPet(p); this.renderHeader(); this.updateRecruit(); this.toast(b.name + '搬进庭院啦');
-            });
-            button.name = '定向迎接-' + (i + 2);
-            const icon = this.uiNode(button, '招募钻石', -102, 0, 32, 32);
-            this.headerArt(icon, 'diamond-icon');
-            this.recruitLabels.push(this.dailyText(button, '', 16, 0, 218, 42, 24));
+        this.recruitButton(panel, '普通招募 · 300钻 / 1次', 'normal', -235, -71, 430, 136, () => this.recruitTransaction('single'));
+        const ten = this.recruitButton(panel, '高级招募 · 2700钻 / 10次', 'advanced', 235, -71, 430, 136, () => this.recruitTransaction('ten'));
+        this.dailyText(ten, '9折', 155, 48, 90, 34, 25).node.name = '十抽9折文字牌';
+        this.recruitResult = this.dailyText(panel, '', 0, -190, 850, 120, 26);
+        this.recruitResult.enableWrapText = true;
+        BREEDS.forEach((b, id) => {
+            const x = id % 3 * 290 - 290, y = -344 - Math.floor(id / 3) * 165;
+            const card = this.uiNode(panel, '招募本体-' + id, x, y, 280, 152);
+            this.recruitArt(card, 'description', 0, 0, 280, 152);
+            this.petAvatar(card, id, 0, 24, 82);
+            this.recruitLabels.push(this.dailyText(card, '', 0, -48, 275, 38, 24));
         });
-        const reward = this.recruitButton(panel, '', 'reward', 0, -638, 840, 94, () => this.toast('招募奖励待配置，当前无可领取奖励'));
+        const reward = this.recruitButton(panel, '', 'reward', 0, -638, 840, 94, () => this.recruitTransaction('reward'));
+        reward.name = '领取招募累计奖励';
         this.recruitArt(reward, 'chest', -350, 0, 84, 80);
-        // 奖励未配置，不显示可领取红点；保留已拆资源和节点供正式配置使用。
-        const badge = this.recruitArt(reward, 'badge', 351, 0, 44, 46);
-        badge.active = false;
+        this.recruitBadge = this.recruitArt(reward, 'badge', 351, 0, 44, 46);
+        this.recruitBadge.active = false;
         this.recruitProgress = this.dailyText(reward, '', 12, 0, 600, 42, 26);
         this.updateRecruit();
     }
