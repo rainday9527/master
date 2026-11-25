@@ -227,7 +227,7 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
     assert.ok(outfitsOnYard.find(x => x.id === 9).attached, 'Corgi #9 has 3D straw hat attached');
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-garden-newbreeds-outfits.png') });
 
-    // 8) Verify GM debug panel opens cleanly, executes commands, and closes cleanly
+    // 8) Verify GM debug panel opens, unlocks all 12 pets, and 12 pets roam freely across the spacious lawn without social deadlock!
     await page.evaluate(() => main.toggleGmPanel());
     await page.waitForTimeout(200);
     const gmCheck = await page.evaluate(() => ({
@@ -238,7 +238,29 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
     assert.equal(gmCheck.open, true, 'GM debug panel must open');
     assert.equal(gmCheck.btnCount, 14, 'GM debug panel must show all 14 quick debug buttons');
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-gm-panel.png') });
-    await page.evaluate(() => main.toggleGmPanel());
+    // Trigger GM "解锁全部 12 伙伴" and test 12-pet roaming freedom over 2.5 seconds!
+    await page.evaluate(() => {
+      const btn = walk(main.gmPanel).find(n => n.name === 'GM按钮-解锁全部 12 伙伴');
+      btn.emit(cc.Node.EventType.TOUCH_END, { propagationStopped: false });
+      main.toggleGmPanel();
+    });
+    await page.waitForFunction(() => main.actors.length === 12, { timeout: 10000 });
+    const pos0 = await page.evaluate(() => main.actors.map(a => [a.node.position.x, a.node.position.z]));
+    await page.waitForTimeout(2400);
+    const crowdStats = await page.evaluate((p0) => {
+      let moved = 0, socializing = 0;
+      main.actors.forEach((a, i) => {
+        if (Math.hypot(a.node.position.x - p0[i][0], a.node.position.z - p0[i][1]) > 0.25) moved++;
+        if ((a.socialUntil || 0) > main.socialTime) socializing++;
+      });
+      const zs = main.actors.map(a => a.node.position.z);
+      return { total: main.actors.length, moved, socializing, zSpan: +(Math.max(...zs) - Math.min(...zs)).toFixed(2), bubbles: main.socialBubbles.length };
+    }, pos0);
+    console.log('12-pet crowd roaming check:', JSON.stringify(crowdStats));
+    assert.equal(crowdStats.total, 12);
+    assert.ok(crowdStats.moved >= 8, 'at least 8 of 12 pets must actively walk instead of freezing in social deadlock');
+    assert.ok(crowdStats.bubbles <= 4, 'concurrent social bubbles must be capped cleanly');
+    await page.screenshot({ path: path.join(OUT_DIR, 'verify-garden-12pets-roaming.png') });
 
     assert.deepEqual(errors, [], 'zero pageerrors');
     assert.deepEqual(failures, [], 'zero HTTP errors');

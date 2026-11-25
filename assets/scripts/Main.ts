@@ -85,6 +85,7 @@ interface Actor {
     tailPhase?: number;
     tailExcite?: number;
     socialUntil?: number;
+    socialCooldownUntil?: number;
     facing?: number;
     rig?: ActorRig;
 }
@@ -111,7 +112,11 @@ export class Main extends Component {
     private uiCamera!: Camera;
     private actors: Actor[] = [];
     public petNodeScale = 0.48;
-    public petCollisionRadius = 0.72;
+    public petCollisionRadius = 0.54;
+    private readonly yardMinX = -3.0;
+    private readonly yardMaxX = 3.0;
+    private readonly yardMinZ = -3.2;
+    private readonly yardMaxZ = 6.2;
     private socialTime = 0;
     private pairCooldowns = new Map<string, number>();
     private bubbleLayer: Node | null = null;
@@ -981,7 +986,8 @@ export class Main extends Component {
     private spawnPet(pet: Pet) {
         const b = BREEDS[pet.id], cat = b.kind === 'cat';
         const root = new Node(b.name); this.world.addChild(root);
-        root.setPosition((pet.id % 3 - 1) * 1.8, 0, pet.id < 3 ? -0.65 : 0.9);
+        const col = pet.id % 4, row = Math.floor(pet.id / 4);
+        root.setPosition(-2.4 + col * 1.6, 0, -2.5 + row * 3.6 + (col % 2 ? 0.55 : -0.35));
         root.setScale(this.petNodeScale, this.petNodeScale, this.petNodeScale);
         const visual = new Node('重心摆动'); root.addChild(visual);
         const n = new Node('Fallback'); visual.addChild(n);
@@ -3619,12 +3625,12 @@ export class Main extends Component {
     public resolvePetCollisions(dt: number) {
         this.socialTime += Math.max(0, Math.min(dt, 0.1));
         const actors = this.actors.filter(a => isValid(a.node, true));
-        const clampX = (x: number) => Math.max(-2.3, Math.min(2.3, x));
-        const clampZ = (z: number) => Math.max(-1.6, Math.min(1.6, z));
+        const clampX = (x: number) => Math.max(this.yardMinX, Math.min(this.yardMaxX, x));
+        const clampZ = (z: number) => Math.max(this.yardMinZ, Math.min(this.yardMaxZ, z));
         const diameter = this.petCollisionRadius * 2;
         actors.forEach(a => { const p = a.node.position; a.node.setPosition(clampX(p.x), p.y, clampZ(p.z)); });
         // 子步内收敛，避免把多宠物挤压的修正留到下一帧而造成抖动。
-        for (let pass = 0; pass < 64; pass++) {
+        for (let pass = 0; pass < 48; pass++) {
             let overlapping = false;
             for (let i = 0; i < actors.length; i++) for (let j = i + 1; j < actors.length; j++) {
                 const a = actors[i], b = actors[j], p = a.node.position.clone(), q = b.node.position.clone();
@@ -3646,19 +3652,33 @@ export class Main extends Component {
                 ax = clampX(ax - dx * bLost); az = clampZ(az - dz * bLost);
                 a.node.setPosition(ax, p.y, az); b.node.setPosition(bx, q.y, bz);
                 if (pass !== 0) continue;
-                a.target.set(clampX(ax - dx * 1.3), 0, clampZ(az - dz * 1.3));
-                b.target.set(clampX(bx + dx * 1.3), 0, clampZ(bz + dz * 1.3));
-                if (a.timer >= 0) a.timer = Math.min(a.timer, 1.4);
-                if (b.timer >= 0) b.timer = Math.min(b.timer, 1.4);
-                a.walkAge = 0; b.walkAge = 0;
+                // 擦肩错开方向，避免两只一直互相顶住停滞
                 const key = Math.min(a.pet.id, b.pet.id) + ':' + Math.max(a.pet.id, b.pet.id);
-                if ((this.pairCooldowns.get(key) || 0) > this.socialTime ||
-                    (a.socialUntil || 0) > this.socialTime || (b.socialUntil || 0) > this.socialTime) continue;
-                this.pairCooldowns.set(key, this.socialTime + 8);
-                a.socialUntil = b.socialUntil = this.socialTime + 1.4;
-                a.facing = Math.atan2(dx, dz) * 180 / Math.PI;
-                b.facing = Math.atan2(-dx, -dz) * 180 / Math.PI;
-                this.showSocialBubble(a, -1); this.showSocialBubble(b, 1);
+                const canSocialize =
+                    (this.pairCooldowns.get(key) || 0) <= this.socialTime &&
+                    (a.socialUntil || 0) <= this.socialTime && (b.socialUntil || 0) <= this.socialTime &&
+                    (a.socialCooldownUntil || 0) <= this.socialTime && (b.socialCooldownUntil || 0) <= this.socialTime &&
+                    this.socialBubbles.length < 4;
+                if (canSocialize) {
+                    this.pairCooldowns.set(key, this.socialTime + 16);
+                    a.socialUntil = b.socialUntil = this.socialTime + 1.3;
+                    // 单宠个人社交冷却 10 秒，避免多宠物场景下连锁停步卡死。
+                    a.socialCooldownUntil = b.socialCooldownUntil = this.socialTime + 10;
+                    a.facing = Math.atan2(dx, dz) * 180 / Math.PI;
+                    b.facing = Math.atan2(-dx, -dz) * 180 / Math.PI;
+                    a.target.set(clampX(ax - dx * 1.6), 0, clampZ(az - dz * 1.6));
+                    b.target.set(clampX(bx + dx * 1.6), 0, clampZ(bz + dz * 1.6));
+                    if (a.timer >= 0) a.timer = Math.min(a.timer, 1.0);
+                    if (b.timer >= 0) b.timer = Math.min(b.timer, 1.0);
+                    a.walkAge = 0; b.walkAge = 0;
+                    this.showSocialBubble(a, -1); this.showSocialBubble(b, 1);
+                } else if ((a.socialUntil || 0) <= this.socialTime && (b.socialUntil || 0) <= this.socialTime) {
+                    // 冷却期直接顺滑错身绕开继续散步
+                    const pushDist = 1.4;
+                    a.target.set(clampX(ax - dx * pushDist - dz * 0.6), 0, clampZ(az - dz * pushDist + dx * 0.6));
+                    b.target.set(clampX(bx + dx * pushDist + dz * 0.6), 0, clampZ(bz + dz * pushDist - dx * 0.6));
+                    a.walkAge = 0; b.walkAge = 0;
+                }
             }
             if (!overlapping) break;
         }
@@ -3890,16 +3910,26 @@ export class Main extends Component {
                     const pos = a.node.position;
                     let dx = a.target.x - pos.x, dz = a.target.z - pos.z, distance = Math.hypot(dx, dz);
                     const pickNewTarget = () => {
-                        let nx = pos.x, nz = pos.z;
-                        for (let tries = 0; tries < 8; tries++) {
-                            nx = (Math.random() - 0.5) * 4.4;
-                            nz = (Math.random() - 0.5) * 3.0;
-                            if (Math.hypot(nx - pos.x, nz - pos.z) >= 1.15) break;
+                        let bestX = pos.x, bestZ = pos.z, bestScore = -1e9;
+                        const spanX = (this.yardMaxX - this.yardMinX) - 0.3;
+                        const spanZ = (this.yardMaxZ - this.yardMinZ) - 0.3;
+                        for (let tries = 0; tries < 6; tries++) {
+                            const cx = this.yardMinX + 0.15 + Math.random() * spanX;
+                            const cz = this.yardMinZ + 0.15 + Math.random() * spanZ;
+                            const distSelf = Math.hypot(cx - pos.x, cz - pos.z);
+                            let minOther = 99;
+                            for (const o of this.actors) {
+                                if (o === a || !isValid(o.node, true)) continue;
+                                const d = Math.hypot(cx - o.node.position.x, cz - o.node.position.z);
+                                if (d < minOther) minOther = d;
+                            }
+                            const score = Math.min(minOther, 2.5) * 1.4 + Math.min(distSelf, 3.2) * 0.5;
+                            if (score > bestScore) { bestScore = score; bestX = cx; bestZ = cz; }
                         }
-                        a.target.set(nx, 0, nz);
-                        a.timer = 0.8 + Math.random() * 1.2;
+                        a.target.set(bestX, 0, bestZ);
+                        a.timer = 0.7 + Math.random() * 1.3;
                         a.walkAge = 0;
-                        dx = nx - pos.x; dz = nz - pos.z; distance = Math.hypot(dx, dz);
+                        dx = bestX - pos.x; dz = bestZ - pos.z; distance = Math.hypot(dx, dz);
                     };
                     if (distance <= 0.16) {
                         a.walkAge = 0;
