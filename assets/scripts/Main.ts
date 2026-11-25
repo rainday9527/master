@@ -23,15 +23,49 @@ export interface RewardedVideoProvider {
 interface Pet { id: number; hunger: number; clean: number; energy: number; joy: number; }
 interface ShopState { day: number; freeUsed: number; paidUsed: number; maxTime: number; revision: number; slots: ShopSlot[]; }
 interface Save { version: number; coins: number; gems: number; xp: number; avatar: number; pets: Pet[]; food: number; soap: number; toy: number; itemInventory: Record<string, number>; adventureEnd: number; lastSeen: number; shop: ShopState; daily: DailyState; recruit: RecruitState; }
-interface Actor { node: Node; visual: Node; pet: Pet; target: Vec3; timer: number; phase: number; socialUntil?: number; facing?: number; }
+type RigPartName = 'body' | 'head' | 'face' | 'earL' | 'earR' | 'legFL' | 'legFR' | 'legBL' | 'legBR' | 'tail';
+interface PetRigAsset {
+    kind: Kind;
+    pivots: Record<string, [number, number, number]>;
+    meshes: Record<RigPartName, ReturnType<typeof utils.createMesh>>;
+}
+interface ActorRig {
+    kind: Kind;
+    head: Node;
+    earL: Node;
+    earR: Node;
+    legFL: Node;
+    legFR: Node;
+    legBL: Node;
+    legBR: Node;
+    tail: Node;
+    shadow: Node | null;
+    pivots: Record<string, [number, number, number]>;
+}
+interface Actor {
+    node: Node;
+    visual: Node;
+    pet: Pet;
+    target: Vec3;
+    timer: number;
+    phase: number;
+    speed?: number;
+    idleTime?: number;
+    lookYaw?: number;
+    lookTilt?: number;
+    lookTimer?: number;
+    socialUntil?: number;
+    facing?: number;
+    rig?: ActorRig;
+}
 interface SocialBubble { node: Node; actor: Actor; until: number; side: number; }
-const BREEDS: { name: string; kind: Kind; color: string; accent: string; cost: number }[] = [
-    { name: '奶糖猫', kind: 'cat', color: '#E6A54E', accent: '#A66630', cost: 0 },
-    { name: '布丁犬', kind: 'dog', color: '#BD773C', accent: '#70452D', cost: 0 },
-    { name: '云朵猫', kind: 'cat', color: '#F6F4EF', accent: '#A5B3BC', cost: 35 },
-    { name: '芝麻犬', kind: 'dog', color: '#777F89', accent: '#E5D3BA', cost: 45 },
-    { name: '橘子猫', kind: 'cat', color: '#EFA65C', accent: '#B36F37', cost: 55 },
-    { name: '桃桃犬', kind: 'dog', color: '#EACBB9', accent: '#B99183', cost: 65 },
+const BREEDS: { name: string; kind: Kind; skin: string; color: string; accent: string; cost: number }[] = [
+    { name: '奶糖猫', kind: 'cat', skin: 'cat_naitang', color: '#E6A54E', accent: '#A66630', cost: 0 },
+    { name: '布丁犬', kind: 'dog', skin: 'dog_buding', color: '#BD773C', accent: '#70452D', cost: 0 },
+    { name: '云朵猫', kind: 'cat', skin: 'cat_yunduo', color: '#F6F4EF', accent: '#A5B3BC', cost: 35 },
+    { name: '芝麻犬', kind: 'dog', skin: 'dog_zhima', color: '#777F89', accent: '#E5D3BA', cost: 45 },
+    { name: '橘子猫', kind: 'cat', skin: 'cat_juzi', color: '#EFA65C', accent: '#B36F37', cost: 55 },
+    { name: '桃桃犬', kind: 'dog', skin: 'dog_taotao', color: '#EACBB9', accent: '#B99183', cost: 65 },
 ];
 const C = { cream: '#FFF9ED', ink: '#573D2D', green: '#679B7C', pale: '#E5EFDF', coral: '#A65D45', muted: '#795F48', white: '#FFFFFF' };
 
@@ -64,7 +98,10 @@ export class Main extends Component {
     private needQueue = new Map<number, { icon: string; threshold: number }[]>();
     private materials = new Map<string, Material>();
     private meshes = new Map<string, ReturnType<typeof utils.createMesh>>();
-    private petModels = new Map<Kind, Promise<{ mesh: ReturnType<typeof utils.createMesh>; texture: Texture2D } | null>>();
+    private petRigs = new Map<Kind, Promise<PetRigAsset | null>>();
+    private petSkins = new Map<string, Promise<Texture2D | null>>();
+    private petAvatars = new Map<string, Promise<SpriteFrame | null>>();
+    private shadowTexture: Promise<Texture2D | null> | null = null;
     private page: Page = 'home';
     private selected = 0;
     private petSelected = false;
@@ -373,60 +410,136 @@ export class Main extends Component {
         this.shape(n, 'cylinder', '#8EBAC1', [0.7, 0.27, 2], [0.45, 0.03, 0.45]);
     }
 
-    private loadPetModel(kind: Kind) {
-        let loading = this.petModels.get(kind);
+    private loadPetRig(kind: Kind): Promise<PetRigAsset | null> {
+        let loading = this.petRigs.get(kind);
         if (!loading) {
-            loading = new Promise<{ mesh: ReturnType<typeof utils.createMesh>; texture: Texture2D } | null>(resolve => {
+            loading = new Promise<PetRigAsset | null>(resolve => {
                 const fail = () => {
                     if (isValid(this, true)) this.toast((kind === 'cat' ? '猫咪' : '狗狗') + '模型暂未加载，已保留可互动的庭院伙伴');
                     resolve(null);
                 };
-                resources.load('pets/' + kind, JsonAsset, (error, asset) => {
+                resources.load('pets/' + kind + '-rig', JsonAsset, (error, asset) => {
                     if (!isValid(this, true)) { resolve(null); return; }
                     if (error || !asset?.json) { fail(); return; }
-                    const geometry = asset.json as primitives.IGeometry;
-                    if (!Array.isArray(geometry.positions) || !geometry.positions.length || !Array.isArray(geometry.indices) || !geometry.indices.length || !Array.isArray(geometry.uvs)) { fail(); return; }
-                    resources.load('pets/' + kind + '/texture', Texture2D, (textureError, texture) => {
-                        if (!isValid(this, true)) { resolve(null); return; }
-                        if (textureError || !texture) { fail(); return; }
-                        try {
-                            const mesh = utils.createMesh(geometry);
-                            this.meshes.set('pet:' + kind, mesh);
-                            resolve({ mesh, texture });
-                        } catch { fail(); }
-                    });
+                    const raw = asset.json as { pivots?: Record<string, [number, number, number]>; parts?: Record<RigPartName, primitives.IGeometry> };
+                    const partNames: RigPartName[] = ['body', 'head', 'face', 'earL', 'earR', 'legFL', 'legFR', 'legBL', 'legBR', 'tail'];
+                    if (!raw.pivots || !raw.parts || !partNames.every(name => raw.parts![name] && Array.isArray(raw.parts![name].positions) && raw.parts![name].positions.length)) {
+                        fail(); return;
+                    }
+                    try {
+                        const meshes = {} as Record<RigPartName, ReturnType<typeof utils.createMesh>>;
+                        for (const name of partNames) {
+                            const mesh = utils.createMesh(raw.parts[name]);
+                            this.meshes.set('rig:' + kind + ':' + name, mesh);
+                            meshes[name] = mesh;
+                        }
+                        resolve({ kind, pivots: raw.pivots, meshes });
+                    } catch { fail(); }
                 });
             });
-            this.petModels.set(kind, loading);
+            this.petRigs.set(kind, loading);
         }
         return loading;
     }
 
+    private loadPetSkin(skinKey: string): Promise<Texture2D | null> {
+        let loading = this.petSkins.get(skinKey);
+        if (!loading) {
+            loading = new Promise<Texture2D | null>(resolve => {
+                resources.load('pets/skins/' + skinKey + '/texture', Texture2D, (error, texture) => {
+                    if (!isValid(this, true)) { resolve(null); return; }
+                    resolve(error || !texture ? null : texture);
+                });
+            });
+            this.petSkins.set(skinKey, loading);
+        }
+        return loading;
+    }
+
+    private loadShadowTexture(): Promise<Texture2D | null> {
+        if (!this.shadowTexture) {
+            this.shadowTexture = new Promise<Texture2D | null>(resolve => {
+                resources.load('pets/shadow/texture', Texture2D, (error, texture) => {
+                    if (!isValid(this, true)) { resolve(null); return; }
+                    resolve(error || !texture ? null : texture);
+                });
+            });
+        }
+        return this.shadowTexture;
+    }
+
+    private attachPetShadow(actor: Actor, texture: Texture2D | null): Node | null {
+        if (!texture || !isValid(actor.node, true)) return null;
+        let mesh = this.meshes.get('pet:shadow');
+        if (!mesh) {
+            mesh = utils.createMesh(primitives.plane({ width: 1.9, length: 2.15, widthSegments: 1, lengthSegments: 1 }));
+            this.meshes.set('pet:shadow', mesh);
+        }
+        let mat = this.materials.get('pet:shadow');
+        if (!mat) {
+            mat = new Material();
+            mat.initialize({ effectName: 'builtin-unlit', technique: 1, defines: { USE_TEXTURE: true } });
+            mat.setProperty('mainTexture', texture);
+            mat.setProperty('mainColor', this.color(C.white));
+            this.materials.set('pet:shadow', mat);
+        }
+        const shadow = new Node('脚底阴影');
+        shadow.layer = Layers.Enum.DEFAULT;
+        actor.node.addChild(shadow);
+        shadow.setSiblingIndex(0);
+        shadow.setPosition(0, 0.02, -0.02);
+        const renderer = shadow.addComponent(MeshRenderer);
+        renderer.mesh = mesh;
+        renderer.setSharedMaterial(mat, 0);
+        renderer.shadowCastingMode = 0;
+        renderer.receiveShadow = 0;
+        return shadow;
+    }
+
     private async attachPetModel(actor: Actor, fallback: Node) {
         const b = BREEDS[actor.pet.id];
-        const model = await this.loadPetModel(b.kind);
-        if (!model || !isValid(this, true) || !isValid(actor.node, true) || !isValid(fallback, true)) return;
-        const key = 'pet:' + actor.pet.id;
+        const [rig, skinTexture, shadowTex] = await Promise.all([
+            this.loadPetRig(b.kind),
+            this.loadPetSkin(b.skin),
+            this.loadShadowTexture(),
+        ]);
+        if (!rig || !skinTexture || !isValid(this, true) || !isValid(actor.node, true) || !isValid(fallback, true)) return;
+        const key = 'pet:' + b.skin;
         let material = this.materials.get(key);
         let modelNode: Node | null = null;
         try {
             if (!material) {
                 material = new Material();
                 this.materials.set(key, material);
-                material.initialize({ effectName: 'builtin-unlit', defines: { USE_TEXTURE: true } });
-                material.setProperty('mainTexture', model.texture);
-                // Fur shadows are selectively graded during import; avoid washing out eyes/highlights.
+                // 共享基础猫/狗3D模型：顶点烘焙柔和体积光，每品种只需替换一张标准化皮肤贴图即可换肤。
+                material.initialize({ effectName: 'builtin-unlit', defines: { USE_TEXTURE: true, USE_VERTEX_COLOR: true } });
+                material.setProperty('mainTexture', skinTexture);
                 material.setProperty('colorScale', new Vec3(1.06, 1.05, 1.03));
-                const tint = actor.pet.id < 2 ? C.white : ['#FFFFFF', '#FFFFFF', '#F5F7FF', '#CDD3DF', '#FFE3BF', '#FFE8E3'][actor.pet.id];
-                material.setProperty('mainColor', this.color(tint));
+                material.setProperty('mainColor', this.color(C.white));
             }
-            modelNode = new Node('AI模型'); modelNode.layer = Layers.Enum.DEFAULT;
+            modelNode = new Node('卡通可动模型'); modelNode.layer = Layers.Enum.DEFAULT;
             actor.visual.addChild(modelNode);
-            // Wider cheeks/body and a lower silhouette, keeping the paws on the ground.
-            modelNode.setScale(1.13, 0.88, 1.08);
-            const renderer = modelNode.addComponent(MeshRenderer);
-            renderer.mesh = model.mesh;
-            renderer.setSharedMaterial(material, 0);
+            const addMeshPart = (parent: Node, name: string, part: RigPartName, pivot?: [number, number, number]) => {
+                const node = new Node(name); node.layer = Layers.Enum.DEFAULT;
+                parent.addChild(node);
+                if (pivot) node.setPosition(pivot[0], pivot[1], pivot[2]);
+                const renderer = node.addComponent(MeshRenderer);
+                renderer.mesh = rig.meshes[part];
+                renderer.setSharedMaterial(material!, 0);
+                return node;
+            };
+            addMeshPart(modelNode, '身体', 'body');
+            const head = addMeshPart(modelNode, '头部', 'head', rig.pivots.head);
+            addMeshPart(head, '五官', 'face');
+            const earL = addMeshPart(head, '左耳', 'earL', rig.pivots.earL);
+            const earR = addMeshPart(head, '右耳', 'earR', rig.pivots.earR);
+            const legFL = addMeshPart(modelNode, '左前腿', 'legFL', rig.pivots.legFL);
+            const legFR = addMeshPart(modelNode, '右前腿', 'legFR', rig.pivots.legFR);
+            const legBL = addMeshPart(modelNode, '左后腿', 'legBL', rig.pivots.legBL);
+            const legBR = addMeshPart(modelNode, '右后腿', 'legBR', rig.pivots.legBR);
+            const tail = addMeshPart(modelNode, '尾巴', 'tail', rig.pivots.tail);
+            const shadow = this.attachPetShadow(actor, shadowTex);
+            actor.rig = { kind: b.kind, head, earL, earR, legFL, legFR, legBL, legBR, tail, shadow, pivots: rig.pivots };
             fallback.active = false;
             fallback.destroy();
         } catch {
@@ -462,9 +575,15 @@ export class Main extends Component {
         this.shape(n, 'sphere', '#71584C', [0, 0.98, 1.28], [0.09, 0.045, 0.055]);
         this.shape(n, 'sphere', b.accent, [0, 0.85, -0.93], cat ? [0.3, 0.86, 0.32] : [0.46, 0.46, 0.48], [-25, 0, 0]);
         if (cat) this.shape(n, 'sphere', b.accent, [0, 1.22, -1.08], [0.38, 0.34, 0.33]);
-        const actor: Actor = { node: root, visual, pet, target: root.position.clone(), timer: 2 + Math.random() * 3, phase: Math.random() * 6 };
+        const actor: Actor = {
+            node: root, visual, pet, target: root.position.clone(),
+            timer: 1.5 + Math.random() * 2.5, phase: Math.random() * Math.PI * 2,
+            speed: 0, idleTime: Math.random() * 10, lookYaw: 0, lookTilt: 0,
+            lookTimer: 1.5 + Math.random() * 2.5, facing: (Math.random() - 0.5) * 60,
+        };
+        root.setRotationFromEuler(0, actor.facing!, 0);
         this.actors.push(actor);
-        // AI 模型就绪后替换几何 Fallback，加载失败不影响点击与照顾。
+        // 卡通可动 3D 模型就绪后替换几何 Fallback，加载失败不影响点击与照顾。
         void this.attachPetModel(actor, n);
     }
 
@@ -599,31 +718,34 @@ export class Main extends Component {
             }
         }
     }
-    private petAvatar(parent: Node, id: number, x: number, y: number, size: number, locked = false) {
-        const b = BREEDS[id], s = size / 100;
-        const n = this.uiNode(parent, '伙伴头像-' + b.kind + '-' + id, x, y, size, size), g = n.addComponent(Graphics);
-        g.fillColor = this.color(C.cream); g.circle(0, 0, size * 0.48); g.fill();
-        g.fillColor = this.color(b.accent);
-        if (b.kind === 'cat') {
-            for (const side of [-1, 1]) {
-                g.moveTo(side * 34 * s, 12 * s); g.lineTo(side * 29 * s, 42 * s); g.lineTo(side * 8 * s, 27 * s); g.close(); g.fill();
-            }
-            g.fillColor = this.color('#E8ADA4');
-            for (const side of [-1, 1]) {
-                g.moveTo(side * 28 * s, 20 * s); g.lineTo(side * 26 * s, 34 * s); g.lineTo(side * 16 * s, 26 * s); g.close(); g.fill();
-            }
-        } else {
-            for (const side of [-1, 1]) { g.ellipse(side * 31 * s, 10 * s, 13 * s, 25 * s); g.fill(); }
+    private loadPetAvatar(skinKey: string): Promise<SpriteFrame | null> {
+        let loading = this.petAvatars.get(skinKey);
+        if (!loading) {
+            loading = new Promise<SpriteFrame | null>(resolve => {
+                resources.load('pets/avatars/' + skinKey + '/spriteFrame', SpriteFrame, (error, frame) => {
+                    if (!isValid(this, true)) { resolve(null); return; }
+                    resolve(error || !frame ? null : frame);
+                });
+            });
+            this.petAvatars.set(skinKey, loading);
         }
-        g.fillColor = this.color(b.color); g.ellipse(0, 2 * s, 35 * s, 32 * s); g.fill();
-        g.fillColor = this.color('#F7E6D0'); g.ellipse(0, -11 * s, 20 * s, 13 * s); g.fill();
-        g.fillColor = this.color('#303A35');
-        for (const side of [-1, 1]) { g.circle(side * 13 * s, 7 * s, 3.5 * s); g.fill(); }
-        g.fillColor = this.color(C.white);
-        for (const side of [-1, 1]) { g.circle((side * 13 - 1) * s, 8 * s, 1.1 * s); g.fill(); }
-        g.fillColor = this.color(b.kind === 'cat' ? '#BD8881' : '#4F4B43'); g.ellipse(0, -7 * s, 4.5 * s, 3.2 * s); g.fill();
-        g.strokeColor = this.color('#71584C'); g.lineWidth = 1.8 * s;
-        g.moveTo(0, -10 * s); g.lineTo(0, -14 * s); g.moveTo(0, -14 * s); g.lineTo(-5 * s, -17 * s); g.moveTo(0, -14 * s); g.lineTo(5 * s, -17 * s); g.stroke();
+        return loading;
+    }
+
+    private petAvatar(parent: Node, id: number, x: number, y: number, size: number, locked = false) {
+        const b = BREEDS[id];
+        const n = this.uiNode(parent, '伙伴头像-' + b.kind + '-' + id, x, y, size, size);
+        const g = n.addComponent(Graphics);
+        g.fillColor = this.color(C.cream); g.circle(0, 0, size * 0.48); g.fill();
+        // 同步创建头像图层，异步只赋值 spriteFrame，避免刷新时节点增删引起界面跳动。
+        const art = this.uiNode(n, '伙伴头像图', 0, 0, size, size);
+        const sprite = art.addComponent(Sprite);
+        sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+        void this.loadPetAvatar(b.skin).then(frame => {
+            if (!frame || !isValid(this, true) || !isValid(sprite, true)) return;
+            sprite.spriteFrame = frame;
+            if (isValid(g, true)) g.clear();
+        });
         if (locked) {
             const overlay = this.uiNode(n, '未解锁遮罩', 0, 0, size, size), mask = overlay.addComponent(Graphics);
             mask.fillColor = new Color(66, 91, 80, 175); mask.circle(0, 0, size * 0.48); mask.fill();
@@ -2228,35 +2350,168 @@ export class Main extends Component {
         for (let i = 0; i < steps; i++) {
             this.actors.forEach(a => {
                 if (!isValid(a.node, true)) return;
-                let moving = false;
-                if (a.timer < 0) {
+                const isCat = BREEDS[a.pet.id].kind === 'cat';
+                const cruise = isCat ? 0.72 : 0.82;
+                a.idleTime = (a.idleTime || 0) + step;
+                let desiredSpeed = 0;
+                let happyHop = 0;
+                const socializing = (a.socialUntil || 0) > this.socialTime;
+                const celebrating = a.timer < 0;
+                if (celebrating) {
                     a.timer = Math.min(0, a.timer + step);
-                    a.node.setPosition(a.node.position.x, Math.abs(Math.sin(a.timer * 9)) * 0.22, a.node.position.z);
-                } else if ((a.socialUntil || 0) > this.socialTime) {
+                    happyHop = Math.abs(Math.sin(a.timer * 7.8)) * 0.22;
+                    a.node.setPosition(a.node.position.x, happyHop, a.node.position.z);
+                } else if (socializing) {
                     a.node.setPosition(a.node.position.x, 0, a.node.position.z);
                 } else {
-                    a.timer -= step;
-                    if (a.timer <= 0) { a.target.set((Math.random() - 0.5) * 4.6, 0, (Math.random() - 0.5) * 3.2); a.timer = 4 + Math.random() * 5; }
-                    const pos = a.node.position, dx = a.target.x - pos.x, dz = a.target.z - pos.z, distance = Math.hypot(dx, dz);
-                    if (distance > 0.15 && a.pet.energy > 5) {
-                        const travel = Math.min(distance - 0.15, step * 0.65);
-                        a.node.setPosition(pos.x + dx / distance * travel, 0, pos.z + dz / distance * travel);
+                    const pos = a.node.position;
+                    let dx = a.target.x - pos.x, dz = a.target.z - pos.z, distance = Math.hypot(dx, dz);
+                    if (distance <= 0.14 || a.pet.energy <= 5) {
+                        a.timer -= step;
+                        if (a.timer <= 0 && a.pet.energy > 5) {
+                            // 选取距离适中的庭院新漫步点，避免原地频繁小步抖动。
+                            let nx = pos.x, nz = pos.z;
+                            for (let tries = 0; tries < 6; tries++) {
+                                nx = (Math.random() - 0.5) * 4.4;
+                                nz = (Math.random() - 0.5) * 3.0;
+                                if (Math.hypot(nx - pos.x, nz - pos.z) >= 0.85) break;
+                            }
+                            a.target.set(nx, 0, nz);
+                            a.timer = 2.2 + Math.random() * 2.8;
+                            dx = nx - pos.x; dz = nz - pos.z; distance = Math.hypot(dx, dz);
+                        }
+                    }
+                    if (distance > 0.14 && a.pet.energy > 5) {
                         a.facing = Math.atan2(dx, dz) * 180 / Math.PI;
-                        // 按实际行进距离推进步相，静止不继续摇摆。
-                        a.phase = (a.phase + travel * 10) % (Math.PI * 2);
-                        moving = travel > 0;
-                    } else a.node.setPosition(pos.x, 0, pos.z);
+                        const yaw = a.node.eulerAngles.y;
+                        const angleErr = Math.abs(((a.facing - yaw + 540) % 360) - 180);
+                        // 大角度转向时先原地小碎步转正再迈步前行，避免横移滑步。
+                        const align = Math.max(0.08, Math.min(1, 1 - Math.max(0, angleErr - 24) / 70));
+                        const approach = Math.max(0.18, Math.min(1, (distance - 0.10) / 0.55));
+                        desiredSpeed = cruise * align * approach;
+                    }
+                    a.node.setPosition(pos.x, 0, pos.z);
                 }
+                // 平滑加减速与弧线转向
+                const speedBlend = 1 - Math.exp(-step * (desiredSpeed > (a.speed || 0) ? 5.5 : 8.5));
+                a.speed = (a.speed || 0) + (desiredSpeed - (a.speed || 0)) * speedBlend;
+                let turnDelta = 0;
                 if (a.facing !== undefined) {
                     const yaw = a.node.eulerAngles.y;
                     const difference = ((a.facing - yaw + 540) % 360) - 180;
-                    a.node.setRotationFromEuler(0, yaw + difference * (1 - Math.exp(-step * 7)), 0);
+                    const turnRate = socializing || celebrating ? 8.5 : 6.2;
+                    turnDelta = difference * (1 - Math.exp(-step * turnRate));
+                    a.node.setRotationFromEuler(0, yaw + turnDelta, 0);
+                }
+                let travel = 0;
+                if (!celebrating && !socializing && a.speed > 0.015) {
+                    const pos = a.node.position, dx = a.target.x - pos.x, dz = a.target.z - pos.z, distance = Math.hypot(dx, dz);
+                    if (distance > 0.10) {
+                        travel = Math.min(distance - 0.10, a.speed * step);
+                        a.node.setPosition(pos.x + dx / distance * travel, 0, pos.z + dz / distance * travel);
+                    }
+                }
+                // 步相按真实位移与原地转身碎步共同推进，保证脚掌踩实不滑步。
+                const turnShuffle = Math.abs(turnDelta) * 0.042;
+                const gaitRaw = Math.min(1, (a.speed / cruise) + Math.min(0.45, Math.abs(turnDelta) / (step * 180 + 1e-4) * 0.35));
+                if (travel > 0 || turnShuffle > 0.002) {
+                    a.phase = (a.phase + travel * 8.2 + turnShuffle) % (Math.PI * 2);
+                }
+                // 闲置时偶尔俏皮转头歪头张望
+                a.lookTimer = (a.lookTimer ?? 2) - step;
+                if (a.lookTimer <= 0) {
+                    a.lookTimer = 2.0 + Math.random() * 2.8;
+                    if (gaitRaw < 0.15 && !socializing && !celebrating) {
+                        a.lookYaw = (Math.random() - 0.5) * 30;
+                        a.lookTilt = (Math.random() - 0.5) * 16;
+                    } else {
+                        a.lookYaw = 0; a.lookTilt = 0;
+                    }
                 }
                 const settle = 1 - Math.exp(-step * 14);
-                const lift = moving ? (1 - Math.cos(a.phase * 2)) * 0.006 : 0;
-                const roll = moving ? Math.sin(a.phase) * 1.3 : 0;
-                a.visual.setPosition(0, a.visual.position.y + (lift - a.visual.position.y) * settle, 0);
-                a.visual.setRotationFromEuler(0, 0, a.visual.eulerAngles.z + (roll - a.visual.eulerAngles.z) * settle);
+                const gait = celebrating ? 0 : gaitRaw;
+                const t = a.idleTime;
+                const breath = Math.sin(t * (isCat ? 2.2 : 2.8)) * 0.018 * (1 - gait * 0.7);
+                const bounce = gait * Math.abs(Math.sin(a.phase)) * (isCat ? 0.052 : 0.064);
+                const roll = gait * Math.sin(a.phase) * (isCat ? 4.4 : 5.4);
+                const sway = gait * Math.cos(a.phase) * (isCat ? 3.2 : 4.0);
+                const pitch = gait * (isCat ? 2.4 : 3.2) + (celebrating ? -Math.sin(a.timer * 7.8) * 10 : 0);
+                const squashY = celebrating
+                    ? 1 + Math.sin(a.timer * 15.6) * 0.075
+                    : 1 + breath + gait * (Math.abs(Math.sin(a.phase)) - 0.45) * 0.055;
+                const squashXZ = 1 / Math.sqrt(Math.max(0.85, squashY));
+                a.visual.setPosition(0, a.visual.position.y + (bounce - a.visual.position.y) * settle, 0);
+                a.visual.setRotationFromEuler(
+                    a.visual.eulerAngles.x + (pitch - a.visual.eulerAngles.x) * settle,
+                    a.visual.eulerAngles.y + (sway - a.visual.eulerAngles.y) * settle,
+                    a.visual.eulerAngles.z + (roll - a.visual.eulerAngles.z) * settle,
+                );
+                a.visual.setScale(
+                    a.visual.scale.x + (squashXZ - a.visual.scale.x) * settle,
+                    a.visual.scale.y + (squashY - a.visual.scale.y) * settle,
+                    a.visual.scale.z + (squashXZ - a.visual.scale.z) * settle,
+                );
+
+                // 关节级卡通走路、摇尾、抖耳与互动动画
+                const rig = a.rig;
+                if (rig && isValid(rig.head, true)) {
+                    const sA = Math.sin(a.phase), sB = -sA;
+                    const swingAmp = (isCat ? 28 : 32) * gait;
+                    const legA = celebrating ? -18 : sA * swingAmp;
+                    const legB = celebrating ? -18 : sB * swingAmp;
+                    const liftA = celebrating ? 0 : Math.max(0, Math.cos(a.phase)) * 0.048 * gait;
+                    const liftB = celebrating ? 0 : Math.max(0, -Math.cos(a.phase)) * 0.048 * gait;
+                    const poseLeg = (leg: Node, key: string, rotX: number, liftY: number) => {
+                        const p = rig.pivots[key];
+                        leg.setRotationFromEuler(leg.eulerAngles.x + (rotX - leg.eulerAngles.x) * settle, 0, 0);
+                        leg.setPosition(p[0], p[1] + liftY, p[2]);
+                    };
+                    poseLeg(rig.legFL, 'legFL', legA, liftA);
+                    poseLeg(rig.legBR, 'legBR', legA, liftA);
+                    poseLeg(rig.legFR, 'legFR', legB, liftB);
+                    poseLeg(rig.legBL, 'legBL', legB, liftB);
+
+                    // 头部：转向先行引导 + 迈步轻点 + 社交点头 + 闲置歪头张望
+                    const diffYaw = a.facing !== undefined ? ((a.facing - a.node.eulerAngles.y + 540) % 360) - 180 : 0;
+                    const targetHeadYaw = gait > 0.1 ? Math.max(-22, Math.min(22, diffYaw * 0.4)) : (socializing ? Math.sin(t * 5) * 6 : (a.lookYaw || 0));
+                    const targetHeadPitch = celebrating ? -10 : socializing ? Math.sin(t * 7.5) * 8 : gait * Math.cos(a.phase * 2) * 3.8 + breath * 95;
+                    const targetHeadRoll = celebrating ? Math.sin(t * 9) * 10 : gait > 0.1 ? -Math.sin(a.phase) * 3.0 * gait : (a.lookTilt || 0);
+                    const headEase = 1 - Math.exp(-step * 8);
+                    rig.head.setRotationFromEuler(
+                        rig.head.eulerAngles.x + (targetHeadPitch - rig.head.eulerAngles.x) * headEase,
+                        rig.head.eulerAngles.y + (targetHeadYaw - rig.head.eulerAngles.y) * headEase,
+                        rig.head.eulerAngles.z + (targetHeadRoll - rig.head.eulerAngles.z) * headEase,
+                    );
+
+                    // 耳朵：狗狗垂耳随步态上下Q弹摆动，猫咪尖耳轻颤呼应
+                    if (isCat) {
+                        const twitch = Math.sin(t * 1.9 + a.pet.id * 1.7) > 0.96 ? Math.sin(t * 36) * 9 : 0;
+                        const earBounce = gait * Math.sin(a.phase - 0.6) * 5.5;
+                        rig.earL.setRotationFromEuler(earBounce * 0.6, 0, earBounce + twitch);
+                        rig.earR.setRotationFromEuler(earBounce * 0.6, 0, -earBounce);
+                    } else {
+                        const flap = (gait * Math.abs(Math.sin(a.phase - 0.5)) * 12) + (celebrating ? 14 : 0) + Math.sin(t * 3.2) * 2.2;
+                        const earSwingX = gait * Math.sin(a.phase - 0.4) * 6.5;
+                        rig.earL.setRotationFromEuler(earSwingX, 0, flap);
+                        rig.earR.setRotationFromEuler(earSwingX, 0, -flap);
+                    }
+
+                    // 尾巴：猫优雅舒缓S摆，狗欢快高频摇尾（开心/社交加速）
+                    const excited = celebrating || socializing ? 1 : gait * 0.65;
+                    const wagFreq = isCat ? (3.0 + excited * 3.2) : (5.8 + excited * 6.5);
+                    const wagAmp = isCat ? (14 + excited * 12) : (20 + excited * 16);
+                    const tailY = Math.sin(t * wagFreq + a.pet.id) * wagAmp;
+                    const tailX = (isCat ? 4 : 6) * Math.cos(t * wagFreq * 0.5) + (celebrating ? 10 : 0);
+                    rig.tail.setRotationFromEuler(tailX, tailY, 0);
+
+                    // 地面阴影贴地且随弹跳柔和缩放
+                    if (rig.shadow && isValid(rig.shadow, true)) {
+                        const totalY = Math.max(0, a.node.position.y + a.visual.position.y * this.petNodeScale);
+                        const shadowScale = Math.max(0.72, 1 - totalY * 0.55);
+                        rig.shadow.setPosition(0, 0.02 - a.node.position.y / this.petNodeScale, -0.02);
+                        rig.shadow.setScale(shadowScale, 1, shadowScale);
+                    }
+                }
             });
             this.resolvePetCollisions(step);
         }
@@ -2282,6 +2537,6 @@ export class Main extends Component {
         this.world?.destroy(); this.ui?.destroy(); this.background?.destroy();
         this.worldCamera?.node.destroy(); this.uiCamera?.node.destroy(); this.backgroundCamera?.node.destroy();
         this.materials.forEach(m => m.destroy()); this.meshes.forEach(m => m.destroy());
-        this.materials.clear(); this.meshes.clear(); this.petModels.clear();
+        this.materials.clear(); this.meshes.clear(); this.petRigs.clear(); this.petSkins.clear(); this.petAvatars.clear(); this.shadowTexture = null;
     }
 }
