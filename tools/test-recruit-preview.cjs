@@ -274,11 +274,20 @@ const fs = require('node:fs');
       await pressClick('查看累计招募奖励');
       const rewardsText = () => page.evaluate(() => walk(main.dialog).filter(n => n.getComponent('cc.Label')).map(n => n.getComponent('cc.Label').string).join('\n'));
       assert.match(await rewardsText(), /当前累计招募 29 次/);
-      assert.match(await rewardsText(), /10次 · 已领/);
-      for (const target of [30,50,100,200,300]) assert((await rewardsText()).includes(target+'次 · 未完成'));
+      const rewardRow = (target, expected) => page.evaluate(({target, expected}) => {
+        const row = walk(main.dialog).find(n => n.name === '累计招募档位-' + target);
+        return row?.getChildByName('档位状态')?.getComponent('cc.Label').string === expected;
+      }, {target, expected});
+      assert(await rewardRow(10, '已领取'));
+      for (const target of [30,50,100,200,300]) assert(await rewardRow(target, '未完成'));
       assert.equal((await state()).claimed, 10, '搜索不能冒泡触发领取');
       await page.waitForTimeout(400);
-      await page.screenshot({ path: `temp/recruit-rewards-before-${width}.png` });
+      await page.screenshot({ path: `temp/recruit-reward-list-${width}.png` });
+      const scrollPoint = await pointFor('累计奖励可视窗口');
+      await page.mouse.move(scrollPoint.x, scrollPoint.y + 36); await page.mouse.down();
+      await page.mouse.move(scrollPoint.x, scrollPoint.y - 65, { steps: 16 }); await page.mouse.up();
+      assert(await page.evaluate(() => walk(main.dialog).find(n => n.name === '累计奖励可视窗口').getComponent('cc.ScrollView').getScrollOffset().y > 40), '真实鼠标拖动列表必须滚动');
+      await page.evaluate(() => walk(main.dialog).find(n => n.name === '累计奖励可视窗口').getComponent('cc.ScrollView').scrollToTop(0));
       await click('弹窗按钮-关闭'); await assertStable30();
       const single = '招募按钮-普通招募 · 300钻 / 1次', ten = '招募按钮-高级招募 · 2700钻 / 10次';
       await pressClick(single); const one = await state();
@@ -288,16 +297,46 @@ const fs = require('node:fs');
       await page.waitForTimeout(650); await pressClick(ten); const batch = await state();
       assert.equal(batch.gems, 17000); assert.equal(batch.total, 40); assert.equal(batch.copies, 13); assert.equal(batch.recent, 10); assert(batch.same && batch.saved); assert.equal(batch.pets, batch.actors); await assertStable30();
       await page.waitForTimeout(650); await pressClick('查看累计招募奖励');
-      assert.match(await rewardsText(), /30次 · 可领/);
+      assert(await rewardRow(30, '可领取'));
       assert.equal((await state()).claimed, 10, '可领取时搜索也不能触发领取');
       await page.waitForTimeout(400);
       await page.screenshot({ path: `temp/recruit-rewards-ready-${width}.png` });
-      const dialogBeforeClaim = await page.evaluate(() => { window.rewardDialog = main.dialog; return walk(main.dialog).length; });
+      const claimScrollPoint = await pointFor('累计奖励可视窗口');
+      await page.mouse.move(claimScrollPoint.x, claimScrollPoint.y + 36); await page.mouse.down();
+      await page.mouse.move(claimScrollPoint.x, claimScrollPoint.y - 65, { steps: 16 }); await page.mouse.up();
+      assert(await page.evaluate(() => walk(main.dialog).find(n => n.name === '累计奖励可视窗口').getComponent('cc.ScrollView').getScrollOffset().y > 40), '领奖前保持真实非零滚动位置');
+      await page.evaluate(() => new Promise(resolve => {
+        let frames = 0;
+        const settle = () => {
+          if (++frames >= 10) { cc.director.off(cc.Director.EVENT_AFTER_UPDATE, settle); resolve(); }
+        };
+        cc.director.on(cc.Director.EVENT_AFTER_UPDATE, settle);
+      }));
+      const dialogBeforeClaim = await page.evaluate(() => {
+        window.rewardDialog = main.dialog; window.rewardNodes = walk(main.dialog);
+        window.rewardGeometry = JSON.stringify(window.rewardNodes.map(window.recruitGeometry));
+        window.rewardScroll = walk(main.dialog).find(n => n.name === '累计奖励可视窗口').getComponent('cc.ScrollView').getScrollOffset().y;
+        return window.rewardNodes.length;
+      });
       await click('弹窗按钮-领取奖励'); const reward = await state();
       assert(await page.evaluate(() => main.dialog === window.rewardDialog), '领取后弹窗原位保留');
       assert.equal(await page.evaluate(() => walk(main.dialog).length), dialogBeforeClaim);
-      assert.match(await rewardsText(), /30次 · 已领/);
-      assert.match(await rewardsText(), /50次 · 未完成/);
+      assert(await rewardRow(30, '已领取'));
+      assert(await rewardRow(50, '未完成'));
+      const dialogStable = await page.evaluate(() => new Promise(resolve => {
+        let frames = 0;
+        const check = () => {
+          const nodes = walk(main.dialog);
+          const same = main.dialog === window.rewardDialog && nodes.length === window.rewardNodes.length && nodes.every((n,i) => n === window.rewardNodes[i]);
+          const geometry = JSON.stringify(nodes.map(window.recruitGeometry)) === window.rewardGeometry;
+          const offset = walk(main.dialog).find(n => n.name === '累计奖励可视窗口').getComponent('cc.ScrollView').getScrollOffset().y;
+          if (!same || !geometry || offset !== window.rewardScroll || ++frames === 30) {
+            cc.director.off(cc.Director.EVENT_AFTER_UPDATE, check); resolve({ frames, same, geometry, scroll: offset === window.rewardScroll });
+          }
+        };
+        cc.director.on(cc.Director.EVENT_AFTER_UPDATE, check);
+      }));
+      assert.deepEqual(dialogStable, {frames:30,same:true,geometry:true,scroll:true}, '领奖后30帧弹窗、行节点、几何和滚动偏移保持不变');
       await page.waitForTimeout(400);
       await page.screenshot({ path: `temp/recruit-rewards-claimed-${width}.png` });
       await click('弹窗按钮-关闭');

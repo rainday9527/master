@@ -683,7 +683,8 @@ export class Main extends Component {
         shade.clear(); shade.fillColor = new Color(0, 0, 0, 165);
         shade.rect(-this.width / 2, -this.height / 2, this.width, this.height); shade.fill();
         const panel = this.dialog.getChildByName('通用弹窗面板')!;
-        const scale = Math.min(1, (this.width - 40) / 900, (this.height - 40) / (904 * 900 / 1116));
+        const panelHeight = panel.getComponent(UITransform)!.height;
+        const scale = Math.min(1, (this.width - 40) / 900, (this.height - 40) / panelHeight);
         panel.setScale(scale, scale, 1);
     }
 
@@ -1212,19 +1213,100 @@ export class Main extends Component {
     }
 
     private showRecruitRewards() {
+        if (this.dialog) return;
         this.showDialog('累计招募奖励', '', [
             { title: '领取奖励', run: () => this.recruitTransaction('reward') },
             { title: '关闭', run: () => this.closeDialog() }
         ]);
         if (!this.dialog) return;
-        const content = this.dialog.getChildByName('通用弹窗面板')!.getChildByName('弹窗安全内容')!;
-        content.getChildByName('弹窗正文')!.active = false;
-        this.text(content, '', 0, 122, 670, 38, 30).node.name = '累计招募当前次数';
-        [10, 30, 50, 100, 200, 300].forEach((target, index) => {
-            this.text(content, '', index % 2 === 0 ? -174 : 174, 70 - Math.floor(index / 2) * 45, 330, 40, 27).node.name = '累计招募档位-' + target;
+        const panel = this.dialog.getChildByName('通用弹窗面板')!;
+        const ratio = 900 / 1116;
+        panel.getComponent(UITransform)!.setContentSize(900, 1100);
+        const art = panel.getChildByName('弹窗底板')!;
+        const sprite = art.getComponent(Sprite)!;
+        // 只拉伸浅色中段，保留顶饰、木牌和底部边框原比例；不修改共享frame。
+        resources.load('art/dialog/panel/spriteFrame', SpriteFrame, (error, frame) => {
+            if (error || !frame || !isValid(sprite, true)) return;
+            const sliced = frame.clone();
+            sliced.insetTop = 370; sliced.insetBottom = 134;
+            sliced.insetLeft = 78; sliced.insetRight = 78;
+            sprite.spriteFrame = sliced; sprite.type = Sprite.Type.SLICED;
+            art.getComponent(UITransform)!.setContentSize(1116, 1100 / ratio);
+            art.setScale(ratio, ratio, 1);
         });
-        this.text(content, '每档送1只伙伴本体；100次后每100次一档', 0, -56, 675, 24, 22);
+        panel.getChildByName('弹窗独立标题')!.setPosition(0, 550 - 280 * ratio);
+        panel.getChildByName('商店素材-close')?.setPosition(480 * ratio, 550 - 335 * ratio);
+        const content = panel.getChildByName('弹窗安全内容')!;
+        content.setPosition(0, 0);
+        content.getComponent(UITransform)!.setContentSize(720, 690);
+        content.getChildByName('弹窗正文')!.active = false;
+        this.dailyText(content, '', 0, 210, 680, 44, 32).node.name = '累计招募当前次数';
+        const viewport = this.uiNode(content, '累计奖励可视窗口', 0, -15, 700, 350);
+        viewport.addComponent(Mask).type = Mask.Type.GRAPHICS_RECT;
+        const rows = this.uiNode(viewport, '累计奖励滚动内容', 0, 175, 700, 0);
+        rows.getComponent(UITransform)!.setAnchorPoint(0.5, 1);
+        const scroll = viewport.addComponent(ScrollView);
+        scroll.content = rows; scroll.horizontal = false; scroll.vertical = true;
+        scroll.cancelInnerEvents = true; scroll.elastic = false; scroll.inertia = false;
+        this.dailyText(content, '每档奖励：随机宠物本体 ×1', 0, -224, 690, 34, 26);
+        this.dailyText(content, '100次后每100次一档 · 按顺序领取 · 上滑查看更多', 0, -261, 700, 32, 24);
+        content.getChildByName('弹窗按钮-领取奖励')!.setPosition(-186, -340);
+        content.getChildByName('弹窗按钮-关闭')!.setPosition(186, -340);
+        for (const [name, action] of [
+            ['弹窗按钮-领取奖励', () => this.recruitTransaction('reward')],
+            ['弹窗按钮-关闭', () => this.closeDialog()]
+        ] as const) {
+            const button = content.getChildByName(name)!;
+            button.off(Node.EventType.TOUCH_START); button.off(Node.EventType.TOUCH_CANCEL); button.off(Node.EventType.TOUCH_END);
+            const art = this.shopArt(button, 'buy', 0, 0, 380 * ratio, 380 * ratio * 120 / 321);
+            art.setSiblingIndex(0);
+            button.getComponent(Sprite)!.enabled = false;
+            this.pressVisualFeedback(button, button.children.slice());
+            button.on(Node.EventType.TOUCH_END, action, this);
+        }
+        this.appendRecruitRewardRows(rows, 0);
+        scroll.node.on(ScrollView.EventType.SCROLL_TO_BOTTOM, () => {
+            const count = rows.children.filter(n => n.name.startsWith('累计招募档位-')).length;
+            this.appendRecruitRewardRows(rows, count);
+            this.updateRecruitRewards();
+        }, this);
         this.updateRecruitRewards();
+        this.layoutDialog();
+    }
+
+    private appendRecruitRewardRows(rows: Node, start: number) {
+        // 每批12档，最多120行；继续翻页覆盖极端存档，而不是创建上万个节点。
+        const existing = rows.children.filter(n => n.name.startsWith('累计招募档位-'));
+        if (existing.length >= 120) return;
+        const base = Number(rows.name.split(':')[1] || 0);
+        const targetAt = (index: number) => index < 3 ? [10, 30, 50][index] : (index - 2) * 100;
+        const end = Math.min(start + 12, 120);
+        let added = 0;
+        for (let index = start; index < end; index++) {
+            const target = targetAt(base + index);
+            if (target > RECRUIT_CONFIG.maxTotal) break;
+            added++;
+            const row = this.uiNode(rows, '累计招募档位-' + target, 0, -68 - index * 146, 700, 136);
+            this.dailySprite(row, 'row-clean', 0, 0, 700, 136, true, '累计奖励行板');
+            this.recruitArt(row, 'chest', -288, 5, 76, 72);
+            this.dailyText(row, '累计招募' + target + '次', -76, 39, 310, 34, 29, true).node.name = '档位标题';
+            this.dailyText(row, '随机宠物本体 ×1', -76, 2, 310, 32, 25, true);
+            this.dailyText(row, '', -76, -33, 310, 30, 24, true).node.name = '档位进度';
+            this.dailyText(row, '', 254, 5, 140, 38, 27).node.name = '档位状态';
+        }
+        rows.getComponent(UITransform)!.setContentSize(700, (start + added) * 146);
+        if (start + added === 120 && targetAt(base + 120) <= RECRUIT_CONFIG.maxTotal) {
+            const more = this.dailyButton(rows, '查看后续档位', 0, -120 * 146 - 38, 320, 68, () => {
+                rows.children.slice().forEach(child => child.destroy());
+                rows.removeAllChildren();
+                rows.name = '累计奖励滚动内容:' + (base + 120);
+                this.appendRecruitRewardRows(rows, 0);
+                rows.parent!.getComponent(ScrollView)!.scrollToTop(0);
+                this.updateRecruitRewards();
+            });
+            more.name = '累计奖励后续档位';
+            rows.getComponent(UITransform)!.setContentSize(700, 120 * 146 + 80);
+        }
     }
 
     private updateRecruitRewards() {
@@ -1234,12 +1316,14 @@ export class Main extends Component {
         const content = panel.getChildByName('弹窗安全内容')!;
         const state = this.data.recruit, next = nextMilestone(state.claimed);
         content.getChildByName('累计招募当前次数')!.getComponent(Label)!.string = '当前累计招募 ' + state.total + ' 次';
-        const targets = [10, 30, 50, 100, 200, Math.max(300, next)];
-        [10, 30, 50, 100, 200, 300].forEach((key, index) => {
-            const target = targets[index], claimed = state.claimed >= target, ready = state.total >= target;
-            const label = content.getChildByName('累计招募档位-' + key)!.getComponent(Label)!;
-            label.string = target + '次 · ' + (claimed ? '已领' : ready ? '可领' : '未完成');
-            label.color = this.statusColor(claimed || ready);
+        const rows = content.getChildByName('累计奖励可视窗口')!.getComponent(ScrollView)!.content!;
+        rows.children.filter(n => n.name.startsWith('累计招募档位-')).forEach(row => {
+            const target = Number(row.name.slice('累计招募档位-'.length));
+            const claimed = state.claimed >= target, ready = state.total >= target;
+            row.getChildByName('档位进度')!.getComponent(Label)!.string = '进度 ' + Math.min(state.total, target) + ' / ' + target;
+            const status = row.getChildByName('档位状态')!.getComponent(Label)!;
+            status.string = claimed ? '已领取' : ready ? '可领取' : '未完成';
+            status.color = this.statusColor(claimed || ready);
         });
         const button = content.getChildByName('弹窗按钮-领取奖励')!;
         const label = button.children.find(n => n.getComponent(Label))!.getComponent(Label)!;
