@@ -138,6 +138,36 @@ const fs = require('node:fs');
       });
       assert(Math.abs(progressGeometry[0].width/progressGeometry[0].height - 588/120)<1e-6, '新独立进度槽保持原比例');
       assert.deepEqual(progressGeometry[1], { width: 214, height: 23.6 }, '填充严格适配新槽真实内区，不照搬外框尺寸');
+      const spacing = await page.evaluate(() => {
+        const preview = main.sheet.getChildByName('招募预览横栏');
+        const title = preview.getChildByName('宠物预览标题');
+        const details = preview.getChildByName('查看招募卡池');
+        const reward = main.sheet.getChildByName('领取招募累计奖励');
+        const rect = n => { const t = n.getComponent('cc.UITransform'); return { left:n.position.x-t.width/2, right:n.position.x+t.width/2, bottom:n.position.y-t.height/2, top:n.position.y+t.height/2 }; };
+        const plate = (parent, label) => {
+          const n = parent.getChildByName('主城素材-label0'), s = n.getComponent('cc.Sprite');
+          return { bounds: rect(n), text: rect(label), loaded: !!s.spriteFrame, sliced: s.type === cc.Sprite.Type.SLICED,
+            insets: [s.spriteFrame.insetLeft, s.spriteFrame.insetRight, s.spriteFrame.insetTop, s.spriteFrame.insetBottom] };
+        };
+        const avatars = preview.children.filter(n => n.name.startsWith('招募本体-')).map(card => {
+          const avatar = card.children.find(n => n.name.startsWith('伙伴头像-'));
+          return card.position.y + rect(avatar).top;
+        });
+        return { text: title.getComponent('cc.Label').string, title: rect(title), avatars,
+          detailBounds: rect(details), details: plate(details, details.children.find(n => n.getComponent('cc.Label'))),
+          reward: plate(reward, reward.getChildByName('招募奖励标题')), chest: rect(reward.getChildByName('招募素材-chest')),
+          hint: rect(reward.getChildByName('招募奖励说明')) };
+      });
+      assert.equal(spacing.text, '宠物预览');
+      spacing.avatars.forEach(top => assert(spacing.title.bottom - top >= 24 && spacing.detailBounds.bottom - top >= 8, '标题行与保留的临时头像拉开间距'));
+      for (const plate of [spacing.details, spacing.reward]) {
+        assert(plate.loaded && plate.sliced, '必须加载真实九宫格底板，不能只扩大热区');
+        assert.deepEqual(plate.insets, [40, 40, 30, 30]);
+        assert(plate.text.left >= plate.bounds.left + 14 && plate.text.right <= plate.bounds.right - 14 && plate.text.bottom >= plate.bounds.bottom + 9 && plate.text.top <= plate.bounds.top - 9, '文字完整落在扣除透明边缘后的真实底板内区');
+      }
+      assert(spacing.reward.bounds.right <= 150 && spacing.reward.bounds.left - spacing.chest.right >= 6, '奖励底板不超右侧并与礼物留空');
+      assert(spacing.reward.bounds.bottom - spacing.hint.top >= 3, '奖励底板不挤说明');
+      assert(spacing.title.top <= 138 && spacing.detailBounds.top <= 138, '上移后的标题行仍处于预览底板内');
       const layout = await page.evaluate(() => {
         const sheet = main.sheet, t = sheet.getComponent('cc.UITransform'), s = sheet.worldScale;
         window.recruitSheet = sheet; window.recruitNodes = walk(sheet);
@@ -265,6 +295,7 @@ const fs = require('node:fs');
       await page.waitForTimeout(650); await click('领取招募累计奖励'); assert.deepEqual(await state(), reward); await assertStable30();
       await page.waitForTimeout(4800); // 等待操作提示消失，截图不得遮挡正文。
       await page.screenshot({ path: `temp/recruit-preview-panel-${width}.png` });
+      await page.screenshot({ path: `temp/recruit-spacing-${width}.png` });
       const assertClean = async () => {
         assert(await page.evaluate(() => main.recruitBackground === null && walk(main.ui).every(n => n.name !== '招募素材-background') && main.recruitLabels.length === 0 && main.recruitProgress === null && main.recruitBadge === null && main.recruitResult === null), '离页背景与招募引用清理');
       };
@@ -285,7 +316,7 @@ const fs = require('node:fs');
       await page.evaluate(() => { window.destroyedRecruitBackground = main.recruitBackground; main.destroy(); });
       await page.waitForFunction(() => !cc.isValid(window.destroyedRecruitBackground, true) && main.recruitBackground === null);
       assert.deepEqual(failures, []);
-      report.checks.push({ width, proportions, progressGeometry, layout, background, pressChecks, stableFrames: 30, headerClickable: true, navClickable: true, reopenCleanup: true, one, batch, reward, persisted: true, insufficientDialog: true, httpFailures: failures });
+      report.checks.push({ width, spacing, proportions, progressGeometry, layout, background, pressChecks, stableFrames: 30, headerClickable: true, navClickable: true, reopenCleanup: true, one, batch, reward, persisted: true, insufficientDialog: true, httpFailures: failures });
       } catch (error) {
         report.errors.push(`${width}×844：${error.message}`);
       } finally { await context.close(); }
