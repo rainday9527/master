@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Camera, Canvas, UITransform, Graphics, Label, Color, Vec3, Vec2, MeshRenderer, Material, primitives, utils, view, ResolutionPolicy, Layers, input, Input, EventTouch, sys, BlockInputEvents, Sprite, SpriteFrame, resources, DirectionalLight, Vec4, JsonAsset, Texture2D, isValid, tween, Tween, ScrollView, Mask, UIOpacity, profiler } from 'cc';
+import { _decorator, Component, Node, Camera, Canvas, UITransform, Graphics, Label, Color, Vec3, Vec2, RenderTexture, MeshRenderer, Material, primitives, utils, view, ResolutionPolicy, Layers, input, Input, EventTouch, sys, BlockInputEvents, Sprite, SpriteFrame, resources, DirectionalLight, Vec4, JsonAsset, Texture2D, isValid, tween, Tween, ScrollView, Mask, UIOpacity, profiler } from 'cc';
 
 import { ITEM_CATALOG, ItemDefinition, ItemCategory, PetStat, ShopSlot, findItem, itemApplies, effectText, drawShopSlots } from './ItemCatalog';
 
@@ -166,6 +166,20 @@ export class Main extends Component {
     private profilePetId = 0;
     private profileTab: 'overview' | 'star' | 'outfit' = 'overview';
     private recruitPreviewPage = 0;
+    private readonly previewLayer = 1 << 21;
+    private previewCamera: Camera | null = null;
+    private previewTexture: RenderTexture | null = null;
+    private previewFrame: SpriteFrame | null = null;
+    private previewStage: Node | null = null;
+    private previewVisual: Node | null = null;
+    private previewRig: ActorRig | null = null;
+    private previewViewportNode: Node | null = null;
+    private previewTime = 0;
+    private previewTailPhase = 0;
+    private previewDragYaw = -16;
+    private previewHop = 0;
+    private previewLoadedKey = '';
+    private outfitIcons = new Map<string, Promise<SpriteFrame | null>>();
     public rewardedVideoProvider: RewardedVideoProvider | null = null;
     private dialog: Node | null = null;
     private rewardedVideoPending = false;
@@ -398,6 +412,28 @@ export class Main extends Component {
         this.worldCamera.clearFlags = Camera.ClearFlag.DEPTH_ONLY;
         this.worldCamera.priority = 1;
         n.setPosition(0, 22, 16); n.lookAt(new Vec3(0, 0, 0));
+
+        // 宠物主页专属 3D 展示相机：渲染至 512×512 透明 RenderTexture，由主页展示舞台 Sprite 承载，1:1 零拉伸且严守 UI 层级。
+        const previewRT = new RenderTexture();
+        previewRT.reset({ width: 512, height: 512 });
+        this.previewTexture = previewRT;
+        const previewFrame = new SpriteFrame();
+        previewFrame.texture = previewRT;
+        this.previewFrame = previewFrame;
+
+        const previewCamNode = new Node('宠物主页预览相机'); this.node.addChild(previewCamNode);
+        this.previewCamera = previewCamNode.addComponent(Camera);
+        this.previewCamera.projection = Camera.ProjectionType.ORTHO;
+        this.previewCamera.orthoHeight = 1.16;
+        this.previewCamera.near = 0.1; this.previewCamera.far = 40;
+        this.previewCamera.visibility = this.previewLayer;
+        this.previewCamera.clearFlags = Camera.ClearFlag.SOLID_COLOR;
+        this.previewCamera.clearColor = new Color(0, 0, 0, 0);
+        this.previewCamera.priority = 2;
+        this.previewCamera.targetTexture = previewRT;
+        previewCamNode.setPosition(0.55, 1.32, 3.8);
+        previewCamNode.lookAt(new Vec3(0, 0.96, 0.02));
+        this.previewCamera.enabled = false;
     }
 
     private color(hex: string): Color { return new Color().fromHEX(hex); }
@@ -610,23 +646,180 @@ export class Main extends Component {
         return root;
     }
 
+    private setLayerRecursive(node: Node, layer: number) {
+        node.layer = layer;
+        node.children.forEach(child => this.setLayerRecursive(child, layer));
+    }
+
+    private clearProfilePreview() {
+        if (this.previewStage && isValid(this.previewStage, true)) {
+            this.previewStage.active = false;
+            this.previewStage.removeFromParent();
+            this.previewStage.destroy();
+        }
+        this.previewStage = null;
+        this.previewVisual = null;
+        this.previewRig = null;
+        this.previewLoadedKey = '';
+        if (this.previewCamera && isValid(this.previewCamera, true)) this.previewCamera.enabled = false;
+    }
+
+    private async syncProfilePreview(petId: number, force = false) {
+        const pet = this.data.pets.find(p => p.id === petId);
+        if (!pet || this.page !== 'profile') { this.clearProfilePreview(); return; }
+        const key = pet.id + ':' + pet.outfit + ':' + pet.coat;
+        if (!force && this.previewLoadedKey === key && this.previewRig && isValid(this.previewRig.modelNode, true)) return;
+        const breed = BREEDS[pet.id];
+        const [rig, skinTexture, shadowTex] = await Promise.all([
+            this.loadPetRig(breed.kind),
+            this.loadPetSkin(breed.skin),
+            this.loadShadowTexture(),
+        ]);
+        if (!rig || !skinTexture || !isValid(this, true) || this.page !== 'profile' || this.profilePetId !== petId) return;
+        this.clearProfilePreview();
+        const stage = new Node('宠物主页3D舞台');
+        this.node.addChild(stage);
+        stage.setPosition(0, 0, 0);
+        const visual = new Node('预览重心');
+        stage.addChild(visual);
+        const material = this.getPetSkinMaterial(breed.skin, pet.coat, skinTexture);
+        const modelNode = new Node('预览卡通模型');
+        visual.addChild(modelNode);
+        const renderers: MeshRenderer[] = [];
+        const addPart = (parent: Node, name: string, part: RigPartName, pivot?: [number, number, number]) => {
+            const node = new Node(name);
+            parent.addChild(node);
+            if (pivot) node.setPosition(pivot[0], pivot[1], pivot[2]);
+            const renderer = node.addComponent(MeshRenderer);
+            renderer.mesh = rig.meshes[part];
+            renderer.setSharedMaterial(material, 0);
+            renderers.push(renderer);
+            return node;
+        };
+        addPart(modelNode, '身体', 'body');
+        const head = addPart(modelNode, '头部', 'head', rig.pivots.head);
+        addPart(head, '五官', 'face');
+        const earL = addPart(head, '左耳', 'earL', rig.pivots.earL);
+        const earR = addPart(head, '右耳', 'earR', rig.pivots.earR);
+        const legFL = addPart(modelNode, '左前腿', 'legFL', rig.pivots.legFL);
+        const legFR = addPart(modelNode, '右前腿', 'legFR', rig.pivots.legFR);
+        const legBL = addPart(modelNode, '左后腿', 'legBL', rig.pivots.legBL);
+        const legBR = addPart(modelNode, '右后腿', 'legBR', rig.pivots.legBR);
+        const tail = addPart(modelNode, '尾巴', 'tail', rig.pivots.tail);
+        let shadow: Node | null = null;
+        if (shadowTex) {
+            let smesh = this.meshes.get('pet:shadow');
+            if (!smesh) {
+                smesh = utils.createMesh(primitives.plane({ width: 1.9, length: 2.15, widthSegments: 1, lengthSegments: 1 }));
+                this.meshes.set('pet:shadow', smesh);
+            }
+            let smat = this.materials.get('pet:shadow');
+            if (!smat) {
+                smat = new Material();
+                smat.initialize({ effectName: 'builtin-unlit', technique: 1, defines: { USE_TEXTURE: true } });
+                smat.setProperty('mainTexture', shadowTex);
+                smat.setProperty('mainColor', this.color(C.white));
+                this.materials.set('pet:shadow', smat);
+            }
+            shadow = new Node('预览阴影');
+            stage.addChild(shadow);
+            shadow.setSiblingIndex(0);
+            shadow.setPosition(0, 0.02, -0.02);
+            const sr = shadow.addComponent(MeshRenderer);
+            sr.mesh = smesh; sr.setSharedMaterial(smat, 0);
+            sr.shadowCastingMode = 0; sr.receiveShadow = 0;
+        }
+        const actorRig: ActorRig = {
+            kind: breed.kind, modelNode, head, earL, earR, legFL, legFR, legBL, legBR, tail,
+            shadow, outfitNode: null, renderers, pivots: rig.pivots,
+        };
+        actorRig.outfitNode = this.buildOutfitNode(pet.outfit, actorRig);
+        this.setLayerRecursive(stage, this.previewLayer);
+        this.previewStage = stage;
+        this.previewVisual = visual;
+        this.previewRig = actorRig;
+        this.previewLoadedKey = key;
+        this.updateProfilePreview(0.016);
+    }
+
+    private updateProfilePreview(dt: number) {
+        if (!this.previewCamera || !isValid(this.previewCamera, true)) return;
+        const active = this.page === 'profile' && !this.dialog && !!this.previewRig && !!this.previewStage &&
+            isValid(this.previewStage, true) && !!this.previewViewportNode && isValid(this.previewViewportNode, true);
+        if (!active) {
+            this.previewCamera.enabled = false;
+            return;
+        }
+        this.previewCamera.enabled = true;
+
+        // 柔和待机动画：呼吸缩放、轻缓转体展示装扮、歪头张望、耳部微弹与连续平滑摇尾。
+        const rig = this.previewRig!;
+        const isCat = rig.kind === 'cat';
+        this.previewTime += dt;
+        const t = this.previewTime;
+        const breath = Math.sin(t * (isCat ? 2.2 : 2.7)) * 0.02;
+        let hopY = 0;
+        if (this.previewHop > 0) {
+            this.previewHop = Math.max(0, this.previewHop - dt);
+            hopY = Math.sin((this.previewHop / 0.55) * Math.PI) * 0.22;
+        }
+        const sy = 1 + breath + (hopY > 0 ? Math.sin((this.previewHop / 0.55) * Math.PI * 2) * 0.05 : 0);
+        const sxz = 1 / Math.sqrt(Math.max(0.88, sy));
+        const idleYaw = this.previewDragYaw + Math.sin(t * 0.72) * 14;
+        this.previewStage!.setRotationFromEuler(0, idleYaw, 0);
+        if (this.previewVisual && isValid(this.previewVisual, true)) {
+            this.previewVisual.setPosition(0, hopY, 0);
+            this.previewVisual.setScale(sxz, sy, sxz);
+        }
+        if (isValid(rig.head, true)) {
+            const headYaw = Math.sin(t * 1.05) * 11;
+            const headPitch = Math.sin(t * 2.2) * 2.8 - (hopY > 0 ? 6 : 0);
+            const headRoll = Math.sin(t * 0.82) * 6.5;
+            rig.head.setRotationFromEuler(headPitch, headYaw, headRoll);
+            if (isCat) {
+                const earWiggle = Math.sin(t * 1.9) * 2.8;
+                rig.earL.setRotationFromEuler(0, 0, earWiggle);
+                rig.earR.setRotationFromEuler(0, 0, -earWiggle);
+            } else {
+                const flap = 2.5 + Math.sin(t * 2.7) * 2.5 + hopY * 45;
+                rig.earL.setRotationFromEuler(0, 0, flap);
+                rig.earR.setRotationFromEuler(0, 0, -flap);
+            }
+            const wagFreq = isCat ? 2.5 : 4.6;
+            this.previewTailPhase = (this.previewTailPhase + dt * wagFreq) % (Math.PI * 2);
+            const wagAmp = isCat ? 15 : 22;
+            rig.tail.setRotationFromEuler((isCat ? 4 : 5) * Math.cos(this.previewTailPhase), Math.sin(this.previewTailPhase) * wagAmp, 0);
+            if (rig.shadow && isValid(rig.shadow, true)) {
+                const sc = Math.max(0.76, 1 - hopY * 0.6);
+                rig.shadow.setScale(sc, 1, sc);
+            }
+        }
+    }
+
     private async refreshPetAppearance(petId: number) {
         const actor = this.actors.find(a => a.pet.id === petId);
         const pet = this.data.pets.find(p => p.id === petId);
-        if (!actor || !pet) return;
-        actor.pet = pet;
-        const rig = actor.rig;
-        if (!rig || !isValid(rig.modelNode, true)) return;
-        if (rig.outfitNode && isValid(rig.outfitNode, true)) {
-            rig.outfitNode.active = false;
-            rig.outfitNode.removeFromParent();
-            rig.outfitNode.destroy();
+        if (actor && pet) {
+            actor.pet = pet;
+            const rig = actor.rig;
+            if (rig && isValid(rig.modelNode, true)) {
+                if (rig.outfitNode && isValid(rig.outfitNode, true)) {
+                    rig.outfitNode.active = false;
+                    rig.outfitNode.removeFromParent();
+                    rig.outfitNode.destroy();
+                }
+                rig.outfitNode = this.buildOutfitNode(pet.outfit, rig);
+                const skinTex = await this.loadPetSkin(BREEDS[petId].skin);
+                if (skinTex && isValid(this, true) && isValid(rig.modelNode, true)) {
+                    const mat = this.getPetSkinMaterial(BREEDS[petId].skin, pet.coat, skinTex);
+                    rig.renderers.forEach(r => { if (isValid(r, true)) r.setSharedMaterial(mat, 0); });
+                }
+            }
         }
-        rig.outfitNode = this.buildOutfitNode(pet.outfit, rig);
-        const skinTex = await this.loadPetSkin(BREEDS[petId].skin);
-        if (!skinTex || !isValid(this, true) || !isValid(rig.modelNode, true)) return;
-        const mat = this.getPetSkinMaterial(BREEDS[petId].skin, pet.coat, skinTex);
-        rig.renderers.forEach(r => { if (isValid(r, true)) r.setSharedMaterial(mat, 0); });
+        if (this.page === 'profile' && this.profilePetId === petId) {
+            this.previewHop = 0.55;
+            void this.syncProfilePreview(petId, true);
+        }
     }
 
     private async attachPetModel(actor: Actor, fallback: Node) {
@@ -871,13 +1064,13 @@ export class Main extends Component {
         const b = BREEDS[id];
         const n = this.uiNode(parent, '伙伴头像-' + b.kind + '-' + id, x, y, size, size);
         const g = n.addComponent(Graphics);
-        g.fillColor = this.color(locked ? '#2C2C34' : C.cream); g.circle(0, 0, size * 0.48); g.fill();
+        g.fillColor = this.color(locked ? '#9CA2AC' : C.cream); g.circle(0, 0, size * 0.48); g.fill();
         // 同步创建头像图层，异步只赋值 spriteFrame，避免刷新时节点增删引起界面跳动。
         const art = this.uiNode(n, '伙伴头像图', 0, 0, size, size);
         const sprite = art.addComponent(Sprite);
         sprite.sizeMode = Sprite.SizeMode.CUSTOM;
-        // 未解锁宠物黑化剪影处理。
-        sprite.color = locked ? new Color(36, 36, 44, 255) : this.color(C.white);
+        // 未解锁采用柔和灰调而非纯黑，保留宠物轮廓与表情辨识度。
+        sprite.color = locked ? new Color(156, 162, 172, 240) : this.color(C.white);
         void this.loadPetAvatar(b.skin).then(frame => {
             if (!frame || !isValid(this, true) || !isValid(sprite, true)) return;
             sprite.spriteFrame = frame;
@@ -885,11 +1078,15 @@ export class Main extends Component {
         });
         if (locked) {
             const overlay = this.uiNode(n, '未解锁遮罩', 0, 0, size, size), mask = overlay.addComponent(Graphics);
-            mask.fillColor = new Color(20, 22, 28, 120); mask.circle(0, 0, size * 0.48); mask.fill();
-            mask.strokeColor = this.color('#FFE6A8'); mask.lineWidth = Math.max(3, size * 0.055);
-            mask.arc(0, size * 0.055, size * 0.11, 0, Math.PI, false); mask.stroke();
-            mask.fillColor = this.color('#F5C86B'); mask.roundRect(-size * 0.16, -size * 0.19, size * 0.32, size * 0.25, size * 0.05); mask.fill();
-            mask.fillColor = this.color('#5C3B1E'); mask.circle(0, -size * 0.06, size * 0.04); mask.fill();
+            // 柔和半透明灰雾遮罩，能清晰看到底层宠物造型。
+            mask.fillColor = new Color(108, 114, 126, 78); mask.circle(0, 0, size * 0.48); mask.fill();
+            // 精致小锁置于右下角徽章位，不遮挡小猫小狗脸蛋。
+            const lx = size * 0.27, ly = -size * 0.27, lr = size * 0.17;
+            mask.fillColor = new Color(64, 72, 86, 215); mask.circle(lx, ly, lr); mask.fill();
+            mask.strokeColor = this.color('#FFF0C8'); mask.lineWidth = Math.max(2, size * 0.028);
+            mask.arc(lx, ly + lr * 0.20, lr * 0.36, 0, Math.PI, false); mask.stroke();
+            mask.fillColor = this.color('#F5C86B'); mask.roundRect(lx - lr * 0.48, ly - lr * 0.56, lr * 0.96, lr * 0.72, lr * 0.16); mask.fill();
+            mask.fillColor = this.color('#5C3B1E'); mask.circle(lx, ly - lr * 0.20, lr * 0.13); mask.fill();
         }
         return n;
     }
@@ -1274,6 +1471,7 @@ export class Main extends Component {
             return;
         }
         this.clearRecruitBackground();
+        if (page !== 'profile') { this.previewViewportNode = null; this.clearProfilePreview(); }
         this.page = page; this.adventureLabel = null;
         if (page === 'pet') this.petSelected = true;
         if (page === 'home') { this.petSelected = false; this.careSelected = ''; }
@@ -1780,12 +1978,49 @@ export class Main extends Component {
         }, this);
     }
 
+    private currencyIcon(parent: Node, currency: Currency, x: number, y: number, size: number) {
+        const key = currency === 'gems' ? 'diamond-icon' : 'coin-icon';
+        const aspect = currency === 'gems' ? 315 / 353 : 348 / 341;
+        const w = aspect >= 1 ? size / aspect : size;
+        const h = aspect >= 1 ? size : size * aspect;
+        const node = this.uiNode(parent, '货币图标-' + currency, x, y, w, h);
+        this.headerArt(node, key);
+        return node;
+    }
+
+    private loadOutfitIcon(sprite: Sprite, id: OutfitId) {
+        let loading = this.outfitIcons.get(id);
+        if (!loading) {
+            loading = new Promise<SpriteFrame | null>(resolve => {
+                resources.load('art/outfits/' + id + '/spriteFrame', SpriteFrame, (error, frame) => {
+                    if (!isValid(this, true)) { resolve(null); return; }
+                    resolve(error || !frame ? null : frame);
+                });
+            });
+            this.outfitIcons.set(id, loading);
+        }
+        void loading.then(frame => {
+            if (frame && isValid(this, true) && isValid(sprite, true)) sprite.spriteFrame = frame;
+        });
+    }
+
     private pillBadge(parent: Node, text: string, x: number, y: number, w: number, h: number, bg: string, fg = C.white, font = 18) {
         const node = this.uiNode(parent, '标签-' + text, x, y, w, h);
         const g = node.addComponent(Graphics);
         g.fillColor = this.color(bg);
         g.roundRect(-w / 2, -h / 2, w, h, h / 2); g.fill();
         const label = this.text(node, text, 0, 0, w - 8, h - 2, font, fg);
+        label.isBold = true; label.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+        return node;
+    }
+
+    private diamondBadge(parent: Node, amount: number, x: number, y: number, w: number, h: number, bg: string, fg = C.white, font = 17) {
+        const node = this.uiNode(parent, '钻石标签-' + amount, x, y, w, h);
+        const g = node.addComponent(Graphics);
+        g.fillColor = this.color(bg);
+        g.roundRect(-w / 2, -h / 2, w, h, h / 2); g.fill();
+        this.currencyIcon(node, 'gems', -w / 2 + 19, 0, 22);
+        const label = this.text(node, '+' + amount, 10, 0, w - 34, h - 2, font, fg);
         label.isBold = true; label.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
         return node;
     }
@@ -1981,9 +2216,13 @@ export class Main extends Component {
         this.dailySprite(close, 'close', 0, 0, 112, 112, false, '关闭图标');
         this.shopButton(close, () => this.open('home'));
 
-        // 顶部收集进度 + 待领解锁钻汇总
-        const summary = this.dailyText(panel, '', 0, 232, 720, 38, 24);
+        // 顶部收集进度 + 待领解锁钻汇总（复用通用钻石图标）
+        const summaryRow = this.uiNode(panel, '图鉴收集统计行', 0, 232, 720, 40);
+        const summary = this.dailyText(summaryRow, '', 0, 0, 720, 38, 24);
         summary.node.name = '图鉴收集统计';
+        const summaryGem = this.currencyIcon(summaryRow, 'gems', 132, 0, 28);
+        summaryGem.name = '图鉴汇总钻石图标';
+        summaryGem.active = false;
 
         // 分类筛选页签：全部 / 猫咪 / 狗狗
         const tabs: [string, 'all' | Kind][] = [
@@ -2020,11 +2259,18 @@ export class Main extends Component {
         if (this.page !== 'album' || !this.sheet || !isValid(this.sheet, true)) return;
         const panel = this.sheet;
         const unclaimedGems = this.data.pets.reduce((sum, p) => sum + (this.data.albumClaimed[p.id] ? 0 : BREEDS[p.id].unlockGems), 0);
-        const summary = panel.getChildByName('图鉴收集统计')?.getComponent(Label);
+        const summaryRow = panel.getChildByName('图鉴收集统计行');
+        const summary = summaryRow?.getChildByName('图鉴收集统计')?.getComponent(Label);
+        const summaryGem = summaryRow?.getChildByName('图鉴汇总钻石图标');
         if (summary) {
-            summary.string = '已收集 ' + this.data.pets.length + ' / ' + BREEDS.length +
-                (unclaimedGems > 0 ? '  ·  可领解锁钻 +' + unclaimedGems : '  ·  点击已解锁伙伴进入主页');
+            summary.string = unclaimedGems > 0
+                ? '已收集 ' + this.data.pets.length + ' / ' + BREEDS.length + '  ·  可领奖励       +' + unclaimedGems
+                : '已收集 ' + this.data.pets.length + ' / ' + BREEDS.length + '  ·  点击已解锁伙伴进入主页';
             summary.color = unclaimedGems > 0 ? this.statusColor(true) : this.color('#5B3E26');
+        }
+        if (summaryGem) {
+            summaryGem.active = unclaimedGems > 0;
+            summaryGem.setPosition(116, 0, 0);
         }
         (['all', 'cat', 'dog'] as const).forEach(filter => {
             const label = panel.getChildByName('图鉴筛选-' + filter)?.getChildByName('页签文字')?.getComponent(Label);
@@ -2053,31 +2299,32 @@ export class Main extends Component {
 
             const card = this.uiNode(content, '图鉴卡片-' + b.id, x, y, cardW, cardH);
             const bg = card.addComponent(Graphics);
-            bg.fillColor = this.color(owned ? '#FFFDF5' : '#EFE5D1');
-            bg.strokeColor = this.color(owned ? rarity.border : '#CBB89D');
-            bg.lineWidth = owned ? 4 : 3;
+            // 卡片背景直接对应稀有度：R 绿色、SR 蓝色、SSR 金色。
+            bg.fillColor = this.color(owned ? rarity.cardBg : rarity.lockedCardBg);
+            bg.strokeColor = this.color(rarity.border);
+            bg.lineWidth = owned ? 4.5 : 3;
             bg.roundRect(-cardW / 2, -cardH / 2, cardW, cardH, 24);
             bg.fill(); bg.stroke();
 
             // 品质角标
-            this.pillBadge(card, b.rarity, -76, 86, 60, 28, owned ? rarity.badgeBg : '#8C847C', C.white, 17);
-            // 右上角：未领钻显示红橙可领标签，已领显示星级
+            this.pillBadge(card, b.rarity, -76, 86, 60, 28, rarity.badgeBg, C.white, 17);
+            // 右上角：使用通用钻石图标显示解锁奖励，已领后显示星级
             if (canClaim) {
-                this.pillBadge(card, '+' + b.unlockGems + '钻', 58, 86, 94, 28, '#E05744', '#FFFDF5', 16);
+                this.diamondBadge(card, b.unlockGems, 56, 86, 98, 28, '#E05744', '#FFFDF5', 16);
             } else if (owned) {
                 this.pillBadge(card, '★' + pet!.star, 72, 86, 64, 28, '#E7A23C', '#FFFDF5', 17);
             } else {
-                this.pillBadge(card, '+' + b.unlockGems + '钻', 58, 86, 94, 28, '#A99985', '#FFF8EC', 15);
+                this.diamondBadge(card, b.unlockGems, 56, 86, 98, 28, '#8E8B86', '#FFF8EC', 15);
             }
 
-            // 中央头像（未解锁黑化剪影+上锁）
+            // 中央头像（未解锁采用清晰可见的柔和灰雾+小锁）
             this.petAvatar(card, b.id, 0, 12, 108, !owned);
             // 底部名称与状态提示
             const nameLabel = this.dailyText(card, owned ? this.petDisplayName(b.id) : b.name, 0, -64, 214, 32, 23);
-            nameLabel.color = this.color(owned ? '#49301E' : '#7D6E5E');
-            const subText = canClaim ? '点此领解锁钻 ›' : owned ? PET_TRAITS[pet!.trait].name + ' · 主页 ›' : '未解锁 · 去招募';
+            nameLabel.color = this.color(owned ? '#49301E' : '#6A6762');
+            const subText = canClaim ? '进入主页领奖 ›' : owned ? PET_TRAITS[pet!.trait].name + ' · 主页 ›' : '未解锁 · 去招募';
             const subLabel = this.dailyText(card, subText, 0, -93, 214, 26, 17);
-            subLabel.color = canClaim ? this.statusColor(true) : this.color(owned ? '#856548' : '#968572');
+            subLabel.color = canClaim ? this.statusColor(true) : this.color(owned ? '#6D543D' : '#7C7A75');
             subLabel.outlineWidth = 1;
 
             this.pressVisualFeedback(card, card.children.slice());
@@ -2101,12 +2348,12 @@ export class Main extends Component {
         this.shopButton(close, () => this.open('home'));
 
         // 顶部总览英雄卡片 + 三页签容器（支持原位刷新不重建整面板）
-        this.uiNode(panel, '主页英雄区', 2, 104, 744, 212);
+        this.uiNode(panel, '主页英雄区', 2, 92, 744, 240);
         const tabs: [string, 'overview' | 'star' | 'outfit'][] = [['状态与词条', 'overview'], ['升星强化', 'star'], ['装扮换肤', 'outfit']];
         tabs.forEach(([title, key], i) => {
-            const tab = this.uiNode(panel, '主页页签-' + key, -242 + i * 242, -32, 224, 58);
-            this.shopArt(tab, 'tab', 0, 0, 224, 58);
-            const label = this.dailyText(tab, title, 0, 0, 200, 38, 23);
+            const tab = this.uiNode(panel, '主页页签-' + key, -242 + i * 242, -56, 224, 56);
+            this.shopArt(tab, 'tab', 0, 0, 224, 56);
+            const label = this.dailyText(tab, title, 0, 0, 200, 36, 23);
             label.node.name = '页签文字';
             this.intercept(tab); this.pressVisualFeedback(tab, tab.children.slice());
             tab.on(Node.EventType.TOUCH_END, () => {
@@ -2115,7 +2362,8 @@ export class Main extends Component {
                 this.refreshProfileInPlace();
             }, this);
         });
-        this.uiNode(panel, '主页内容区', 2, -334, 744, 524);
+        this.uiNode(panel, '主页内容区', 2, -346, 744, 500);
+        this.previewDragYaw = -16;
         this.refreshProfileInPlace();
     }
 
@@ -2128,47 +2376,79 @@ export class Main extends Component {
         const trait = PET_TRAITS[pet.trait];
         const claimed = !!this.data.albumClaimed[pet.id];
 
-        // 刷新顶部英雄区
+        // 刷新顶部英雄区（背景色按稀有度配色 + 左侧实时 3D 模型展示舞台）
         const hero = this.sheet.getChildByName('主页英雄区')!;
         hero.children.slice().forEach(c => { c.active = false; c.removeFromParent(); c.destroy(); });
         const hg = hero.getComponent(Graphics) || hero.addComponent(Graphics);
-        hg.clear(); hg.fillColor = this.color('#FFFDF5'); hg.strokeColor = this.color(rarity.border); hg.lineWidth = 4;
-        hg.roundRect(-372, -106, 744, 212, 26); hg.fill(); hg.stroke();
+        hg.clear(); hg.fillColor = this.color(rarity.cardBg); hg.strokeColor = this.color(rarity.border); hg.lineWidth = 4;
+        hg.roundRect(-372, -120, 744, 240, 26); hg.fill(); hg.stroke();
 
-        this.petAvatar(hero, pet.id, -276, 18, 134, false);
+        // 左侧 3D 模型待机展示舞台（1:1 RenderTexture 承载，支持滑动旋转 & 点击互动弹跳）
+        const stageBox = this.uiNode(hero, '宠物3D预览舞台', -252, 16, 212, 186);
+        const sg = stageBox.addComponent(Graphics);
+        sg.fillColor = this.color('#FFFBF0'); sg.strokeColor = this.color(rarity.border); sg.lineWidth = 3;
+        sg.roundRect(-106, -93, 212, 186, 22); sg.fill(); sg.stroke();
+        // 底部柔和草地小圆台衬托 3D 宠物
+        sg.fillColor = this.color('#D8E8BF'); sg.ellipse(0, -54, 78, 22); sg.fill();
+        const stageView = this.uiNode(stageBox, '宠物3D预览画面', 0, 2, 184, 184);
+        const stageSprite = stageView.addComponent(Sprite);
+        stageSprite.sizeMode = Sprite.SizeMode.CUSTOM;
+        if (this.previewFrame) stageSprite.spriteFrame = this.previewFrame;
+        this.intercept(stageBox);
+        let dragLastX: number | null = null, dragged = false;
+        stageBox.on(Node.EventType.TOUCH_START, (e: EventTouch) => { dragLastX = e.getUILocation().x; dragged = false; }, this);
+        stageBox.on(Node.EventType.TOUCH_MOVE, (e: EventTouch) => {
+            const x = e.getUILocation().x;
+            if (dragLastX !== null && Math.abs(x - dragLastX) > 2) {
+                this.previewDragYaw += (x - dragLastX) * 0.7;
+                dragged = true;
+            }
+            dragLastX = x;
+        }, this);
+        stageBox.on(Node.EventType.TOUCH_END, () => {
+            if (!dragged) this.previewHop = 0.55;
+            dragLastX = null;
+        }, this);
+        stageBox.on(Node.EventType.TOUCH_CANCEL, () => { dragLastX = null; }, this);
+        this.previewViewportNode = stageBox;
+        void this.syncProfilePreview(pet.id);
+
         const avatarBtnTitle = this.data.avatar === pet.id ? '当前头像 ✓' : '设为头像';
-        const setAv = this.bagButton(hero, avatarBtnTitle, -276, -72, 142, 40, () => {
+        const setAv = this.bagButton(hero, avatarBtnTitle, -252, -96, 152, 36, () => {
             if (this.data.avatar === pet.id) return;
             this.data.avatar = pet.id;
             if (this.persist()) { this.renderHeader(); this.refreshProfileInPlace(); this.toast('已换上' + this.petDisplayName(pet.id) + '的头像'); }
         });
         setAv.name = '设为头像按钮';
 
-        // 名称 + 改名 + 品质角标
-        this.dailyText(hero, this.petDisplayName(pet.id), -92, 68, 200, 42, 32, true);
-        this.pillBadge(hero, rarity.label, 84, 68, 114, 34, rarity.badgeBg, C.white, 19);
-        const renameBtn = this.bagButton(hero, '改名', 258, 68, 118, 42, () => this.showRenameDialog(pet.id));
+        // 右侧信息区：名称 + 品质角标 + 改名
+        this.dailyText(hero, this.petDisplayName(pet.id), -44, 78, 176, 40, 31, true);
+        this.pillBadge(hero, rarity.label, 118, 78, 114, 34, rarity.badgeBg, C.white, 19);
+        const renameBtn = this.bagButton(hero, '改名', 274, 78, 112, 40, () => this.showRenameDialog(pet.id));
         renameBtn.name = '宠物改名按钮';
 
         // 品种名 + 星级
         const stars = '★'.repeat(pet.star) + '☆'.repeat(MAX_PET_STAR - pet.star);
-        const sub = this.dailyText(hero, breed.speciesTitle + '  ' + stars, 64, 24, 510, 34, 22, true);
-        sub.color = this.color('#8A5B2C'); sub.outlineWidth = 1;
+        const sub = this.dailyText(hero, breed.speciesTitle + '  ' + stars, 108, 32, 470, 34, 22, true);
+        sub.color = this.color('#7F5328'); sub.outlineWidth = 1;
 
-        // 性格词条条
-        this.pillBadge(hero, '性格·' + trait.name, -124, -18, 146, 32, trait.tagColor, C.white, 18);
-        const trSummary = this.dailyText(hero, trait.summary, 134, -18, 340, 32, 20, true);
+        // 性格词条
+        this.pillBadge(hero, '性格·' + trait.name, -58, -14, 146, 32, trait.tagColor, C.white, 18);
+        const trSummary = this.dailyText(hero, trait.summary, 184, -14, 310, 32, 20, true);
         trSummary.outlineWidth = 1;
 
-        // 解锁钻石奖励领取按钮
+        // 解锁钻石奖励领取按钮（使用通用钻石图标）
         if (!claimed) {
-            const claimBtn = this.bagButton(hero, '领取图鉴解锁钻 +' + breed.unlockGems, 74, -68, 356, 48, () => this.claimAlbumReward(pet.id));
+            const claimBtn = this.bagButton(hero, '领取解锁奖励       +' + breed.unlockGems, 104, -74, 412, 50, () => this.claimAlbumReward(pet.id));
             claimBtn.name = '领取图鉴解锁钻';
+            this.currencyIcon(claimBtn, 'gems', 48, 0, 28);
             const lbl = claimBtn.getChildByName('文字')?.getComponent(Label);
             if (lbl) lbl.color = this.statusColor(true);
         } else {
-            const done = this.dailyText(hero, '图鉴解锁奖励（+' + breed.unlockGems + '钻）已领取 ✓', 74, -68, 460, 36, 21, true);
+            const doneRow = this.uiNode(hero, '图鉴已领奖励行', 104, -74, 450, 38);
+            const done = this.dailyText(doneRow, '图鉴解锁奖励（      +' + breed.unlockGems + '）已领取 ✓', 0, 0, 450, 36, 21, true);
             done.color = this.statusColor(true); done.outlineWidth = 1;
+            this.currencyIcon(doneRow, 'gems', -56, 0, 26);
         }
 
         // 更新三页签高亮
@@ -2182,18 +2462,18 @@ export class Main extends Component {
         body.children.slice().forEach(c => { c.active = false; c.removeFromParent(); c.destroy(); });
         const bg = body.getComponent(Graphics) || body.addComponent(Graphics);
         bg.clear(); bg.fillColor = this.color('#FFFDF5'); bg.strokeColor = this.color('#DFC7A0'); bg.lineWidth = 3;
-        bg.roundRect(-372, -262, 744, 524, 24); bg.fill(); bg.stroke();
+        bg.roundRect(-372, -250, 744, 500, 24); bg.fill(); bg.stroke();
 
         if (this.profileTab === 'overview') {
-            this.dailyText(body, '实时状态', -260, 224, 180, 34, 25, true);
-            const careBtn = this.bagButton(body, '前往照顾 ›', 260, 224, 166, 44, () => { this.selected = pet.id; this.open('pet'); });
+            this.dailyText(body, '实时状态', -260, 212, 180, 34, 25, true);
+            const careBtn = this.bagButton(body, '前往照顾 ›', 260, 212, 166, 44, () => { this.selected = pet.id; this.open('pet'); });
             careBtn.name = '主页前往照顾';
             const stats: [string, number, string][] = [
                 ['饱腹', pet.hunger, '#E99B4E'], ['洁净', pet.clean, '#6BB4D8'],
                 ['体力', pet.energy, '#73B46F'], ['心情', pet.joy, '#EB8BA1'],
             ];
             stats.forEach(([label, val, col], i) => {
-                const x = -175 + (i % 2) * 350, y = 160 - Math.floor(i / 2) * 58;
+                const x = -175 + (i % 2) * 350, y = 150 - Math.floor(i / 2) * 56;
                 this.dailyText(body, label, x - 134, y, 64, 32, 22, true);
                 const track = this.uiNode(body, '状态槽-' + label, x + 2, y, 186, 26);
                 const tg = track.addComponent(Graphics);
@@ -2208,21 +2488,21 @@ export class Main extends Component {
             });
 
             // 性格词条详解框
-            const tBox = this.uiNode(body, '性格词条卡片', 0, -24, 696, 150);
+            const tBox = this.uiNode(body, '性格词条卡片', 0, -26, 696, 144);
             const tbg = tBox.addComponent(Graphics);
             tbg.fillColor = this.color('#FFF6E3'); tbg.strokeColor = this.color('#E7CCA0'); tbg.lineWidth = 2;
-            tbg.roundRect(-348, -75, 696, 150, 20); tbg.fill(); tbg.stroke();
-            this.pillBadge(tBox, '性格词条 · ' + trait.name, -206, 40, 236, 36, trait.tagColor, C.white, 20);
-            const tDesc = this.dailyText(tBox, trait.detail, 0, -18, 648, 76, 22, true);
+            tbg.roundRect(-348, -72, 696, 144, 20); tbg.fill(); tbg.stroke();
+            this.pillBadge(tBox, '性格词条 · ' + trait.name, -206, 38, 236, 36, trait.tagColor, C.white, 20);
+            const tDesc = this.dailyText(tBox, trait.detail, 0, -18, 648, 72, 22, true);
             tDesc.enableWrapText = true; tDesc.lineHeight = 32; tDesc.outlineWidth = 1;
 
             // 品种档案 & 星级加成
-            const bioBox = this.uiNode(body, '伙伴档案卡片', 0, -178, 696, 128);
+            const bioBox = this.uiNode(body, '伙伴档案卡片', 0, -172, 696, 122);
             const bbg = bioBox.addComponent(Graphics);
-            bbg.fillColor = this.color('#FBF4E6'); bbg.roundRect(-348, -64, 696, 128, 18); bbg.fill();
-            const bio = this.dailyText(bioBox, '【伙伴小传】' + breed.bio, 0, 22, 650, 62, 20, true);
+            bbg.fillColor = this.color('#FBF4E6'); bbg.roundRect(-348, -61, 696, 122, 18); bbg.fill();
+            const bio = this.dailyText(bioBox, '【伙伴小传】' + breed.bio, 0, 20, 650, 58, 20, true);
             bio.enableWrapText = true; bio.lineHeight = 28; bio.outlineWidth = 1;
-            const bonus = this.dailyText(bioBox, '当前星级加成（★' + pet.star + '）：照顾经验 +' + Math.round(starXpBonus(pet.star) * 100) + '% · 寻宝收益 +' + Math.round(starAdventureBonus(pet.star) * 100) + '%', 0, -34, 650, 32, 19, true);
+            const bonus = this.dailyText(bioBox, '当前星级加成（★' + pet.star + '）：照顾经验 +' + Math.round(starXpBonus(pet.star) * 100) + '% · 寻宝收益 +' + Math.round(starAdventureBonus(pet.star) * 100) + '%', 0, -32, 650, 32, 19, true);
             bonus.color = this.statusColor(true); bonus.outlineWidth = 1;
             return;
         }
@@ -2231,78 +2511,93 @@ export class Main extends Component {
             const req = STAR_REQUIREMENTS[pet.star];
             const totalCopies = this.data.recruit.copies[pet.id] || 1;
             const extraCopies = Math.max(0, totalCopies - 1);
-            this.dailyText(body, '伙伴升星强化', 0, 214, 420, 42, 30);
-            const starDisplay = this.dailyText(body, '★'.repeat(pet.star) + '☆'.repeat(MAX_PET_STAR - pet.star) + '  （当前 ' + pet.star + ' 星）', 0, 152, 640, 46, 34);
+            this.dailyText(body, '伙伴升星强化', 0, 206, 420, 42, 30);
+            const starDisplay = this.dailyText(body, '★'.repeat(pet.star) + '☆'.repeat(MAX_PET_STAR - pet.star) + '  （当前 ' + pet.star + ' 星）', 0, 146, 640, 46, 34);
             starDisplay.color = this.color('#E09124');
 
-            const bonusBox = this.uiNode(body, '升星加成说明', 0, 44, 680, 126);
+            const bonusBox = this.uiNode(body, '升星加成说明', 0, 40, 680, 122);
             const bbg = bonusBox.addComponent(Graphics);
-            bbg.fillColor = this.color('#FFF6E3'); bbg.roundRect(-340, -63, 680, 126, 20); bbg.fill();
+            bbg.fillColor = this.color('#FFF6E3'); bbg.roundRect(-340, -61, 680, 122, 20); bbg.fill();
             const curXp = Math.round(starXpBonus(pet.star) * 100), curAdv = Math.round(starAdventureBonus(pet.star) * 100);
             const nextXp = req ? Math.round(starXpBonus(req.nextStar) * 100) : curXp;
             const nextAdv = req ? Math.round(starAdventureBonus(req.nextStar) * 100) : curAdv;
-            const line1 = this.dailyText(bonusBox, '照顾经验加成：+' + curXp + '%' + (req ? '  →  +' + nextXp + '%' : '（已满星）'), 0, 24, 640, 36, 24);
+            const line1 = this.dailyText(bonusBox, '照顾经验加成：+' + curXp + '%' + (req ? '  →  +' + nextXp + '%' : '（已满星）'), 0, 22, 640, 36, 24);
             line1.color = this.statusColor(true);
-            const line2 = this.dailyText(bonusBox, '林间寻宝加成：+' + curAdv + '%' + (req ? '  →  +' + nextAdv + '%' : '（已满星）') + '   ·   3★免费解锁星光皇冠', 0, -24, 640, 36, 21);
+            const line2 = this.dailyText(bonusBox, '林间寻宝加成：+' + curAdv + '%' + (req ? '  →  +' + nextAdv + '%' : '（已满星）') + '   ·   3★免费解锁星光皇冠', 0, -22, 640, 36, 21);
             line2.outlineWidth = 1;
 
             if (!req) {
-                const maxLbl = this.dailyText(body, '已达成最高星级 ★5，伙伴实力拉满！', 0, -100, 640, 48, 28);
+                const maxLbl = this.dailyText(body, '已达成最高星级 ★5，伙伴实力拉满！', 0, -96, 640, 48, 28);
                 maxLbl.color = this.statusColor(true);
             } else {
                 const copyOk = extraCopies >= req.extraCopies;
                 const coinOk = this.data.coins >= req.coins;
-                const c1 = this.dailyText(body, '消耗多余本体：拥有 ' + extraCopies + ' / 需要 ' + req.extraCopies + '（招募重复伙伴获得）', 0, -64, 680, 36, 23);
+                const c1 = this.dailyText(body, '消耗多余本体：拥有 ' + extraCopies + ' / 需要 ' + req.extraCopies + '（招募重复伙伴获得）', 0, -60, 680, 36, 23);
                 c1.color = this.statusColor(copyOk);
-                const c2 = this.dailyText(body, '消耗金币：拥有 ' + this.data.coins + ' / 需要 ' + req.coins, 0, -112, 680, 36, 23);
+                const coinRow = this.uiNode(body, '升星金币行', 0, -108, 680, 38);
+                this.currencyIcon(coinRow, 'coins', -144, 0, 28);
+                const c2 = this.dailyText(coinRow, '       消耗：拥有 ' + this.data.coins + ' / 需要 ' + req.coins, 0, 0, 640, 36, 23);
                 c2.color = this.statusColor(coinOk);
-                const upBtn = this.bagButton(body, '升至 ★' + req.nextStar, -130, -196, 240, 64, () => this.upgradePetStar(pet.id));
+                const upBtn = this.bagButton(body, '升至 ★' + req.nextStar, -130, -186, 240, 62, () => this.upgradePetStar(pet.id));
                 upBtn.name = '立即升星按钮';
                 const upLbl = upBtn.getChildByName('文字')?.getComponent(Label);
                 if (upLbl) upLbl.color = this.statusColor(copyOk && coinOk);
-                const goRec = this.bagButton(body, '去招募本体', 150, -196, 220, 64, () => this.open('recruit'));
+                const goRec = this.bagButton(body, '去招募本体', 150, -186, 220, 62, () => this.open('recruit'));
                 goRec.name = '升星去招募';
             }
             return;
         }
 
-        // Tab 3: 装扮换肤（3D 实时穿戴装扮 + 毛色滤镜换肤）
-        this.dailyText(body, '3D 可穿戴装扮（庭院实时生效）', -150, 224, 420, 34, 24, true);
+        // Tab 3: 装扮换肤（真实装扮图标 + 通用货币图标 + 实时 3D 预览）
+        this.dailyText(body, '3D 可穿戴装扮（上方模型实时预览）', -130, 214, 460, 34, 23, true);
         PET_OUTFITS.forEach((o, i) => {
-            const x = -232 + (i % 3) * 232, y = 136 - Math.floor(i / 3) * 116;
+            const x = -232 + (i % 3) * 232, y = 130 - Math.floor(i / 3) * 110;
             const equipped = pet.outfit === o.id;
             const owned = this.data.ownedOutfits.includes(o.id) || (o.freeAtStar !== undefined && pet.star >= o.freeAtStar);
-            const tile = this.uiNode(body, '装扮项-' + o.id, x, y, 214, 98);
+            const tile = this.uiNode(body, '装扮项-' + o.id, x, y, 214, 96);
             const g = tile.addComponent(Graphics);
-            g.fillColor = this.color(equipped ? '#EBF7E8' : '#FFF8EA');
-            g.strokeColor = this.color(equipped ? '#579A5E' : '#DFC59A'); g.lineWidth = equipped ? 4 : 2;
-            g.roundRect(-107, -49, 214, 98, 18); g.fill(); g.stroke();
-            g.fillColor = this.color(o.swatch); g.circle(-74, 0, 20); g.fill();
-            this.dailyText(tile, o.name, 22, 18, 152, 30, 21, true);
-            const statusText = equipped ? '穿戴中 ✓' : owned ? '点击穿戴' : (o.price + (o.currency === 'coins' ? '金币' : '钻'));
-            const st = this.dailyText(tile, statusText, 22, -18, 152, 28, 18, true);
-            st.color = equipped || owned ? this.statusColor(true) : this.color('#B0632D');
-            st.outlineWidth = 1;
+            g.fillColor = this.color(equipped ? '#E6F5E3' : '#FFF8EA');
+            g.strokeColor = this.color(equipped ? '#539C5A' : '#DFC59A'); g.lineWidth = equipped ? 4 : 2;
+            g.roundRect(-107, -48, 214, 96, 18); g.fill(); g.stroke();
+            const iconNode = this.uiNode(tile, '装扮图标-' + o.id, -68, 0, 64, 64);
+            const iconSprite = iconNode.addComponent(Sprite); iconSprite.sizeMode = Sprite.SizeMode.CUSTOM;
+            this.loadOutfitIcon(iconSprite, o.id);
+            this.dailyText(tile, o.name, 30, 18, 134, 30, 20, true);
+            if (equipped || owned) {
+                const st = this.dailyText(tile, equipped ? '穿戴中 ✓' : '点击穿戴', 30, -18, 134, 28, 18, true);
+                st.color = this.statusColor(true); st.outlineWidth = 1;
+            } else {
+                this.currencyIcon(tile, o.currency, -20, -18, 22);
+                const st = this.dailyText(tile, String(o.price), 46, -18, 100, 28, 19, true);
+                const affordable = (o.currency === 'coins' ? this.data.coins : this.data.gems) >= o.price;
+                st.color = this.statusColor(affordable); st.outlineWidth = 1;
+            }
             this.intercept(tile); this.pressVisualFeedback(tile, tile.children.slice());
             tile.on(Node.EventType.TOUCH_END, () => this.selectPetOutfit(pet.id, o.id), this);
         });
 
-        this.dailyText(body, '毛色光影换肤（同款3D模型即时换肤）', -130, -84, 460, 34, 24, true);
+        this.dailyText(body, '毛色光影换肤（同款3D模型即时换肤）', -130, -82, 460, 34, 23, true);
         PET_COATS.forEach((c, i) => {
-            const x = -261 + i * 174, y = -168;
+            const x = -261 + i * 174, y = -164;
             const equipped = pet.coat === c.id;
             const owned = this.data.ownedCoats.includes(c.id);
-            const tile = this.uiNode(body, '毛色项-' + c.id, x, y, 162, 112);
+            const tile = this.uiNode(body, '毛色项-' + c.id, x, y, 162, 108);
             const g = tile.addComponent(Graphics);
-            g.fillColor = this.color(equipped ? '#EBF7E8' : '#FFF8EA');
-            g.strokeColor = this.color(equipped ? '#579A5E' : '#DFC59A'); g.lineWidth = equipped ? 4 : 2;
-            g.roundRect(-81, -56, 162, 112, 18); g.fill(); g.stroke();
+            g.fillColor = this.color(equipped ? '#E6F5E3' : '#FFF8EA');
+            g.strokeColor = this.color(equipped ? '#539C5A' : '#DFC59A'); g.lineWidth = equipped ? 4 : 2;
+            g.roundRect(-81, -54, 162, 108, 18); g.fill(); g.stroke();
             g.fillColor = this.color(c.tint); g.strokeColor = this.color('#D4B990'); g.lineWidth = 2;
-            g.circle(0, 24, 18); g.fill(); g.stroke();
+            g.circle(0, 22, 17); g.fill(); g.stroke();
             this.dailyText(tile, c.name, 0, -10, 148, 28, 20);
-            const st = this.dailyText(tile, equipped ? '使用中 ✓' : owned ? '点击切换' : (c.price + '金币'), 0, -37, 148, 24, 17);
-            st.color = equipped || owned ? this.statusColor(true) : this.color('#B0632D');
-            st.outlineWidth = 1;
+            if (equipped || owned) {
+                const st = this.dailyText(tile, equipped ? '使用中 ✓' : '点击切换', 0, -34, 148, 24, 17);
+                st.color = this.statusColor(true); st.outlineWidth = 1;
+            } else {
+                this.currencyIcon(tile, c.currency, -26, -34, 20);
+                const st = this.dailyText(tile, String(c.price), 22, -34, 76, 24, 18, true);
+                const affordable = (c.currency === 'coins' ? this.data.coins : this.data.gems) >= c.price;
+                st.color = this.statusColor(affordable); st.outlineWidth = 1;
+            }
             this.intercept(tile); this.pressVisualFeedback(tile, tile.children.slice());
             tile.on(Node.EventType.TOUCH_END, () => this.selectPetCoat(pet.id, c.id), this);
         });
@@ -3406,9 +3701,11 @@ export class Main extends Component {
         this.updateSelectionRing();
         this.updateSocialBubbles();
         this.updateNeedBubbles();
+        this.updateProfilePreview(delta);
         if (Date.now() < this.noticeUntil) this.layoutNotice();
     }
     onDestroy() {
+        this.clearProfilePreview();
         this.clearRecruitBackground();
         this.closeDialog();
         this.rewardedVideoProvider = null;
@@ -3421,9 +3718,11 @@ export class Main extends Component {
         if (this.bubbleLayer && isValid(this.bubbleLayer, true)) this.bubbleLayer.destroy();
         this.bubbleLayer = null;
         if (this.selectionRing && isValid(this.selectionRing, true)) this.selectionRing.destroy();
-        this.selectionRing = null; this.careIcons.clear(); this.skins.clear();
+        this.selectionRing = null; this.careIcons.clear(); this.skins.clear(); this.outfitIcons.clear();
         this.world?.destroy(); this.ui?.destroy(); this.background?.destroy();
-        this.worldCamera?.node.destroy(); this.uiCamera?.node.destroy(); this.backgroundCamera?.node.destroy();
+        this.worldCamera?.node.destroy(); this.uiCamera?.node.destroy(); this.backgroundCamera?.node.destroy(); this.previewCamera?.node.destroy();
+        this.previewFrame?.destroy(); this.previewTexture?.destroy();
+        this.previewFrame = null; this.previewTexture = null;
         this.materials.forEach(m => m.destroy()); this.meshes.forEach(m => m.destroy());
         this.materials.clear(); this.meshes.clear(); this.petRigs.clear(); this.petSkins.clear(); this.petAvatars.clear(); this.shadowTexture = null;
     }

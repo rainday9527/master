@@ -12,12 +12,14 @@ export interface RarityInfo {
     badgeBg: string;
     badgeText: string;
     border: string;
+    cardBg: string;
+    lockedCardBg: string;
 }
 
 export const RARITY_INFO: Record<PetRarity, RarityInfo> = {
-    R: { id: 'R', label: '普通 R', unlockGems: 50, badgeBg: '#77A77C', badgeText: '#FFFDF5', border: '#90B98C' },
-    SR: { id: 'SR', label: '稀有 SR', unlockGems: 80, badgeBg: '#5C90D2', badgeText: '#FFFDF5', border: '#75A8E5' },
-    SSR: { id: 'SSR', label: '珍稀 SSR', unlockGems: 120, badgeBg: '#E69A2E', badgeText: '#FFFDF5', border: '#F2B544' },
+    R: { id: 'R', label: '普通 R', unlockGems: 50, badgeBg: '#539C5A', badgeText: '#FFFDF5', border: '#6BB272', cardBg: '#E6F5E3', lockedCardBg: '#DCE6DA' },
+    SR: { id: 'SR', label: '稀有 SR', unlockGems: 80, badgeBg: '#4A86D0', badgeText: '#FFFDF5', border: '#63A0E6', cardBg: '#E3F0FC', lockedCardBg: '#DAE3EC' },
+    SSR: { id: 'SSR', label: '珍稀 SSR', unlockGems: 120, badgeBg: '#DF8E1E', badgeText: '#FFFDF5', border: '#EDA936', cardBg: '#FFF0CD', lockedCardBg: '#ECE3D0' },
 };
 
 export interface TraitDefinition {

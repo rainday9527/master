@@ -56,20 +56,39 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
       const unlockedCard = walk(main.sheet).find(n => n.name === '图鉴卡片-7');
       const lockedSprite = walk(lockedCard).find(n => n.name === '伙伴头像图').getComponent('cc.Sprite');
       const unlockedSprite = walk(unlockedCard).find(n => n.name === '伙伴头像图').getComponent('cc.Sprite');
+      const gemIcons = walk(main.sheet).filter(n => n.name === '顶部素材-diamond-icon' && !!n.getComponent('cc.Sprite')?.spriteFrame).length;
       return {
         lockedRgb: [lockedSprite.color.r, lockedSprite.color.g, lockedSprite.color.b],
         unlockedRgb: [unlockedSprite.color.r, unlockedSprite.color.g, unlockedSprite.color.b],
         hasLockOverlay: !!walk(lockedCard).find(n => n.name === '未解锁遮罩'),
+        gemIcons,
       };
     });
-    console.log('album silhouette check:', JSON.stringify(albumStats));
-    assert.ok(albumStats.lockedRgb[0] < 50 && albumStats.hasLockOverlay, 'locked pet must be blackened silhouette with padlock');
+    console.log('album silhouette & icon check:', JSON.stringify(albumStats));
+    assert.ok(albumStats.lockedRgb[0] >= 130 && albumStats.lockedRgb[0] <= 180 && albumStats.hasLockOverlay, 'locked pet must use readable soft grey veil + padlock');
     assert.deepEqual(albumStats.unlockedRgb, [255, 255, 255], 'unlocked pet must render bright color');
+    assert.ok(albumStats.gemIcons >= 10, 'album must reuse header diamond-icon across reward badges');
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-new-album.png') });
 
-    // 2) Open SSR Ragdoll Cat (#7) Profile -> Claim 120 unlock diamonds + verify R(#0)=50, SR(#6)=80, idempotency!
+    // 2) Open SSR Ragdoll Cat (#7) Profile -> verify live 3D preview camera + idle animation + unlock diamond rewards!
     await page.evaluate(() => main.openProfile(7, 'overview'));
-    await page.waitForTimeout(260);
+    await page.waitForFunction(() => !!main.previewRig && !!main.previewCamera?.enabled, { timeout: 10000 });
+    await page.waitForTimeout(350);
+    const previewCheck = await page.evaluate(() => {
+      const stageSprite = walk(main.sheet).find(n => n.name === '宠物3D预览画面')?.getComponent('cc.Sprite');
+      return {
+        camEnabled: !!main.previewCamera?.enabled,
+        hasTargetRT: !!main.previewCamera?.targetTexture && main.previewCamera.targetTexture === main.previewTexture,
+        rtSize: main.previewTexture ? [main.previewTexture.width, main.previewTexture.height] : null,
+        spriteBound: !!stageSprite && stageSprite.spriteFrame === main.previewFrame,
+        hasRig: !!main.previewRig,
+        tailY: +main.previewRig.tail.eulerAngles.y.toFixed(2),
+      };
+    });
+    console.log('profile 3D preview check:', JSON.stringify(previewCheck));
+    assert.equal(previewCheck.camEnabled, true, '3D preview camera must be enabled on Pet Profile');
+    assert.equal(previewCheck.hasTargetRT, true, '3D preview camera must render into RenderTexture');
+    assert.equal(previewCheck.spriteBound, true, '3D preview stage sprite must bind previewFrame');
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-pet-profile-overview.png') });
 
     const gemCheck = await page.evaluate(() => {
@@ -117,6 +136,10 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
       main.selectPetOutfit(11, 'blue_scarf');
       main.selectPetOutfit(6, 'pink_bow');
     });
+    await page.waitForFunction(() => {
+      const icons = walk(main.sheet).filter(n => n.name.startsWith('装扮图标-'));
+      return icons.length === 6 && icons.every(n => !!n.getComponent('cc.Sprite')?.spriteFrame) && !!main.previewRig?.outfitNode;
+    }, { timeout: 10000 });
     await page.waitForTimeout(300);
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-pet-profile-outfit.png') });
 
