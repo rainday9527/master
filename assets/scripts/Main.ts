@@ -44,6 +44,7 @@ export class Main extends Component {
     private top!: Node;
     private bottom!: Node;
     private sheet: Node | null = null;
+    private recruitBackground: Node | null = null;
     private notice!: Label;
     private background!: Node;
     private backgroundSprite!: Sprite;
@@ -537,7 +538,17 @@ export class Main extends Component {
         n.on(Node.EventType.TOUCH_END, (event: EventTouch) => { event.propagationStopped = true; this.blockedUntil = Date.now() + 350; action(); }, this);
         return n;
     }
+    private clearRecruitBackground() {
+        if (this.recruitBackground && isValid(this.recruitBackground, true)) {
+            this.recruitBackground.active = false;
+            this.recruitBackground.removeFromParent();
+            this.recruitBackground.destroy();
+        }
+        this.recruitBackground = null;
+        this.recruitLabels = []; this.recruitProgress = null; this.recruitBadge = null; this.recruitResult = null;
+    }
     private clear(n: Node) {
+        if (n === this.ui) this.clearRecruitBackground();
         for (const child of n.children.slice()) { child.active = false; child.removeFromParent(); child.destroy(); }
         n.getComponent(Graphics)?.clear();
     }
@@ -568,6 +579,10 @@ export class Main extends Component {
         this.layoutNotice();
         this.layoutDialog();
         this.layoutBackground();
+        if (this.recruitBackground) {
+            const cover = Math.max(this.width / 1024, this.height / 1536);
+            this.recruitBackground.getComponent(UITransform)!.setContentSize(1024 * cover, 1536 * cover);
+        }
         this.worldCamera.orthoHeight = Math.max(9.5, 9.5 * this.height / 1920);
         if (this.sheet) {
             this.sheet.setPosition(0, this.page === 'pet' ? -this.height / 2 + 350 : this.page === 'shop' ? -this.height / 2 + 850 : -this.height / 2 + 640, 0);
@@ -994,6 +1009,7 @@ export class Main extends Component {
             this.renderPet(); this.updateSelectionRing(); this.renderNav(); this.layoutNotice();
             return;
         }
+        this.clearRecruitBackground();
         this.page = page; this.adventureLabel = null;
         if (page === 'pet') this.petSelected = true;
         if (page === 'home') { this.petSelected = false; this.careSelected = ''; }
@@ -1197,8 +1213,9 @@ export class Main extends Component {
     private renderRecruit() {
         const panel = this.sheet!;
         this.recruitLabels = [];
-        // 背景只属于独立招募面板，不覆盖顶部货币与主城导航。
-        this.recruitArt(panel, 'background', 0, 0, 1000, 1420);
+        // 背景独立于正文缩放，位于货币与底栏后方，且不拦截输入。
+        this.recruitBackground = this.recruitArt(this.ui, 'background', 0, 0, 1024, 1536);
+        this.recruitBackground.setSiblingIndex(0);
         this.recruitArt(panel, 'title', 0, 632, 400, 104);
         this.dailyText(panel, '遇见新的毛茸茸', 0, 632, 370, 46, 34);
         const back = this.recruitButton(panel, '返回', 'normal', -408, 638, 154, 70, () => this.open('home'));
@@ -2062,6 +2079,7 @@ export class Main extends Component {
         if (Date.now() < this.noticeUntil) this.layoutNotice();
     }
     onDestroy() {
+        this.clearRecruitBackground();
         this.closeDialog();
         this.rewardedVideoProvider = null;
         input.off(Input.EventType.TOUCH_END, this.onWorldTouch, this);

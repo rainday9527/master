@@ -8,6 +8,7 @@ const fs = require('node:fs');
   try {
     for (const width of [390, 430]) {
       const context = await browser.newContext({ viewport: { width, height: 844 } });
+      try {
       const page = await context.newPage();
       page.on('pageerror', e => report.errors.push(e.message));
       const failures = [];
@@ -45,7 +46,24 @@ const fs = require('node:fs');
         nodes: walk(main.sheet).length })) ;
       await click('导航-recruit');
       await page.waitForFunction(() => main.page === 'recruit' && main.sheet?.name === '招募面板');
-      await page.waitForFunction(() => walk(main.sheet).filter(n => n.name.startsWith('招募素材-')).every(n => n.getComponent('cc.Sprite')?.spriteFrame));
+      assert(await page.evaluate(() => !!main.recruitBackground), '当前预览必须包含独立全屏招募背景，不能使用旧构建验收');
+      await page.waitForFunction(() => walk(main.ui).filter(n => n.name.startsWith('招募素材-')).every(n => n.getComponent('cc.Sprite')?.spriteFrame));
+      const backgroundLayout = () => page.evaluate(() => {
+        const bg = main.recruitBackground, t = bg.getComponent('cc.UITransform'), s = bg.worldScale;
+        return { count: walk(main.ui).filter(n => n.name === '招募素材-background').length,
+          parent: bg.parent === main.ui, outsideSheet: !walk(main.sheet).includes(bg),
+          left: bg.position.x - t.width * s.x / 2, right: bg.position.x + t.width * s.x / 2,
+          bottom: bg.position.y - t.height * s.y / 2, top: bg.position.y + t.height * s.y / 2,
+          ratio: t.width / t.height, width: main.width, height: main.height, scale: [bg.scale.x, bg.scale.y],
+          loaded: !!bg.getComponent('cc.Sprite')?.spriteFrame, blocker: !!bg.getComponent('cc.BlockInputEvents'),
+          layers: [main.top, main.bottom, main.sheet].every(n => n.activeInHierarchy && n.getSiblingIndex() > bg.getSiblingIndex()) };
+      });
+      const assertBackground = bg => {
+        assert.equal(bg.count, 1); assert(bg.parent && bg.outsideSheet && bg.loaded && bg.layers && !bg.blocker);
+        assert(bg.left <= -bg.width / 2 && bg.right >= bg.width / 2 && bg.bottom <= -bg.height / 2 && bg.top >= bg.height / 2, '背景 cover 铺满屏幕，无场景边缝');
+        assert(Math.abs(bg.ratio - 1024 / 1536) < 1e-8); assert.deepEqual(bg.scale, [1, 1]);
+      };
+      const openingBackground = await backgroundLayout(); assertBackground(openingBackground);
       await page.waitForTimeout(350);
       const layout = await page.evaluate(() => {
         const sheet = main.sheet, t = sheet.getComponent('cc.UITransform'), s = sheet.worldScale;
@@ -54,7 +72,7 @@ const fs = require('node:fs');
         return { rect, headerBottom: main.top.position.y - 70, navTop: main.bottom.position.y + 95,
           avatars: walk(sheet).filter(n => n.name.startsWith('伙伴头像-')).length,
           sprites: walk(sheet).filter(n => n.getComponent('cc.Sprite')?.spriteFrame).length,
-          art: walk(sheet).filter(n => n.name.startsWith('招募素材-') && n.getComponent('cc.Sprite')?.spriteFrame).map(n => n.name).sort(),
+          art: walk(main.ui).filter(n => n.name.startsWith('招募素材-') && n.getComponent('cc.Sprite')?.spriteFrame).map(n => n.name).sort(),
           obsolete: walk(sheet).filter(n => /定向|待配置/.test(n.name)).length,
           discount: walk(sheet).find(n => n.name === '十抽9折文字牌')?.getComponent('cc.Label')?.string,
           resultWrap: main.recruitResult.enableWrapText,
@@ -65,7 +83,17 @@ const fs = require('node:fs');
           stock: main.recruitLabels.map(label => label.string),
           operations: walk(main.ui).filter(n => n.name === '操作卡片' && n.activeInHierarchy).length };
       });
-      assert(layout.rect.top < layout.headerBottom && layout.rect.bottom > layout.navTop);
+      assert(layout.rect.top < layout.headerBottom && layout.rect.bottom > layout.navTop, '仅正文内容区域保留在货币栏与底部导航之间');
+      const background = await backgroundLayout(); assertBackground(background);
+      assert.deepEqual(background, openingBackground, '背景不参与正文开场缩放');
+      await click('加号-gems');
+      await page.waitForFunction(() => main.dialog && walk(main.dialog).some(n => n.getComponent('cc.Label')?.string === '获取钻石'));
+      await click('弹窗按钮-做任务');
+      await page.waitForFunction(() => main.page === 'daily' && main.recruitBackground === null);
+      assert.equal(await page.evaluate(() => walk(main.ui).filter(n => n.name === '招募素材-background').length), 0, '离页立即移除背景');
+      await click('导航-recruit'); await page.waitForTimeout(350);
+      assertBackground(await backgroundLayout());
+      await page.evaluate(() => { window.recruitSheet = main.sheet; window.recruitNodes = walk(main.sheet); });
       assert.equal(layout.avatars, 6); assert.equal(layout.operations, 0); assert.equal(layout.obsolete, 0);
       assert.equal(layout.discount, '9折'); assert.equal(layout.resultWrap, true);
       assert.deepEqual(layout.art, ['background','title','normal','search','preview','normal','advanced','reward','chest','badge'].map(key => '招募素材-' + key).sort(), '正式背景、标题、预览栏、按钮与奖励拆件逐个加载；头像为Graphics');
@@ -96,7 +124,16 @@ const fs = require('node:fs');
       assert.equal(reward.claimed, 30); assert.equal(reward.total, 40); assert.equal(reward.copies, 14); assert.equal(reward.gems, 17000); assert(!reward.ready && reward.same && reward.saved); assert.match(reward.progress, /50/);
       await page.waitForTimeout(650); await click('领取招募累计奖励'); assert.deepEqual(await state(), reward);
       await page.screenshot({ path: `temp/recruit-${width}.png` });
-      await click('招募返回'); await page.waitForFunction(() => main.page === 'home' && main.sheet === null);
+      const assertClean = async () => {
+        assert(await page.evaluate(() => main.recruitBackground === null && walk(main.ui).every(n => n.name !== '招募素材-background') && main.recruitLabels.length === 0 && main.recruitProgress === null && main.recruitBadge === null && main.recruitResult === null), '离页背景与招募引用清理');
+      };
+      await click('导航-home'); await page.waitForFunction(() => main.page === 'home' && main.sheet === null); await assertClean();
+      for (let i = 0; i < 3; i++) {
+        await click('导航-recruit');
+        await page.waitForFunction(() => main.recruitBackground?.getComponent('cc.Sprite')?.spriteFrame);
+        assertBackground(await backgroundLayout());
+        await click('招募返回'); await page.waitForFunction(() => main.page === 'home' && main.sheet === null); await assertClean();
+      }
       await page.reload(); await attach(); await click('导航-recruit'); await page.waitForTimeout(350);
       assert.equal((await state()).claimed, 30); assert.equal((await state()).copies, 14);
       // 单独的缺钻 fixture，不把直接改数伪装成自然游玩。
@@ -104,9 +141,13 @@ const fs = require('node:fs');
       await page.reload(); await attach(); await click('导航-recruit'); await page.waitForTimeout(350); await click(single);
       assert.equal(await page.evaluate(() => walk(main.dialog).find(n => n.name === '弹窗独立标题').getComponent('cc.Label').string), '获取钻石');
       assert.equal((await state()).total, 40);
+      await page.evaluate(() => { window.destroyedRecruitBackground = main.recruitBackground; main.destroy(); });
+      await page.waitForFunction(() => !cc.isValid(window.destroyedRecruitBackground, true) && main.recruitBackground === null);
       assert.deepEqual(failures, []);
-      report.checks.push({ width, layout, one, batch, reward, persisted: true, insufficientDialog: true, httpFailures: failures });
-      await context.close();
+      report.checks.push({ width, layout, background, headerClickable: true, navClickable: true, reopenCleanup: true, one, batch, reward, persisted: true, insufficientDialog: true, httpFailures: failures });
+      } catch (error) {
+        report.errors.push(`${width}×844：${error.message}`);
+      } finally { await context.close(); }
     }
     assert.deepEqual(report.errors, []);
   } catch (error) { report.errors.push(error.message); throw error;
