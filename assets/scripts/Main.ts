@@ -1211,7 +1211,44 @@ export class Main extends Component {
         } finally { this.recruitBusy = false; }
     }
 
+    private showRecruitRewards() {
+        this.showDialog('累计招募奖励', '', [
+            { title: '领取奖励', run: () => this.recruitTransaction('reward') },
+            { title: '关闭', run: () => this.closeDialog() }
+        ]);
+        if (!this.dialog) return;
+        const content = this.dialog.getChildByName('通用弹窗面板')!.getChildByName('弹窗安全内容')!;
+        content.getChildByName('弹窗正文')!.active = false;
+        this.text(content, '', 0, 122, 670, 38, 30).node.name = '累计招募当前次数';
+        [10, 30, 50, 100, 200, 300].forEach((target, index) => {
+            this.text(content, '', index % 2 === 0 ? -174 : 174, 70 - Math.floor(index / 2) * 45, 330, 40, 27).node.name = '累计招募档位-' + target;
+        });
+        this.text(content, '每档送1只伙伴本体；100次后每100次一档', 0, -56, 675, 24, 22);
+        this.updateRecruitRewards();
+    }
+
+    private updateRecruitRewards() {
+        if (!this.dialog) return;
+        const panel = this.dialog.getChildByName('通用弹窗面板');
+        if (panel?.getChildByName('弹窗独立标题')?.getComponent(Label)?.string !== '累计招募奖励') return;
+        const content = panel.getChildByName('弹窗安全内容')!;
+        const state = this.data.recruit, next = nextMilestone(state.claimed);
+        content.getChildByName('累计招募当前次数')!.getComponent(Label)!.string = '当前累计招募 ' + state.total + ' 次';
+        const targets = [10, 30, 50, 100, 200, Math.max(300, next)];
+        [10, 30, 50, 100, 200, 300].forEach((key, index) => {
+            const target = targets[index], claimed = state.claimed >= target, ready = state.total >= target;
+            const label = content.getChildByName('累计招募档位-' + key)!.getComponent(Label)!;
+            label.string = target + '次 · ' + (claimed ? '已领' : ready ? '可领' : '未完成');
+            label.color = this.statusColor(claimed || ready);
+        });
+        const button = content.getChildByName('弹窗按钮-领取奖励')!;
+        const label = button.children.find(n => n.getComponent(Label))!.getComponent(Label)!;
+        label.string = state.total >= next ? '领取' + next + '次奖励' : '未达标';
+        label.color = this.statusColor(state.total >= next);
+    }
+
     private updateRecruit() {
+        this.updateRecruitRewards();
         const state = this.data.recruit;
         this.recruitLabels.forEach((label, id) => {
             label.string = BREEDS[id].name + '\n本体×' + state.copies[id];
@@ -1243,8 +1280,9 @@ export class Main extends Component {
         // 右上奖励与进度独立，不覆盖主体猫狗立绘。
         const reward = this.uiNode(panel, '领取招募累计奖励', 330, 592, 300, 222);
         this.recruitArt(reward, 'description', 0, 0, 300, 222);
-        this.recruitArt(reward, 'chest', -86, 73, 48, 46);
-        this.dailyText(reward, '招募奖励', 24, 73, 162, 36, 28);
+        void this.navArt(reward, 'label0', 24, 73, 190, 64);
+        this.recruitArt(reward, 'chest', -100, 73, 48, 46);
+        this.dailyText(reward, '招募奖励', 24, 73, 148, 34, 27).node.name = '招募奖励标题';
         const hint = this.dailyText(reward, '', 0, 9, 225, 70, 22);
         hint.node.name = '招募奖励说明'; hint.enableWrapText = true;
         const track = this.recruitArt(reward, 'progress-track', 0, -65, 240, 240 * 120 / 588);
@@ -1262,8 +1300,12 @@ export class Main extends Component {
         reward.on(Node.EventType.TOUCH_END, () => this.recruitTransaction('reward'), this);
         this.recruitBadge = this.recruitArt(reward, 'badge', 131, 92, 40, 43);
         this.recruitBadge.active = false;
-        this.recruitProgress = this.dailyText(reward, '', 0, -65, 210, 34, 24);
+        this.recruitProgress = this.dailyText(reward, '', -24, -65, 166, 34, 24);
         this.recruitProgress.node.name = '招募累计进度文字';
+        const search = this.uiNode(reward, '查看累计招募奖励', 96, -65, 54, 54);
+        this.recruitArt(search, 'search', 0, 0, 48, 48);
+        this.intercept(search); this.pressVisualFeedback(search);
+        search.on(Node.EventType.TOUCH_END, () => this.showRecruitRewards(), this);
         // 两个固定热区只缩放内部美术，价格使用原有钻石图标。
         const single = this.recruitButton(panel, '', 'normal', -240, -334, 460, 216, () => this.recruitTransaction('single'));
         single.name = '招募按钮-普通招募 · 300钻 / 1次';
@@ -1279,8 +1321,10 @@ export class Main extends Component {
         this.recruitArt(ten, 'discount', 170, 80, 96, 30);
         this.dailyText(ten, '9折', 170, 80, 62, 26, 22).node.name = '十抽9折文字牌';
         const preview = this.uiNode(panel, '招募预览横栏', 0, -590, 940, 276);
-        const previewArt = this.recruitArt(preview, 'reward', 0, 0, 940, 276);
-        previewArt.addComponent(UIOpacity).opacity = 200;
+        const previewArt = this.uiNode(preview, '招募预览半透明底板', 0, 0, 940, 276);
+        const previewFill = previewArt.addComponent(Graphics);
+        previewFill.fillColor = new Color(111, 72, 43, 185);
+        previewFill.roundRect(-470, -138, 940, 276, 26); previewFill.fill();
         this.dailyText(preview, '伙伴预览', -300, 81, 280, 38, 28, true);
         const details = this.uiNode(preview, '查看招募卡池', 355, 81, 190, 52);
         void this.navArt(details, 'label0', 0, 0, 190, 52);
