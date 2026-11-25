@@ -155,6 +155,21 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-pet-profile-hat.png') });
 
     await page.evaluate(() => {
+      main.openProfile(0, 'outfit');
+      main.selectPetOutfit(0, 'none');
+      main.selectPetCoat(0, 'cream_glow');
+    });
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: path.join(OUT_DIR, 'verify-pet-skin-sailor.png') });
+
+    await page.evaluate(() => {
+      main.selectPetCoat(0, 'sunset_warm');
+    });
+    await page.waitForTimeout(260);
+    await page.screenshot({ path: path.join(OUT_DIR, 'verify-pet-skin-bee.png') });
+
+    await page.evaluate(() => {
+      main.openProfile(7, 'outfit');
       main.selectPetOutfit(7, 'gold_crown');
       main.selectPetCoat(7, 'sakura_blush');
       main.selectPetOutfit(0, 'bell_collar');
@@ -162,7 +177,7 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
       main.selectPetOutfit(11, 'blue_scarf');
       main.selectPetOutfit(6, 'pink_bow');
     });
-    await page.waitForTimeout(250);
+    await page.waitForTimeout(300);
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-pet-profile-outfit.png') });
 
     // 6) Verify trait gameplay effect (glutton #4 gets +25% hunger on food care!)

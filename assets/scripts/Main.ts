@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Camera, Canvas, UITransform, Graphics, Label, Color, Vec3, Vec2, RenderTexture, MeshRenderer, Material, primitives, utils, view, ResolutionPolicy, Layers, input, Input, EventTouch, sys, BlockInputEvents, Sprite, SpriteFrame, resources, DirectionalLight, Vec4, JsonAsset, Texture2D, isValid, tween, Tween, ScrollView, Mask, UIOpacity, profiler } from 'cc';
+import { _decorator, Component, Node, Camera, Canvas, UITransform, Graphics, Label, Color, Vec3, Vec2, RenderTexture, MeshRenderer, Material, primitives, utils, view, ResolutionPolicy, Layers, input, Input, EventTouch, sys, BlockInputEvents, Sprite, SpriteFrame, resources, DirectionalLight, Vec4, JsonAsset, Texture2D, ImageAsset, isValid, tween, Tween, ScrollView, Mask, UIOpacity, profiler } from 'cc';
 
 import { ITEM_CATALOG, ItemDefinition, ItemCategory, PetStat, ShopSlot, findItem, itemApplies, effectText, drawShopSlots } from './ItemCatalog';
 
@@ -123,6 +123,7 @@ export class Main extends Component {
     private meshes = new Map<string, ReturnType<typeof utils.createMesh>>();
     private petRigs = new Map<Kind, Promise<PetRigAsset | null>>();
     private petSkins = new Map<string, Promise<Texture2D | null>>();
+    private compositeTextures = new Map<string, Texture2D>();
     private petAvatars = new Map<string, Promise<SpriteFrame | null>>();
     private shadowTexture: Promise<Texture2D | null> | null = null;
     private page: Page = 'home';
@@ -607,14 +608,44 @@ export class Main extends Component {
         if (!material) {
             material = new Material();
             this.materials.set(key, material);
-            // 共享基础猫/狗3D模型：顶点烘焙柔和体积光，每品种只需替换一张标准化皮肤贴图即可换肤。
+            // 共享基础猫/狗3D模型：顶点烘焙柔和体积光，所有皮肤均保持自然本色不做怪异色偏。
             material.initialize({ effectName: 'builtin-unlit', defines: { USE_TEXTURE: true, USE_VERTEX_COLOR: true } });
             material.setProperty('mainTexture', texture);
             material.setProperty('colorScale', new Vec3(1.06, 1.05, 1.03));
-            const coatDef = PET_COATS.find(c => c.id === coat) || PET_COATS[0];
-            material.setProperty('mainColor', this.color(coatDef.tint));
+            material.setProperty('mainColor', this.color('#FFFFFF'));
         }
         return material;
+    }
+
+    private async getCompositePetMaterial(skinKey: string, coat: CoatId, baseTexture: Texture2D): Promise<Material> {
+        const coatDef = PET_COATS.find(c => c.id === coat);
+        if (!coatDef || !coatDef.overlay) return this.getPetSkinMaterial(skinKey, 'original', baseTexture);
+        const key = 'pet:' + skinKey + ':' + coat;
+        const cached = this.materials.get(key);
+        if (cached) return cached;
+        const overlayTex = await this.loadPetSkin(coatDef.overlay);
+        if (!overlayTex || !isValid(this, true)) return this.getPetSkinMaterial(skinKey, 'original', baseTexture);
+        const cachedAfter = this.materials.get(key);
+        if (cachedAfter) return cachedAfter;
+        const baseData = (baseTexture.image as unknown as { data?: CanvasImageSource } | null)?.data;
+        const overlayData = (overlayTex.image as unknown as { data?: CanvasImageSource } | null)?.data;
+        if (!baseData || !overlayData || typeof document === 'undefined') {
+            return this.getPetSkinMaterial(skinKey, 'original', baseTexture);
+        }
+        const w = Math.max(256, baseTexture.width || 1024);
+        const h = Math.max(256, baseTexture.height || 1024);
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return this.getPetSkinMaterial(skinKey, 'original', baseTexture);
+        // 完整保留原品种面部、耳朵、脚掌与尾巴毛色，将透明服装皮肤精准合成至躯干与上袖 UV。
+        ctx.drawImage(baseData, 0, 0, w, h);
+        ctx.drawImage(overlayData, 0, 0, w, h);
+        const imgAsset = new ImageAsset(canvas);
+        const compTex = new Texture2D();
+        compTex.image = imgAsset;
+        this.compositeTextures.set(key, compTex);
+        return this.getPetSkinMaterial(skinKey, coat, compTex);
     }
 
     private buildOutfitNode(outfit: OutfitId, rig: ActorRig): Node | null {
@@ -705,8 +736,10 @@ export class Main extends Component {
             this.previewLoadedKey = key;
             const skinTex = await this.loadPetSkin(BREEDS[pet.id].skin);
             if (skinTex && isValid(this, true) && this.previewRig === pRig && isValid(pRig.modelNode, true)) {
-                const mat = this.getPetSkinMaterial(BREEDS[pet.id].skin, pet.coat, skinTex);
-                pRig.renderers.forEach(r => { if (isValid(r, true)) r.setSharedMaterial(mat, 0); });
+                const mat = await this.getCompositePetMaterial(BREEDS[pet.id].skin, pet.coat, skinTex);
+                if (isValid(this, true) && this.previewRig === pRig && isValid(pRig.modelNode, true)) {
+                    pRig.renderers.forEach(r => { if (isValid(r, true)) r.setSharedMaterial(mat, 0); });
+                }
             }
             return;
         }
@@ -717,13 +750,14 @@ export class Main extends Component {
             this.loadShadowTexture(),
         ]);
         if (!rig || !skinTexture || !isValid(this, true) || this.page !== 'profile' || this.profilePetId !== petId) return;
+        const material = await this.getCompositePetMaterial(breed.skin, pet.coat, skinTexture);
+        if (!isValid(this, true) || this.page !== 'profile' || this.profilePetId !== petId) return;
         this.clearProfilePreview();
         const stage = new Node('宠物主页3D舞台');
         this.node.addChild(stage);
         stage.setPosition(0, 0, 0);
         const visual = new Node('预览重心');
         stage.addChild(visual);
-        const material = this.getPetSkinMaterial(breed.skin, pet.coat, skinTexture);
         const faceMaterial = this.getPetSkinMaterial(breed.skin, 'original', skinTexture);
         const modelNode = new Node('预览卡通模型');
         visual.addChild(modelNode);
@@ -845,7 +879,8 @@ export class Main extends Component {
         if (!pet) return;
         const skinTex = await this.loadPetSkin(BREEDS[petId].skin);
         if (!isValid(this, true)) return;
-        const mat = skinTex ? this.getPetSkinMaterial(BREEDS[petId].skin, pet.coat, skinTex) : null;
+        const mat = skinTex ? await this.getCompositePetMaterial(BREEDS[petId].skin, pet.coat, skinTex) : null;
+        if (!isValid(this, true)) return;
         if (actor) {
             actor.pet = pet;
             const rig = actor.rig;
@@ -888,7 +923,8 @@ export class Main extends Component {
         if (!rig || !skinTexture || !isValid(this, true) || !isValid(actor.node, true) || !isValid(fallback, true)) return;
         let modelNode: Node | null = null;
         try {
-            const material = this.getPetSkinMaterial(b.skin, actor.pet.coat, skinTexture);
+            const material = await this.getCompositePetMaterial(b.skin, actor.pet.coat, skinTexture);
+            if (!isValid(this, true) || !isValid(actor.node, true) || !isValid(fallback, true)) return;
             const faceMaterial = this.getPetSkinMaterial(b.skin, 'original', skinTexture);
             modelNode = new Node('卡通可动模型'); modelNode.layer = Layers.Enum.DEFAULT;
             actor.visual.addChild(modelNode);
@@ -2044,7 +2080,7 @@ export class Main extends Component {
         return node;
     }
 
-    private loadOutfitIcon(sprite: Sprite, id: OutfitId) {
+    private loadOutfitIcon(sprite: Sprite, id: string) {
         let loading = this.outfitIcons.get(id);
         if (!loading) {
             loading = new Promise<SpriteFrame | null>(resolve => {
@@ -2235,7 +2271,7 @@ export class Main extends Component {
         void this.refreshPetAppearance(petId);
         this.renderHeader();
         if (this.page === 'profile') this.refreshProfileInPlace();
-        this.toast('已切换毛色换肤「' + def.name + '」');
+        this.toast('已换上皮肤「' + def.name + '」');
         return true;
     }
 
@@ -2634,25 +2670,26 @@ export class Main extends Component {
             tile.on(Node.EventType.TOUCH_END, () => this.selectPetOutfit(pet.id, o.id), this);
         });
 
-        this.dailyText(body, '毛色光影换肤（同款3D模型即时换肤）', -130, -82, 460, 34, 23, true);
+        this.dailyText(body, '主题服装皮肤（保留原毛色 · 穿衣换肤）', -130, -82, 480, 34, 23, true);
         PET_COATS.forEach((c, i) => {
             const x = -261 + i * 174, y = -164;
             const equipped = pet.coat === c.id;
             const owned = this.data.ownedCoats.includes(c.id);
-            const tile = this.uiNode(body, '毛色项-' + c.id, x, y, 162, 108);
+            const tile = this.uiNode(body, '毛色项-' + c.id, x, y, 162, 114);
             const g = tile.addComponent(Graphics);
             g.fillColor = this.color(equipped ? '#E6F5E3' : '#FFF8EA');
             g.strokeColor = this.color(equipped ? '#539C5A' : '#DFC59A'); g.lineWidth = equipped ? 4 : 2;
-            g.roundRect(-81, -54, 162, 108, 18); g.fill(); g.stroke();
-            g.fillColor = this.color(c.tint); g.strokeColor = this.color('#D4B990'); g.lineWidth = 2;
-            g.circle(0, 22, 17); g.fill(); g.stroke();
-            this.dailyText(tile, c.name, 0, -10, 148, 28, 20);
+            g.roundRect(-81, -57, 162, 114, 18); g.fill(); g.stroke();
+            const skinIcon = this.uiNode(tile, '皮肤图标-' + c.id, 0, 22, 48, 48).addComponent(Sprite);
+            skinIcon.sizeMode = Sprite.SizeMode.CUSTOM;
+            this.loadOutfitIcon(skinIcon, c.icon);
+            this.dailyText(tile, c.name, 0, -14, 148, 26, 19);
             if (equipped || owned) {
-                const st = this.dailyText(tile, equipped ? '使用中 ✓' : '点击切换', 0, -34, 148, 24, 17);
+                const st = this.dailyText(tile, equipped ? '穿戴中 ✓' : '点击换肤', 0, -38, 148, 24, 17);
                 st.color = this.statusColor(true); st.outlineWidth = 1;
             } else {
-                this.currencyIcon(tile, c.currency, -26, -34, 20);
-                const st = this.dailyText(tile, String(c.price), 22, -34, 76, 24, 18, true);
+                this.currencyIcon(tile, c.currency, -26, -38, 20);
+                const st = this.dailyText(tile, String(c.price), 22, -38, 76, 24, 18, true);
                 const affordable = (c.currency === 'coins' ? this.data.coins : this.data.gems) >= c.price;
                 st.color = this.statusColor(affordable); st.outlineWidth = 1;
             }
@@ -3782,6 +3819,7 @@ export class Main extends Component {
         this.previewFrame?.destroy(); this.previewTexture?.destroy();
         this.previewFrame = null; this.previewTexture = null;
         this.materials.forEach(m => m.destroy()); this.meshes.forEach(m => m.destroy());
+        this.compositeTextures.forEach(t => t.destroy()); this.compositeTextures.clear();
         this.materials.clear(); this.meshes.clear(); this.petRigs.clear(); this.petSkins.clear(); this.petAvatars.clear(); this.shadowTexture = null;
     }
 }
