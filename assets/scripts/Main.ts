@@ -896,22 +896,14 @@ export class Main extends Component {
         });
     }
 
-    private async navArt(parent: Node, key: string, x: number, y: number, width: number, height: number, stretchPlate = false) {
+    private async navArt(parent: Node, key: string, x: number, y: number, width: number, height: number) {
         const node = this.uiNode(parent, '主城素材-' + key, x, y, width, height);
         const sprite = node.addComponent(Sprite); sprite.sizeMode = Sprite.SizeMode.CUSTOM;
         resources.load('art/nav/' + key + '/spriteFrame', SpriteFrame, (error, frame) => {
             if (error || !frame || !isValid(node, true)) return;
-            if (stretchPlate) {
-                const plate = frame.clone();
-                plate.insetLeft = plate.insetRight = 40;
-                plate.insetTop = plate.insetBottom = 30;
-                sprite.type = Sprite.Type.SLICED;
-                sprite.spriteFrame = plate;
-            } else {
-                const ratio = Math.min(width / frame.originalSize.width, height / frame.originalSize.height);
-                node.getComponent(UITransform)!.setContentSize(frame.originalSize.width * ratio, frame.originalSize.height * ratio);
-                sprite.spriteFrame = frame;
-            }
+            const ratio = Math.min(width / frame.originalSize.width, height / frame.originalSize.height);
+            node.getComponent(UITransform)!.setContentSize(frame.originalSize.width * ratio, frame.originalSize.height * ratio);
+            sprite.spriteFrame = frame;
         });
     }
 
@@ -1288,10 +1280,10 @@ export class Main extends Component {
         // 右上奖励与进度独立，不覆盖主体猫狗立绘。
         const reward = this.uiNode(panel, '领取招募累计奖励', 330, 592, 300, 222);
         this.recruitArt(reward, 'description', 0, 0, 300, 222);
-        void this.navArt(reward, 'label0', 29, 73, 218, 64, true);
-        this.recruitArt(reward, 'chest', -110, 73, 48, 46);
-        this.dailyText(reward, '招募奖励', 29, 73, 148, 34, 27).node.name = '招募奖励标题';
-        const hint = this.dailyText(reward, '', 0, 3, 225, 70, 22);
+        void this.navArt(reward, 'label0', 20, 50, 150, 70);
+        this.recruitArt(reward, 'chest', -88, 50, 40, 38);
+        this.dailyText(reward, '招募奖励', 20, 50, 112, 30, 25).node.name = '招募奖励标题';
+        const hint = this.dailyText(reward, '', 0, -14, 225, 52, 20);
         hint.node.name = '招募奖励说明'; hint.enableWrapText = true;
         const track = this.recruitArt(reward, 'progress-track', 0, -65, 240, 240 * 120 / 588);
         track.name = '招募累计进度槽';
@@ -1335,8 +1327,8 @@ export class Main extends Component {
         previewFill.roundRect(-470, -138, 940, 276, 26); previewFill.fill();
         this.dailyText(preview, '宠物预览', -300, 110, 280, 38, 28, true).node.name = '宠物预览标题';
         const details = this.uiNode(preview, '查看招募卡池', 345, 104, 230, 64);
-        void this.navArt(details, 'label0', 0, 0, 230, 64, true);
-        this.dailyText(details, '查看详情 ›', 0, 0, 174, 42, 26);
+        void this.navArt(details, 'label0', 0, 0, 170, 80);
+        this.dailyText(details, '查看详情 ›', 0, 0, 132, 32, 24);
         this.intercept(details); this.pressVisualFeedback(details, details.children.slice());
         details.on(Node.EventType.TOUCH_END, () => this.showDialog('招募卡池', BREEDS.map(b => b.name).join('、') + '\n普通与高级共用卡池，所有伙伴等权\n累计10、30、50、100次，之后每100次送1只伙伴本体', [{ title: '知道了', run: () => this.closeDialog() }]), this);
         BREEDS.forEach((b, id) => {

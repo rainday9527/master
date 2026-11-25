@@ -146,8 +146,12 @@ const fs = require('node:fs');
         const rect = n => { const t = n.getComponent('cc.UITransform'); return { left:n.position.x-t.width/2, right:n.position.x+t.width/2, bottom:n.position.y-t.height/2, top:n.position.y+t.height/2 }; };
         const plate = (parent, label) => {
           const n = parent.getChildByName('主城素材-label0'), s = n.getComponent('cc.Sprite');
-          return { bounds: rect(n), text: rect(label), loaded: !!s.spriteFrame, sliced: s.type === cc.Sprite.Type.SLICED,
-            insets: [s.spriteFrame.insetLeft, s.spriteFrame.insetRight, s.spriteFrame.insetTop, s.spriteFrame.insetBottom] };
+          const t = n.getComponent('cc.UITransform'), size = s.spriteFrame.originalSize;
+          // label0源图218×102，避开圆角、描边和透明边缘的中央安全区。
+          const safe = { left: n.position.x + (24 / 218 - .5) * t.width, right: n.position.x + (194 / 218 - .5) * t.width,
+            bottom: n.position.y + (.5 - 78 / 102) * t.height, top: n.position.y + (.5 - 24 / 102) * t.height };
+          return { bounds: rect(n), safe, text: rect(label), loaded: !!s.spriteFrame, simple: s.type === cc.Sprite.Type.SIMPLE,
+            ratio: t.width / t.height, original: size.width / size.height, uuid: s.spriteFrame.uuid };
         };
         const avatars = preview.children.filter(n => n.name.startsWith('招募本体-')).map(card => {
           const avatar = card.children.find(n => n.name.startsWith('伙伴头像-'));
@@ -161,11 +165,18 @@ const fs = require('node:fs');
       assert.equal(spacing.text, '宠物预览');
       spacing.avatars.forEach(top => assert(spacing.title.bottom - top >= 24 && spacing.detailBounds.bottom - top >= 8, '标题行与保留的临时头像拉开间距'));
       for (const plate of [spacing.details, spacing.reward]) {
-        assert(plate.loaded && plate.sliced, '必须加载真实九宫格底板，不能只扩大热区');
-        assert.deepEqual(plate.insets, [40, 40, 30, 30]);
-        assert(plate.text.left >= plate.bounds.left + 14 && plate.text.right <= plate.bounds.right - 14 && plate.text.bottom >= plate.bounds.bottom + 9 && plate.text.top <= plate.bounds.top - 9, '文字完整落在扣除透明边缘后的真实底板内区');
+        assert(plate.loaded && plate.simple, '必须加载原比例主城通用底板，不使用九宫格拉伸');
+        assert(Math.abs(plate.ratio - 218 / 102) < 1e-6 && Math.abs(plate.ratio - plate.original) < 1e-6);
+        assert.equal(plate.uuid, spacing.details.uuid, '两处使用同一通用材质');
+        assert(plate.text.left >= plate.safe.left && plate.text.right <= plate.safe.right && plate.text.bottom >= plate.safe.bottom && plate.text.top <= plate.safe.top, '文字完整落在源图中央真实内区');
       }
-      assert(spacing.reward.bounds.right <= 150 && spacing.reward.bounds.left - spacing.chest.right >= 6, '奖励底板不超右侧并与礼物留空');
+      // description按300×222框等比fit457×380，浅色内框源区(40,42)..(416,335)。
+      const inner = { left: (40 - 457 / 2) * 222 / 380, right: (416 - 457 / 2) * 222 / 380,
+        bottom: (380 / 2 - 335) * 222 / 380, top: (380 / 2 - 42) * 222 / 380 };
+      for (const bounds of [spacing.reward.bounds, spacing.chest]) {
+        assert(bounds.left >= inner.left && bounds.right <= inner.right && bounds.bottom >= inner.bottom && bounds.top <= inner.top, '奖励底板及礼物必须完全位于description真实浅色内框');
+      }
+      assert(spacing.reward.bounds.left - spacing.chest.right >= 6, '奖励底板与礼物留空');
       assert(spacing.reward.bounds.bottom - spacing.hint.top >= 3, '奖励底板不挤说明');
       assert(spacing.title.top <= 138 && spacing.detailBounds.top <= 138, '上移后的标题行仍处于预览底板内');
       const layout = await page.evaluate(() => {
@@ -295,7 +306,7 @@ const fs = require('node:fs');
       await page.waitForTimeout(650); await click('领取招募累计奖励'); assert.deepEqual(await state(), reward); await assertStable30();
       await page.waitForTimeout(4800); // 等待操作提示消失，截图不得遮挡正文。
       await page.screenshot({ path: `temp/recruit-preview-panel-${width}.png` });
-      await page.screenshot({ path: `temp/recruit-spacing-${width}.png` });
+      await page.screenshot({ path: `temp/recruit-commonplate-${width}.png` });
       const assertClean = async () => {
         assert(await page.evaluate(() => main.recruitBackground === null && walk(main.ui).every(n => n.name !== '招募素材-background') && main.recruitLabels.length === 0 && main.recruitProgress === null && main.recruitBadge === null && main.recruitResult === null), '离页背景与招募引用清理');
       };
