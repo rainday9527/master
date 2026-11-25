@@ -41,6 +41,7 @@ const fs = require('node:fs');
       const state = () => page.evaluate(() => ({ gems: main.data.gems, total: main.data.recruit.total, claimed: main.data.recruit.claimed,
         copies: Object.values(main.data.recruit.copies).reduce((a,b) => a+b, 0), pets: main.data.pets.length, actors: main.actors.length,
         recent: main.data.recruit.recent.length, ready: main.recruitBadge.active, progress: main.recruitProgress.string,
+        fill: main.sheet.getChildByName('领取招募累计奖励').getChildByName('招募累计进度填充').getComponent('cc.Sprite').fillRange,
         saved: JSON.stringify(main.data.recruit) === JSON.stringify(JSON.parse(cc.sys.localStorage.getItem(main.key)).recruit),
         same: main.sheet === window.recruitSheet && walk(main.sheet).every((n,i) => n === window.recruitNodes[i]),
         nodes: walk(main.sheet).length })) ;
@@ -60,11 +61,33 @@ const fs = require('node:fs');
       });
       const assertBackground = bg => {
         assert.equal(bg.count, 1); assert(bg.parent && bg.outsideSheet && bg.loaded && bg.layers && !bg.blocker);
-        assert(bg.left <= -bg.width / 2 && bg.right >= bg.width / 2 && bg.bottom <= -bg.height / 2 && bg.top >= bg.height / 2, '背景 cover 铺满屏幕，无场景边缝');
-        assert(Math.abs(bg.ratio - 1024 / 1536) < 1e-8); assert.deepEqual(bg.scale, [1, 1]);
+        assert(bg.left <= -bg.width / 2 + 1e-4 && bg.right >= bg.width / 2 - 1e-4 && bg.bottom <= -bg.height / 2 + 1e-4 && bg.top >= bg.height / 2 - 1e-4, '背景 cover 铺满屏幕，无场景边缝');
+        assert(Math.abs(bg.ratio - 1080 / 1920) < 1e-8); assert.deepEqual(bg.scale, [1, 1]);
       };
       const openingBackground = await backgroundLayout(); assertBackground(openingBackground);
       await page.waitForTimeout(350);
+      const proportions = await page.evaluate(() => walk(main.sheet).filter(n => n.name.startsWith('招募素材-')).map(n => {
+        const sprite = n.getComponent('cc.Sprite'), t = n.getComponent('cc.UITransform'), size = sprite.spriteFrame.originalSize;
+        const parent = n.parent.getComponent('cc.UITransform');
+        return { name: n.name, ratio: t.width/t.height, original: size.width/size.height, width: t.width, height: t.height,
+          inside: t.width <= parent.width + 1e-6 && t.height <= parent.height + 1e-6,
+          label: n.parent.children.filter(v => v.getComponent('cc.Label')).map(v => { const z = v.getComponent('cc.UITransform'); return [z.width/t.width,z.height/t.height]; }) };
+      }));
+      proportions.forEach(p => {
+        assert(Math.abs(p.ratio-p.original)<1e-6, p.name+'必须按原始frame等比显示');
+        if (['招募素材-normal','招募素材-advanced','招募素材-search'].includes(p.name)) {
+          assert(p.inside, p.name+'素材必须位于固定热区内');
+          p.label.forEach(([w,h]) => assert(w <= 0.76 && h <= 0.51, p.name+'文字必须留在内区'));
+        }
+      });
+      const progressGeometry = await page.evaluate(() => {
+        const reward = main.sheet.getChildByName('领取招募累计奖励');
+        return ['招募累计进度槽','招募累计进度填充'].map(name => {
+          const n = reward.getChildByName(name), t = n.getComponent('cc.UITransform'); return { width:t.width,height:t.height };
+        });
+      });
+      assert.deepEqual(progressGeometry[0], progressGeometry[1]);
+      assert(Math.abs(progressGeometry[0].width/progressGeometry[0].height - 784/134)<1e-6, '细进度皮肤保持原比例');
       const layout = await page.evaluate(() => {
         const sheet = main.sheet, t = sheet.getComponent('cc.UITransform'), s = sheet.worldScale;
         window.recruitSheet = sheet; window.recruitNodes = walk(sheet);
@@ -96,7 +119,7 @@ const fs = require('node:fs');
       await page.evaluate(() => { window.recruitSheet = main.sheet; window.recruitNodes = walk(main.sheet); });
       assert.equal(layout.avatars, 6); assert.equal(layout.operations, 0); assert.equal(layout.obsolete, 0);
       assert.equal(layout.discount, '9折'); assert.equal(layout.resultWrap, true);
-      assert.deepEqual(layout.art, ['background','title','normal','search','preview','normal','advanced','reward','chest','badge'].map(key => '招募素材-' + key).sort(), '正式背景、标题、预览栏、按钮与奖励拆件逐个加载；头像为Graphics');
+      assert.deepEqual(layout.art, ['background','title','normal','search','preview','normal','advanced','chest','badge'].map(key => '招募素材-' + key).sort(), '正式背景、标题、预览栏、按钮与奖励拆件逐个加载；头像为Graphics');
       assert.equal(layout.stock.length, 6); layout.stock.forEach(text => assert.match(text, /\n本体×\d+/));
       for (const zone of layout.zones) {
         assert(zone.left >= -500 && zone.right <= 500 && zone.top <= 710 && zone.bottom >= -710, zone.name + '超出面板');
@@ -115,13 +138,13 @@ const fs = require('node:fs');
       assert.match(poolText, /等权/); await click('弹窗按钮-知道了');
       const single = '招募按钮-普通招募 · 300钻 / 1次', ten = '招募按钮-高级招募 · 2700钻 / 10次';
       await click(single); const one = await state();
-      assert.equal(one.gems, 19700); assert.equal(one.total, 30); assert.equal(one.copies, 3); assert(one.ready && one.same && one.saved); assert.equal(one.pets, one.actors);
+      assert.equal(one.gems, 19700); assert.equal(one.total, 30); assert.equal(one.copies, 3); assert(one.ready && one.same && one.saved); assert.equal(one.pets, one.actors); assert.equal(one.fill, 1);
       await click(ten); const rapid = await state(); assert.equal(rapid.gems, one.gems); assert.equal(rapid.total, one.total);
       assert.match(await page.evaluate(() => main.notice.string), /太快/);
       await page.waitForTimeout(650); await click(ten); const batch = await state();
       assert.equal(batch.gems, 17000); assert.equal(batch.total, 40); assert.equal(batch.copies, 13); assert.equal(batch.recent, 10); assert(batch.same && batch.saved); assert.equal(batch.pets, batch.actors);
       await page.waitForTimeout(650); await click('领取招募累计奖励'); const reward = await state();
-      assert.equal(reward.claimed, 30); assert.equal(reward.total, 40); assert.equal(reward.copies, 14); assert.equal(reward.gems, 17000); assert(!reward.ready && reward.same && reward.saved); assert.match(reward.progress, /50/);
+      assert.equal(reward.claimed, 30); assert.equal(reward.total, 40); assert.equal(reward.copies, 14); assert.equal(reward.gems, 17000); assert(!reward.ready && reward.same && reward.saved); assert.match(reward.progress, /50/); assert(Math.abs(reward.fill - 0.8) < 1e-6, '领奖后进度填充必须原位刷新到40/50');
       await page.waitForTimeout(650); await click('领取招募累计奖励'); assert.deepEqual(await state(), reward);
       await page.screenshot({ path: `temp/recruit-${width}.png` });
       const assertClean = async () => {
@@ -144,7 +167,7 @@ const fs = require('node:fs');
       await page.evaluate(() => { window.destroyedRecruitBackground = main.recruitBackground; main.destroy(); });
       await page.waitForFunction(() => !cc.isValid(window.destroyedRecruitBackground, true) && main.recruitBackground === null);
       assert.deepEqual(failures, []);
-      report.checks.push({ width, layout, background, headerClickable: true, navClickable: true, reopenCleanup: true, one, batch, reward, persisted: true, insufficientDialog: true, httpFailures: failures });
+      report.checks.push({ width, proportions, progressGeometry, layout, background, headerClickable: true, navClickable: true, reopenCleanup: true, one, batch, reward, persisted: true, insufficientDialog: true, httpFailures: failures });
       } catch (error) {
         report.errors.push(`${width}×844：${error.message}`);
       } finally { await context.close(); }

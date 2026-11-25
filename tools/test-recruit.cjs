@@ -15,6 +15,14 @@ function load(name) {
     vm.runInNewContext(code, { exports, require: id => id === 'cc' ? { _decorator: { ccclass: () => type => type }, Component: class {}, sys: { localStorage: { getItem: () => raw, setItem: (_, v) => { if (fail) throw Error('失败'); raw = v; } } } } : load(id.replace('./', '')), Date: Clock, Math: math, console });
     return exports;
 }
+// 正式PNG和meta必须同为9:16，且保持既有资源UUID。
+const artRoot = path.join(__dirname, '../assets/resources/art/recruit');
+const backgroundPNG = fs.readFileSync(path.join(artRoot, 'background.png'));
+assert.equal(backgroundPNG.readUInt32BE(16), 1080); assert.equal(backgroundPNG.readUInt32BE(20), 1920);
+const backgroundMeta = JSON.parse(fs.readFileSync(path.join(artRoot, 'background.png.meta')));
+assert.equal(backgroundMeta.uuid, '4e7e4e59-a693-4d3a-9afc-bb3ef2875ae1');
+const backgroundFrame = Object.values(backgroundMeta.subMetas).find(m => m.importer === 'sprite-frame').userData;
+assert.deepEqual([backgroundFrame.width,backgroundFrame.height,backgroundFrame.rawWidth,backgroundFrame.rawHeight], [1080,1920,1080,1920]);
 const { Main } = load('Main');
 const R = load('Recruitment'), pool = [0, 1, 2, 3, 4, 5];
 const plain = v => JSON.parse(JSON.stringify(v));

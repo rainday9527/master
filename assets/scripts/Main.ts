@@ -580,8 +580,8 @@ export class Main extends Component {
         this.layoutDialog();
         this.layoutBackground();
         if (this.recruitBackground) {
-            const cover = Math.max(this.width / 1024, this.height / 1536);
-            this.recruitBackground.getComponent(UITransform)!.setContentSize(1024 * cover, 1536 * cover);
+            const cover = Math.max(this.width / 1080, this.height / 1920);
+            this.recruitBackground.getComponent(UITransform)!.setContentSize(1080 * cover, 1920 * cover);
         }
         this.worldCamera.orthoHeight = Math.max(9.5, 9.5 * this.height / 1920);
         if (this.sheet) {
@@ -1148,6 +1148,11 @@ export class Main extends Component {
         resources.load('art/recruit/' + key + '/spriteFrame', SpriteFrame, (error, frame) => {
             if (error || !frame || !isValid(sprite, true)) return;
             sprite.spriteFrame = frame;
+            if (key !== 'background') {
+                const size = frame.originalSize;
+                const fit = Math.min(w / size.width, h / size.height);
+                node.getComponent(UITransform)!.setContentSize(size.width * fit, size.height * fit);
+            }
         });
         return node;
     }
@@ -1155,7 +1160,14 @@ export class Main extends Component {
     private recruitButton(parent: Node, title: string, key: string, x: number, y: number, w: number, h: number, action: () => void) {
         const node = this.uiNode(parent, '招募按钮-' + title, x, y, w, h);
         this.recruitArt(node, key, 0, 0, w, h);
-        if (title) this.dailyText(node, title, 0, 0, w - 20, h - 12, 27);
+        if (title) {
+            const label = this.dailyText(node, title, 0, 0, w - 20, h - 12, 27);
+            resources.load('art/recruit/' + key + '/spriteFrame', SpriteFrame, (error, frame) => {
+                if (error || !frame || !isValid(label, true)) return;
+                const size = frame.originalSize, fit = Math.min(w / size.width, h / size.height);
+                label.node.getComponent(UITransform)!.setContentSize(size.width * fit * 0.75, size.height * fit * 0.50);
+            });
+        }
         this.intercept(node); this.pressVisualFeedback(node, node.children.slice());
         node.on(Node.EventType.TOUCH_END, action, this);
         return node;
@@ -1204,6 +1216,8 @@ export class Main extends Component {
         const next = nextMilestone(state.claimed), ready = state.total >= next;
         if (this.recruitProgress) this.recruitProgress.string = '累计 ' + state.total + ' / ' + next + ' 次 · ' + (ready ? '领取1只伙伴' : '达标送1只伙伴');
         if (this.recruitBadge) this.recruitBadge.active = ready;
+        const fill = this.sheet?.getChildByName('领取招募累计奖励')?.getChildByName('招募累计进度填充')?.getComponent(Sprite);
+        if (fill) fill.fillRange = Math.min(1, state.total / next);
         if (this.recruitResult) {
             const counts = BREEDS.map((b, id) => ({ name: b.name, count: state.recent.filter(value => value === id).length })).filter(item => item.count);
             this.recruitResult.string = counts.length ? '最近获得：' + counts.map(item => item.name + '×' + item.count).join('、') : '重复伙伴保留本体 · 可在头像下查看库存';
@@ -1214,36 +1228,47 @@ export class Main extends Component {
         const panel = this.sheet!;
         this.recruitLabels = [];
         // 背景独立于正文缩放，位于货币与底栏后方，且不拦截输入。
-        this.recruitBackground = this.recruitArt(this.ui, 'background', 0, 0, 1024, 1536);
+        this.recruitBackground = this.recruitArt(this.ui, 'background', 0, 0, 1080, 1920);
         this.recruitBackground.setSiblingIndex(0);
-        this.recruitArt(panel, 'title', 0, 632, 400, 104);
+        this.recruitArt(panel, 'title', 0, 632, 400, 140);
         this.dailyText(panel, '遇见新的毛茸茸', 0, 632, 370, 46, 34);
         const back = this.recruitButton(panel, '返回', 'normal', -408, 638, 154, 70, () => this.open('home'));
         back.name = '招募返回';
         const search = this.recruitButton(panel, '', 'search', 420, 638, 78, 80, () => this.showDialog('招募卡池', BREEDS.map(b => b.name).join('、') + '\n普通与高级共用卡池，所有伙伴等权', [{ title: '知道了', run: () => this.closeDialog() }]));
         search.name = '查看招募卡池';
         // y=560 至 -210 留给背景立绘，不叠加说明板或库存卡片。
-        this.recruitArt(panel, 'preview', 0, -316, 916, 180);
+        this.recruitArt(panel, 'preview', 0, -300, 916, 160);
         BREEDS.forEach((b, id) => {
             const x = -375 + id * 150;
-            const card = this.uiNode(panel, '招募本体-' + id, x, -316, 144, 160);
+            const card = this.uiNode(panel, '招募本体-' + id, x, -300, 144, 160);
             this.petAvatar(card, id, 0, 25, 86);
             const stock = this.dailyText(card, '', 0, -44, 142, 54, 20);
             stock.enableWrapText = true;
             this.recruitLabels.push(stock);
         });
-        this.recruitButton(panel, '普通招募 · 300钻 / 1次', 'normal', -235, -477, 430, 112, () => this.recruitTransaction('single'));
-        const ten = this.recruitButton(panel, '高级招募 · 2700钻 / 10次', 'advanced', 235, -477, 430, 112, () => this.recruitTransaction('ten'));
-        this.dailyText(ten, '9折', 155, 38, 90, 30, 24).node.name = '十抽9折文字牌';
-        this.recruitResult = this.dailyText(panel, '', 0, -568, 880, 48, 18);
+        this.recruitButton(panel, '普通招募 · 300钻 / 1次', 'normal', -235, -470, 430, 144, () => this.recruitTransaction('single'));
+        const ten = this.recruitButton(panel, '高级招募 · 2700钻 / 10次', 'advanced', 235, -470, 430, 144, () => this.recruitTransaction('ten'));
+        this.dailyText(ten, '9折', 100, 40, 70, 26, 22).node.name = '十抽9折文字牌';
+        this.recruitResult = this.dailyText(panel, '', 0, -578, 880, 48, 18);
         this.recruitResult.node.name = '招募最近结果';
         this.recruitResult.enableWrapText = true;
-        const reward = this.recruitButton(panel, '', 'reward', 0, -650, 900, 88, () => this.recruitTransaction('reward'));
-        reward.name = '领取招募累计奖励';
+        const reward = this.uiNode(panel, '领取招募累计奖励', 0, -656, 900, 88);
+        const track = this.uiNode(reward, '招募累计进度槽', 0, 0, 500, 500 * 134 / 784);
+        this.headerArt(track, 'xp-track');
+        const bar = this.uiNode(reward, '招募累计进度填充', 0, 0, 500, 500 * 134 / 784);
+        const fill = bar.addComponent(Sprite); fill.sizeMode = Sprite.SizeMode.CUSTOM;
+        resources.load('art/header/xp-fit/spriteFrame', SpriteFrame, (error, frame) => {
+            if (error || !frame || !isValid(fill, true)) return;
+            fill.spriteFrame = frame; fill.type = Sprite.Type.FILLED;
+            fill.fillType = Sprite.FillType.HORIZONTAL; fill.fillStart = 0;
+            fill.fillRange = Math.min(1, this.data.recruit.total / nextMilestone(this.data.recruit.claimed));
+        });
+        this.intercept(reward); this.pressVisualFeedback(reward, reward.children.slice());
+        reward.on(Node.EventType.TOUCH_END, () => this.recruitTransaction('reward'), this);
         this.recruitArt(reward, 'chest', -350, 0, 84, 80);
         this.recruitBadge = this.recruitArt(reward, 'badge', 351, 0, 44, 46);
         this.recruitBadge.active = false;
-        this.recruitProgress = this.dailyText(reward, '', 12, 0, 600, 42, 26);
+        this.recruitProgress = this.dailyText(reward, '', 0, 0, 440, 42, 22);
         this.updateRecruit();
     }
     private renderAlbum() {
