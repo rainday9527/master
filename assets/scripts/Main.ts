@@ -55,6 +55,8 @@ interface Actor {
     lookYaw?: number;
     lookTilt?: number;
     lookTimer?: number;
+    tailPhase?: number;
+    tailExcite?: number;
     socialUntil?: number;
     facing?: number;
     rig?: ActorRig;
@@ -2579,26 +2581,48 @@ export class Main extends Component {
                         rig.head.eulerAngles.z + (targetHeadRoll - rig.head.eulerAngles.z) * headEase,
                     );
 
-                    // 耳朵：狗狗垂耳随步态上下Q弹摆动，猫咪尖耳轻颤呼应
+                    // 耳朵：狗狗垂耳随步态上下Q弹摆动，猫咪尖耳轻缓呼应（平滑插值防跳变）
+                    const earEase = 1 - Math.exp(-step * 12);
                     if (isCat) {
-                        const twitch = Math.sin(t * 1.9 + a.pet.id * 1.7) > 0.96 ? Math.sin(t * 36) * 9 : 0;
-                        const earBounce = gait * Math.sin(a.phase - 0.6) * 5.5;
-                        rig.earL.setRotationFromEuler(earBounce * 0.6, 0, earBounce + twitch);
-                        rig.earR.setRotationFromEuler(earBounce * 0.6, 0, -earBounce);
+                        const earBounce = gait * Math.sin(a.phase - 0.6) * 5.0;
+                        const earTargetX = earBounce * 0.6;
+                        const earTargetZL = earBounce;
+                        const earTargetZR = -earBounce;
+                        rig.earL.setRotationFromEuler(
+                            rig.earL.eulerAngles.x + (earTargetX - rig.earL.eulerAngles.x) * earEase, 0,
+                            rig.earL.eulerAngles.z + (earTargetZL - rig.earL.eulerAngles.z) * earEase,
+                        );
+                        rig.earR.setRotationFromEuler(
+                            rig.earR.eulerAngles.x + (earTargetX - rig.earR.eulerAngles.x) * earEase, 0,
+                            rig.earR.eulerAngles.z + (earTargetZR - rig.earR.eulerAngles.z) * earEase,
+                        );
                     } else {
-                        const flap = (gait * Math.abs(Math.sin(a.phase - 0.5)) * 12) + (celebrating ? 14 : 0) + Math.sin(t * 3.2) * 2.2;
-                        const earSwingX = gait * Math.sin(a.phase - 0.4) * 6.5;
-                        rig.earL.setRotationFromEuler(earSwingX, 0, flap);
-                        rig.earR.setRotationFromEuler(earSwingX, 0, -flap);
+                        const flap = (gait * Math.abs(Math.sin(a.phase - 0.5)) * 11) + (celebrating ? 12 : 0) + Math.sin(t * 2.6) * 2.0;
+                        const earSwingX = gait * Math.sin(a.phase - 0.4) * 6.0;
+                        rig.earL.setRotationFromEuler(
+                            rig.earL.eulerAngles.x + (earSwingX - rig.earL.eulerAngles.x) * earEase, 0,
+                            rig.earL.eulerAngles.z + (flap - rig.earL.eulerAngles.z) * earEase,
+                        );
+                        rig.earR.setRotationFromEuler(
+                            rig.earR.eulerAngles.x + (earSwingX - rig.earR.eulerAngles.x) * earEase, 0,
+                            rig.earR.eulerAngles.z + (-flap - rig.earR.eulerAngles.z) * earEase,
+                        );
                     }
 
-                    // 尾巴：猫优雅舒缓S摆，狗欢快高频摇尾（开心/社交加速）
-                    const excited = celebrating || socializing ? 1 : gait * 0.65;
-                    const wagFreq = isCat ? (3.0 + excited * 3.2) : (5.8 + excited * 6.5);
-                    const wagAmp = isCat ? (14 + excited * 12) : (20 + excited * 16);
-                    const tailY = Math.sin(t * wagFreq + a.pet.id) * wagAmp;
-                    const tailX = (isCat ? 4 : 6) * Math.cos(t * wagFreq * 0.5) + (celebrating ? 10 : 0);
-                    rig.tail.setRotationFromEuler(tailX, tailY, 0);
+                    // 尾巴：用独立相位积分推进，避免频率变化乘以总时间导致抽搐。
+                    const targetExcite = celebrating || socializing ? 1 : gait * 0.65;
+                    a.tailExcite = (a.tailExcite ?? targetExcite) + (targetExcite - (a.tailExcite ?? targetExcite)) * (1 - Math.exp(-step * 4.5));
+                    const wagFreq = isCat ? (2.4 + a.tailExcite * 1.8) : (4.2 + a.tailExcite * 3.4);
+                    a.tailPhase = ((a.tailPhase ?? (a.pet.id * 1.7)) + step * wagFreq) % (Math.PI * 2);
+                    const wagAmp = isCat ? (13 + a.tailExcite * 9) : (18 + a.tailExcite * 12);
+                    const tailY = Math.sin(a.tailPhase) * wagAmp;
+                    const tailX = (isCat ? 4 : 5) * Math.cos(a.tailPhase) + (celebrating ? 8 : 0);
+                    const tailEase = 1 - Math.exp(-step * 14);
+                    rig.tail.setRotationFromEuler(
+                        rig.tail.eulerAngles.x + (tailX - rig.tail.eulerAngles.x) * tailEase,
+                        rig.tail.eulerAngles.y + (tailY - rig.tail.eulerAngles.y) * tailEase,
+                        0,
+                    );
 
                     // 地面阴影贴地且随弹跳柔和缩放
                     if (rig.shadow && isValid(rig.shadow, true)) {
