@@ -193,10 +193,10 @@ def build_body(kind: str) -> dict:
     - v = 0.03 is TOP BACK (+Y), v = 0.25 is sides/chest/rump midline, v = 0.47 is BELLY (-Y)
     """
     is_cat = kind == "cat"
-    rx_base = 0.64 if is_cat else 0.62
-    ry_base = 0.50 if is_cat else 0.49
-    rz_base = 0.76 if is_cat else 0.72
-    cy = 0.67 if is_cat else 0.66
+    rx_base = 0.56 if is_cat else 0.55
+    ry_base = 0.45 if is_cat else 0.45
+    rz_base = 0.68 if is_cat else 0.66
+    cy = 0.63 if is_cat else 0.62
     cz = -0.10
 
     def eval_fn(uf: float, vf: float):
@@ -242,9 +242,9 @@ def build_head(kind: str) -> dict:
     - v = 0.03 is top crown, v = 0.25 is eye/cheek midline, v = 0.47 is chin
     """
     is_cat = kind == "cat"
-    rx_base = 0.69 if is_cat else 0.64
-    ry_base = 0.58 if is_cat else 0.57
-    rz_base = 0.59 if is_cat else 0.59
+    rx_base = 0.64 if is_cat else 0.61
+    ry_base = 0.61 if is_cat else 0.59
+    rz_base = 0.58 if is_cat else 0.58
 
     def eval_fn(uf: float, vf: float):
         theta = lerp(0.015, math.pi - 0.015, vf)
@@ -306,11 +306,11 @@ def build_head(kind: str) -> dict:
 
 def build_cat_ear(side: int) -> dict:
     """Chubby, wide, rounded plush kitty ear with cozy rosy pink front inner dish!
-    Matches cat_naitang / cat_juzi / cat_yunduo avatars (NOT tall pointy ears!).
+    Matches cat_naitang / cat_juzi / cat_yunduo / cat_buou avatars!
     """
-    ear_h = 0.35
-    ear_w = 0.25
-    ear_d = 0.13
+    ear_h = 0.44
+    ear_w = 0.28
+    ear_d = 0.14
 
     def eval_fn(uf: float, vf: float):
         # vf: 0 (base embedded in head) -> 1 (plump rounded tip)
@@ -539,27 +539,27 @@ def build_face_accents(kind: str) -> dict:
     """
     is_cat = kind == "cat"
     parts = []
-    # 1) Glossy big kawaii eyes tucked warmly into the face
-    eye_x = 0.245 if is_cat else 0.225
-    eye_y = 0.00 if is_cat else 0.02
-    eye_z = 0.545 if is_cat else 0.565
-    eye_r = (0.088, 0.098, 0.052) if is_cat else (0.086, 0.095, 0.052)
+    # 1) Glossy big kawaii eyes matching the adorable generated circular avatars
+    eye_x = 0.245 if is_cat else 0.228
+    eye_y = -0.02 if is_cat else 0.00
+    eye_z = 0.535 if is_cat else 0.555
+    eye_r = (0.118, 0.126, 0.056) if is_cat else (0.112, 0.120, 0.055)
     for sx in (-1.0, 1.0):
         parts.append(
             make_ellipsoid_part(
                 center=(sx * eye_x, eye_y, eye_z),
                 radii=eye_r,
                 uv_box=(0.815, 0.535, 0.965, 0.685),
-                rot_euler=(0.0, sx * 20.0, 0.0),
-                nu=18,
-                nv=14,
+                rot_euler=(0.0, sx * 19.0, 0.0),
+                nu=20,
+                nv=16,
                 unshaded=True,
             )
         )
     # 2) Cute sculpted 3D button nose
-    nose_y = -0.095 if is_cat else -0.075
-    nose_z = 0.655 if is_cat else 0.720
-    nose_r = (0.062, 0.044, 0.042) if is_cat else (0.082, 0.058, 0.052)
+    nose_y = -0.115 if is_cat else -0.095
+    nose_z = 0.640 if is_cat else 0.700
+    nose_r = (0.056, 0.040, 0.038) if is_cat else (0.076, 0.054, 0.048)
     parts.append(
         make_ellipsoid_part(
             center=(0.0, nose_y, nose_z),
@@ -576,14 +576,14 @@ def build_face_accents(kind: str) -> dict:
 
 def build_rig(kind: str) -> dict:
     is_cat = kind == "cat"
-    head_pivot = [0.0, 0.96 if is_cat else 0.94, 0.51 if is_cat else 0.50]
-    ear_l_pivot = [0.35, 0.42, 0.04] if is_cat else [0.44, 0.34, 0.04]
+    head_pivot = [0.0, 1.05 if is_cat else 1.02, 0.44 if is_cat else 0.44]
+    ear_l_pivot = [0.33, 0.44, 0.04] if is_cat else [0.42, 0.34, 0.04]
     ear_r_pivot = [-ear_l_pivot[0], ear_l_pivot[1], ear_l_pivot[2]]
-    leg_y = 0.42
-    leg_x = 0.28 if is_cat else 0.27
-    leg_fz = 0.34 if is_cat else 0.32
-    leg_bz = -0.44 if is_cat else -0.42
-    tail_pivot = [0.0, 0.72, -0.74 if is_cat else -0.70]
+    leg_y = 0.40
+    leg_x = 0.25 if is_cat else 0.25
+    leg_fz = 0.30 if is_cat else 0.29
+    leg_bz = -0.40 if is_cat else -0.39
+    tail_pivot = [0.0, 0.68, -0.68 if is_cat else -0.64]
 
     parts = {
         "body": build_body(kind),
@@ -1059,9 +1059,10 @@ def generate_skin_texture(skin_key: str, cfg: dict, fur_noise: Image.Image) -> I
     # =========================================================================
     d = ImageDraw.Draw(img)
     d.rectangle([812, 512, 1024, 718], fill=(*eye, 255))
-    draw_soft_ellipse(img, 912, 655, 42, 26, eye_iris, alpha=190, blur=10)
-    draw_soft_ellipse(img, 886, 594, 20, 22, (255, 255, 255), alpha=255, blur=0.8)
-    draw_soft_ellipse(img, 944, 658, 8, 9, (255, 255, 255), alpha=235, blur=0.8)
+    draw_soft_ellipse(img, 916, 650, 56, 36, eye_iris, alpha=230, blur=8)
+    draw_soft_ellipse(img, 916, 668, 36, 18, lerp_rgb(eye_iris, (255, 255, 255), 0.45), alpha=185, blur=6)
+    draw_soft_ellipse(img, 882, 588, 26, 28, (255, 255, 255), alpha=255, blur=0.8)
+    draw_soft_ellipse(img, 950, 658, 11, 12, (255, 255, 255), alpha=245, blur=0.8)
 
     d = ImageDraw.Draw(img)
     d.rectangle([812, 718, 1024, 875], fill=(*nose, 255))

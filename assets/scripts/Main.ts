@@ -625,37 +625,46 @@ export class Main extends Component {
         const root = new Node('宠物装扮-' + outfit);
         root.layer = Layers.Enum.DEFAULT;
         parent.addChild(root);
-        // 按猫狗骨骼实际外包尺寸（头宽1.56/头顶y=0.58、胸宽1.30）将装扮完整露于毛发外侧，确保正视与俯视均醒目。
+        // 按优化后的颈部收束与头围精准贴合佩戴，比例自然可爱、绝不夸张突兀。
         if (outfit === 'bell_collar') {
-            this.shape(root, 'torus', '#E04338', [0, 0.54, 0.34], [1.32, 0.62, 1.28], [22, 0, 0]);
-            this.shape(root, 'sphere', '#C82D26', [0, 0.48, 0.99], [0.18, 0.14, 0.14]);
-            this.shape(root, 'sphere', '#F8CA42', [0, 0.36, 1.04], [0.32, 0.32, 0.32]);
-            this.shape(root, 'box', '#7A4E14', [0, 0.31, 1.19], [0.14, 0.05, 0.05]);
+            this.shape(root, 'torus', '#E04338', [0, 0.64, 0.30], [0.96, 0.44, 0.94], [24, 0, 0]);
+            this.shape(root, 'sphere', '#C82D26', [0, 0.56, 0.85], [0.13, 0.10, 0.10]);
+            this.shape(root, 'sphere', '#F8CA42', [0, 0.46, 0.88], [0.22, 0.22, 0.22]);
+            this.shape(root, 'box', '#7A4E14', [0, 0.42, 0.98], [0.09, 0.035, 0.035]);
         } else if (outfit === 'blue_scarf') {
-            this.shape(root, 'torus', '#4E9AE6', [0, 0.55, 0.33], [1.34, 0.86, 1.30], [20, 0, 0]);
-            this.shape(root, 'torus', '#F5FAFF', [0, 0.50, 0.35], [1.32, 0.42, 1.28], [20, 0, 0]);
-            this.shape(root, 'cone', '#5EA9F4', [0, 0.30, 1.03], [0.58, 0.48, 0.22], [166, 0, 0]);
-            this.shape(root, 'sphere', '#F4FAFF', [0, 0.15, 1.08], [0.15, 0.15, 0.15]);
-            this.shape(root, 'box', '#3F8AD6', [0.42, 0.36, 0.86], [0.20, 0.40, 0.10], [14, 28, -22]);
+            this.shape(root, 'torus', '#4E9AE6', [0, 0.65, 0.30], [1.00, 0.52, 0.98], [24, 0, 0]);
+            this.shape(root, 'torus', '#F5FAFF', [0, 0.62, 0.31], [0.99, 0.24, 0.97], [24, 0, 0]);
+            this.shape(root, 'cone', '#5EA9F4', [0, 0.42, 0.86], [0.46, 0.38, 0.12], [166, 0, 0]);
+            this.shape(root, 'sphere', '#F4FAFF', [0, 0.30, 0.90], [0.09, 0.09, 0.08]);
         } else if (outfit === 'pink_bow') {
-            this.shape(root, 'sphere', '#F47EA2', [-0.27, 0.66, 0.22], [0.46, 0.32, 0.24], [12, 0, 18]);
-            this.shape(root, 'sphere', '#F47EA2', [0.27, 0.66, 0.22], [0.46, 0.32, 0.24], [12, 0, -18]);
-            this.shape(root, 'sphere', '#FFD1DF', [0, 0.65, 0.28], [0.24, 0.24, 0.24]);
-            this.shape(root, 'box', '#F47EA2', [-0.14, 0.55, 0.27], [0.12, 0.24, 0.07], [10, 0, 18]);
-            this.shape(root, 'box', '#F47EA2', [0.14, 0.55, 0.27], [0.12, 0.24, 0.07], [10, 0, -18]);
+            const bow = new Node('耳畔蝴蝶结');
+            bow.layer = Layers.Enum.DEFAULT;
+            root.addChild(bow);
+            bow.setPosition(-0.24, 0.56, 0.24);
+            bow.setRotationFromEuler(8, -14, 24);
+            this.shape(bow, 'sphere', '#F47EA2', [-0.14, 0, 0], [0.25, 0.17, 0.12], [0, 0, 14]);
+            this.shape(bow, 'sphere', '#F47EA2', [0.14, 0, 0], [0.25, 0.17, 0.12], [0, 0, -14]);
+            this.shape(bow, 'sphere', '#FFD1DF', [0, 0, 0.04], [0.12, 0.12, 0.12]);
+            this.shape(bow, 'box', '#F47EA2', [-0.07, -0.10, 0.02], [0.06, 0.14, 0.04], [0, 0, 16]);
+            this.shape(bow, 'box', '#F47EA2', [0.07, -0.10, 0.02], [0.06, 0.14, 0.04], [0, 0, -16]);
         } else if (outfit === 'straw_hat') {
-            this.shape(root, 'cylinder', '#F0CC70', [0, 0.63, 0.04], [1.54, 0.08, 1.48], [-6, 0, 0]);
-            this.shape(root, 'cylinder', '#E4B854', [0, 0.80, 0.03], [0.88, 0.32, 0.84], [-6, 0, 0]);
-            this.shape(root, 'sphere', '#E8BF5E', [0, 0.91, 0.02], [0.84, 0.22, 0.80], [-6, 0, 0]);
-            this.shape(root, 'cylinder', '#DF5446', [0, 0.70, 0.04], [0.93, 0.11, 0.89], [-6, 0, 0]);
-            this.shape(root, 'sphere', '#FFF4CE', [0.44, 0.71, 0.24], [0.18, 0.18, 0.14]);
+            this.shape(root, 'cylinder', '#F0CC70', [0, 0.63, 0.03], [1.14, 0.05, 1.10], [-6, 0, 0]);
+            this.shape(root, 'cylinder', '#E4B854', [0, 0.74, 0.02], [0.64, 0.22, 0.62], [-6, 0, 0]);
+            this.shape(root, 'sphere', '#E8BF5E', [0, 0.82, 0.01], [0.62, 0.16, 0.60], [-6, 0, 0]);
+            this.shape(root, 'cylinder', '#DF5446', [0, 0.67, 0.03], [0.67, 0.07, 0.65], [-6, 0, 0]);
+            this.shape(root, 'sphere', '#FFF4CE', [0.32, 0.68, 0.18], [0.12, 0.12, 0.10]);
         } else if (outfit === 'gold_crown') {
-            this.shape(root, 'cylinder', '#F4C23D', [0, 0.66, 0.06], [0.58, 0.24, 0.58], [-6, 0, 0]);
+            const crown = new Node('迷你小皇冠');
+            crown.layer = Layers.Enum.DEFAULT;
+            root.addChild(crown);
+            crown.setPosition(0.04, 0.65, 0.05);
+            crown.setRotationFromEuler(-4, 0, -10);
+            this.shape(crown, 'cylinder', '#F4C23D', [0, 0, 0], [0.42, 0.17, 0.42]);
             for (const ang of [0, 72, 144, 216, 288]) {
                 const rad = ang * Math.PI / 180;
-                this.shape(root, 'cone', '#FFD75E', [Math.sin(rad) * 0.25, 0.84, 0.06 + Math.cos(rad) * 0.25], [0.15, 0.22, 0.15]);
+                this.shape(crown, 'cone', '#FFD75E', [Math.sin(rad) * 0.18, 0.13, Math.cos(rad) * 0.18], [0.11, 0.16, 0.11]);
             }
-            this.shape(root, 'sphere', '#E85D75', [0, 0.68, 0.35], [0.13, 0.13, 0.10]);
+            this.shape(crown, 'sphere', '#E85D75', [0, 0.01, 0.21], [0.09, 0.09, 0.07]);
         }
         return root;
     }
@@ -715,6 +724,7 @@ export class Main extends Component {
         const visual = new Node('预览重心');
         stage.addChild(visual);
         const material = this.getPetSkinMaterial(breed.skin, pet.coat, skinTexture);
+        const faceMaterial = this.getPetSkinMaterial(breed.skin, 'original', skinTexture);
         const modelNode = new Node('预览卡通模型');
         visual.addChild(modelNode);
         const renderers: MeshRenderer[] = [];
@@ -724,8 +734,9 @@ export class Main extends Component {
             if (pivot) node.setPosition(pivot[0], pivot[1], pivot[2]);
             const renderer = node.addComponent(MeshRenderer);
             renderer.mesh = rig.meshes[part];
-            renderer.setSharedMaterial(material, 0);
-            renderers.push(renderer);
+            // 五官始终使用原版无叠色材质，确保换肤时眼睛清亮闪耀不发脏。
+            renderer.setSharedMaterial(part === 'face' ? faceMaterial : material, 0);
+            if (part !== 'face') renderers.push(renderer);
             return node;
         };
         addPart(modelNode, '身体', 'body');
@@ -878,6 +889,7 @@ export class Main extends Component {
         let modelNode: Node | null = null;
         try {
             const material = this.getPetSkinMaterial(b.skin, actor.pet.coat, skinTexture);
+            const faceMaterial = this.getPetSkinMaterial(b.skin, 'original', skinTexture);
             modelNode = new Node('卡通可动模型'); modelNode.layer = Layers.Enum.DEFAULT;
             actor.visual.addChild(modelNode);
             const renderers: MeshRenderer[] = [];
@@ -887,8 +899,8 @@ export class Main extends Component {
                 if (pivot) node.setPosition(pivot[0], pivot[1], pivot[2]);
                 const renderer = node.addComponent(MeshRenderer);
                 renderer.mesh = rig.meshes[part];
-                renderer.setSharedMaterial(material, 0);
-                renderers.push(renderer);
+                renderer.setSharedMaterial(part === 'face' ? faceMaterial : material, 0);
+                if (part !== 'face') renderers.push(renderer);
                 return node;
             };
             addMeshPart(modelNode, '身体', 'body');

@@ -183,9 +183,9 @@ export interface CoatDefinition {
 
 export const PET_COATS: CoatDefinition[] = [
     { id: 'original', name: '原版毛色', tint: '#FFFFFF', price: 0, currency: 'coins', desc: '品种原本的自然毛色。' },
-    { id: 'cream_glow', name: '奶霜柔光', tint: '#FFF8EB', price: 100, currency: 'coins', desc: '柔和奶白高光，更显软萌。' },
-    { id: 'sunset_warm', name: '落日蜜绒', tint: '#FFE7CC', price: 150, currency: 'coins', desc: '暖橘金晖滤镜，温暖治愈。' },
-    { id: 'sakura_blush', name: '樱花甜粉', tint: '#FFE8F0', price: 200, currency: 'coins', desc: '淡淡樱花粉绒，少女心满满。' },
+    { id: 'cream_glow', name: '焦糖蜜糖', tint: '#F5BC6B', price: 100, currency: 'coins', desc: '暖金焦糖蜜绒换肤，像香甜小布丁。' },
+    { id: 'sunset_warm', name: '薄荷星云', tint: '#9AE6D8', price: 150, currency: 'coins', desc: '清新马卡龙薄荷青换肤，梦幻治愈。' },
+    { id: 'sakura_blush', name: '樱花甜粉', tint: '#FF9EC2', price: 200, currency: 'coins', desc: '高饱和樱花粉绒换肤，一眼心动。' },
 ];
 
 export const PET_NICKNAME_PRESETS: Record<PetKind, string[]> = {
