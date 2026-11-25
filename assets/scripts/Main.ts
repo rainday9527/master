@@ -86,6 +86,8 @@ export class Main extends Component {
     private shopCards: { node: Node; id: string; title: Label; icon: Sprite; species: Label; effect: Label; stock: Label; price: Label; currency: Sprite }[] = [];
     private spriteRequests = new WeakMap<Sprite, object>();
     private header: { profile: Node; avatar: number; level: Label; xp: Label; fill: Sprite; gems: Label; coins: Label } | null = null;
+    private recruitLabels: Label[] = [];
+    private recruitProgress: Label | null = null;
     private bagPage = 0;
     private bagFilter: ItemCategory | null = null;
     private bagSlots: { node: Node; entry: { item: ItemDefinition; legacy: ItemCategory | null } | null; title: Label; icon: Sprite; species: Label; effect: Label; count: Label; use: Label }[] = [];
@@ -561,6 +563,11 @@ export class Main extends Component {
         this.worldCamera.orthoHeight = Math.max(9.5, 9.5 * this.height / 1920);
         if (this.sheet) {
             this.sheet.setPosition(0, this.page === 'pet' ? -this.height / 2 + 350 : this.page === 'shop' ? -this.height / 2 + 850 : -this.height / 2 + 640, 0);
+            if (this.page === 'recruit') {
+                this.sheet.setPosition(0, -10, 0);
+                const scale = Math.min(1, (this.width - 40) / 1000, (this.height - 430) / 1420);
+                this.sheet.setScale(scale, scale, 1);
+            }
             if (this.page === 'daily' || this.page === 'bag') this.sheet.setPosition(0, -10, 0);
             if (this.page === 'shop' || this.page === 'daily' || this.page === 'bag') {
                 const scale = Math.min(1, (this.width - 40) / (this.page === 'daily' ? 1024 : this.page === 'bag' ? 921 : 900), (this.height - 420) / (this.page === 'daily' ? 1400 : this.page === 'bag' ? 1390 : 1300));
@@ -959,8 +966,9 @@ export class Main extends Component {
     }
 
     private open(page: Page) {
-        if (page === this.page && this.sheet && isValid(this.sheet, true) && (page === 'bag' || page === 'shop' || page === 'daily')) {
-            if (page === 'bag') this.updateBag();
+        if (page === this.page && this.sheet && isValid(this.sheet, true) && (page === 'bag' || page === 'shop' || page === 'daily' || page === 'recruit')) {
+            if (page === 'recruit') this.updateRecruit();
+            else if (page === 'bag') this.updateBag();
             else if (page === 'shop') this.updateShopLabels();
             else this.updateDailyRows();
             return;
@@ -990,6 +998,10 @@ export class Main extends Component {
         const dailyEntry = this.ui.getChildByName('每日任务入口');
         if (dailyEntry) dailyEntry.active = page === 'home';
         if (page === 'home') return;
+        if (page === 'recruit') {
+            this.sheet = this.uiNode(this.ui, '招募面板', 0, 0, 1000, 1420);
+            this.intercept(this.sheet); this.renderRecruit(); this.layout(); this.animatePanelOpen(); return;
+        }
         if (page === 'bag') {
             this.sheet = this.uiNode(this.ui, '背包面板', 0, -10, 921, 1390);
             this.intercept(this.sheet); this.renderBag(); this.layout(); this.animatePanelOpen(); return;
@@ -1014,7 +1026,6 @@ export class Main extends Component {
         const titles: Record<string, string> = { pet: BREEDS[this.selected].name + '的小日常', recruit: '遇见新的毛茸茸', adventure: '任务区 · 林间寻宝', album: '伙伴图鉴', shop: '庭院补给铺', bag: '我的背包' };
         this.text(this.sheet, titles[page], -60, 363, 760, 64, 40);
         this.button(this.sheet, '收起', 405, 363, 150, 66, () => this.open('home'), C.pale, 27);
-        if (page === 'recruit') this.renderRecruit();
         if (page === 'album') this.renderAlbum();
         if (page === 'adventure') this.renderAdventure();
         this.animatePanelOpen();
@@ -1107,20 +1118,80 @@ export class Main extends Component {
         const gained = Math.floor(this.data.xp / 100) - old;
         if (gained > 0) { this.data.gems = Math.min(100000000, this.data.gems + gained * 12); this.data.coins = Math.min(100000000, this.data.coins + gained * 60); }
     }
+    private recruitArt(parent: Node, key: string, x: number, y: number, w: number, h: number) {
+        const node = this.uiNode(parent, '招募素材-' + key, x, y, w, h);
+        const sprite = node.addComponent(Sprite); sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+        resources.load('art/recruit/' + key + '/spriteFrame', SpriteFrame, (error, frame) => {
+            if (error || !frame || !isValid(sprite, true)) return;
+            sprite.spriteFrame = frame;
+        });
+        return node;
+    }
+
+    private recruitButton(parent: Node, title: string, key: string, x: number, y: number, w: number, h: number, action: () => void) {
+        const node = this.uiNode(parent, '招募按钮-' + title, x, y, w, h);
+        this.recruitArt(node, key, 0, 0, w, h);
+        if (title) this.dailyText(node, title, 0, 0, w - 20, h - 12, 27);
+        this.intercept(node); this.pressVisualFeedback(node, node.children.slice());
+        node.on(Node.EventType.TOUCH_END, action, this);
+        return node;
+    }
+
+    private updateRecruit() {
+        this.recruitLabels.forEach((label, i) => {
+            label.string = this.data.pets.some(p => p.id === i + 2) ? '已经在家' : BREEDS[i + 2].cost + ' 钻石 · 迎接';
+        });
+        if (this.recruitProgress) this.recruitProgress.string = '相遇进度 ' + this.data.pets.filter(p => p.id >= 2).length + ' / 4 · 奖励待配置';
+    }
+
     private renderRecruit() {
-        this.text(this.sheet!, '定向迎接伙伴 · 不重复招募 · 升级可得钻石', 0, 270, 940, 54, 27, C.muted);
+        const panel = this.sheet!;
+        this.recruitLabels = [];
+        // 背景只属于独立招募面板，不覆盖顶部货币与主城导航。
+        this.recruitArt(panel, 'background', 0, 0, 1000, 1420);
+        this.recruitArt(panel, 'title', 0, 571, 660, 245);
+        this.dailyText(panel, '遇见新的毛茸茸', 0, 586, 560, 60, 42);
+        const back = this.recruitButton(panel, '返回', 'normal', -408, 645, 154, 70, () => this.open('home'));
+        back.name = '招募返回';
+        this.recruitButton(panel, '', 'search', 420, 627, 78, 80, () => this.toast('搜索功能待配置'));
+        this.recruitArt(panel, 'description', 0, 367, 750, 215);
+        this.dailyText(panel, '定向迎接 · 四位伙伴不重复', 0, 405, 660, 45, 30);
+        this.dailyText(panel, '选择下方伙伴，使用钻石迎接回家', 0, 343, 650, 42, 26);
+        this.recruitArt(panel, 'preview', 0, 128, 890, 230);
+        for (let i = 0; i < 4; i++) {
+            const x = -322 + i * 214;
+            this.petAvatar(panel, i + 2, x, 145, 114);
+            this.dailyText(panel, BREEDS[i + 2].name, x, 55, 200, 38, 26);
+        }
+        this.recruitButton(panel, '普通招募 · 待配置', 'normal', -235, -71, 430, 136, () => this.toast('普通招募待配置，请使用下方定向迎接'));
+        this.recruitButton(panel, '高级招募 · 待配置', 'advanced', 235, -71, 430, 136, () => this.toast('高级招募待配置，请使用下方定向迎接'));
+        this.dailyText(panel, '定向迎接', 0, -176, 600, 42, 31);
         BREEDS.slice(2).forEach((b, i) => {
-            const y = 142 - i * 143, owned = this.data.pets.some(p => p.id === i + 2);
-            this.text(this.sheet!, (b.kind === 'cat' ? '猫咪  ' : '狗狗  ') + b.name, -240, y, 420, 70, 33);
-            this.button(this.sheet!, owned ? '已经在家' : b.cost + ' 钻石 · 迎接', 260, y, 390, 90, () => {
+            const x = i % 2 ? 235 : -235, y = -293 - Math.floor(i / 2) * 190;
+            const card = this.uiNode(panel, '定向伙伴-' + (i + 2), x, y, 440, 164);
+            this.recruitArt(card, 'description', 0, 0, 440, 164);
+            this.petAvatar(card, i + 2, -146, 10, 90);
+            this.dailyText(card, b.name, 46, 39, 245, 38, 28);
+            const button = this.recruitButton(card, '', i % 2 ? 'advanced' : 'normal', 51, -29, 267, 76, () => {
                 if (this.data.pets.some(p => p.id === i + 2)) { this.toast('伙伴已经在庭院里等你啦'); return; }
                 if (this.data.gems < b.cost) { this.showGemDialog(); return; }
-                this.data.gems -= b.cost;
                 const p = { id: i + 2, hunger: 70, clean: 80, energy: 85, joy: 75 };
-                this.data.pets.push(p); this.spawnPet(p); this.persist(); this.renderHeader(); this.open('recruit'); this.toast(b.name + '搬进庭院啦');
-            }, owned ? C.pale : C.coral);
+                const candidate = { ...this.dailyCandidate(), gems: this.data.gems - b.cost, pets: [...this.data.pets, p] };
+                if (!this.commitShop(candidate)) return;
+                this.spawnPet(p); this.renderHeader(); this.updateRecruit(); this.toast(b.name + '搬进庭院啦');
+            });
+            button.name = '定向迎接-' + (i + 2);
+            const icon = this.uiNode(button, '招募钻石', -102, 0, 32, 32);
+            this.headerArt(icon, 'diamond-icon');
+            this.recruitLabels.push(this.dailyText(button, '', 16, 0, 218, 42, 24));
         });
-        this.text(this.sheet!, '每位新伙伴都拥有独立的需求与庭院生活', 0, -370, 940, 55, 25, C.muted);
+        const reward = this.recruitButton(panel, '', 'reward', 0, -638, 840, 94, () => this.toast('招募奖励待配置，当前无可领取奖励'));
+        this.recruitArt(reward, 'chest', -350, 0, 84, 80);
+        // 奖励未配置，不显示可领取红点；保留已拆资源和节点供正式配置使用。
+        const badge = this.recruitArt(reward, 'badge', 351, 0, 44, 46);
+        badge.active = false;
+        this.recruitProgress = this.dailyText(reward, '', 12, 0, 600, 42, 26);
+        this.updateRecruit();
     }
     private renderAlbum() {
         this.text(this.sheet!, '已拥有 ' + this.data.pets.length + ' / ' + BREEDS.length + ' · 点击已拥有伙伴切换头像', 0, 268, 940, 50, 27, C.muted);
