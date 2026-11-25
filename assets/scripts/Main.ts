@@ -48,6 +48,7 @@ interface Actor {
     pet: Pet;
     target: Vec3;
     timer: number;
+    walkAge?: number;
     phase: number;
     speed?: number;
     idleTime?: number;
@@ -577,9 +578,9 @@ export class Main extends Component {
         if (cat) this.shape(n, 'sphere', b.accent, [0, 1.22, -1.08], [0.38, 0.34, 0.33]);
         const actor: Actor = {
             node: root, visual, pet, target: root.position.clone(),
-            timer: 1.5 + Math.random() * 2.5, phase: Math.random() * Math.PI * 2,
+            timer: 0.25 + (pet.id % 3) * 0.45, walkAge: 0, phase: Math.random() * Math.PI * 2,
             speed: 0, idleTime: Math.random() * 10, lookYaw: 0, lookTilt: 0,
-            lookTimer: 1.5 + Math.random() * 2.5, facing: (Math.random() - 0.5) * 60,
+            lookTimer: 1.2 + Math.random() * 2.0, facing: (Math.random() - 0.5) * 60,
         };
         root.setRotationFromEuler(0, actor.facing!, 0);
         this.actors.push(actor);
@@ -2212,8 +2213,9 @@ export class Main extends Component {
                 if (pass !== 0) continue;
                 a.target.set(clampX(ax - dx * 1.3), 0, clampZ(az - dz * 1.3));
                 b.target.set(clampX(bx + dx * 1.3), 0, clampZ(bz + dz * 1.3));
-                if (a.timer >= 0) a.timer = Math.max(a.timer, 4);
-                if (b.timer >= 0) b.timer = Math.max(b.timer, 4);
+                if (a.timer >= 0) a.timer = Math.min(a.timer, 1.4);
+                if (b.timer >= 0) b.timer = Math.min(b.timer, 1.4);
+                a.walkAge = 0; b.walkAge = 0;
                 const key = Math.min(a.pet.id, b.pet.id) + ':' + Math.max(a.pet.id, b.pet.id);
                 if ((this.pairCooldowns.get(key) || 0) > this.socialTime ||
                     (a.socialUntil || 0) > this.socialTime || (b.socialUntil || 0) > this.socialTime) continue;
@@ -2351,7 +2353,8 @@ export class Main extends Component {
             this.actors.forEach(a => {
                 if (!isValid(a.node, true)) return;
                 const isCat = BREEDS[a.pet.id].kind === 'cat';
-                const cruise = isCat ? 0.72 : 0.82;
+                const tiredFactor = a.pet.energy <= 5 ? 0.55 : 1;
+                const cruise = (isCat ? 0.86 : 0.96) * tiredFactor;
                 a.idleTime = (a.idleTime || 0) + step;
                 let desiredSpeed = 0;
                 let happyHop = 0;
@@ -2366,28 +2369,34 @@ export class Main extends Component {
                 } else {
                     const pos = a.node.position;
                     let dx = a.target.x - pos.x, dz = a.target.z - pos.z, distance = Math.hypot(dx, dz);
-                    if (distance <= 0.14 || a.pet.energy <= 5) {
-                        a.timer -= step;
-                        if (a.timer <= 0 && a.pet.energy > 5) {
-                            // 选取距离适中的庭院新漫步点，避免原地频繁小步抖动。
-                            let nx = pos.x, nz = pos.z;
-                            for (let tries = 0; tries < 6; tries++) {
-                                nx = (Math.random() - 0.5) * 4.4;
-                                nz = (Math.random() - 0.5) * 3.0;
-                                if (Math.hypot(nx - pos.x, nz - pos.z) >= 0.85) break;
-                            }
-                            a.target.set(nx, 0, nz);
-                            a.timer = 2.2 + Math.random() * 2.8;
-                            dx = nx - pos.x; dz = nz - pos.z; distance = Math.hypot(dx, dz);
+                    const pickNewTarget = () => {
+                        let nx = pos.x, nz = pos.z;
+                        for (let tries = 0; tries < 8; tries++) {
+                            nx = (Math.random() - 0.5) * 4.4;
+                            nz = (Math.random() - 0.5) * 3.0;
+                            if (Math.hypot(nx - pos.x, nz - pos.z) >= 1.15) break;
                         }
+                        a.target.set(nx, 0, nz);
+                        a.timer = 0.8 + Math.random() * 1.2;
+                        a.walkAge = 0;
+                        dx = nx - pos.x; dz = nz - pos.z; distance = Math.hypot(dx, dz);
+                    };
+                    if (distance <= 0.16) {
+                        a.walkAge = 0;
+                        a.timer -= step;
+                        if (a.timer <= 0) pickNewTarget();
+                    } else {
+                        a.walkAge = (a.walkAge || 0) + step;
+                        // 防止被同伴或边界阻挡导致一直走不到目标而原地僵住。
+                        if (a.walkAge > 6.5) pickNewTarget();
                     }
-                    if (distance > 0.14 && a.pet.energy > 5) {
+                    if (distance > 0.16) {
                         a.facing = Math.atan2(dx, dz) * 180 / Math.PI;
                         const yaw = a.node.eulerAngles.y;
                         const angleErr = Math.abs(((a.facing - yaw + 540) % 360) - 180);
                         // 大角度转向时先原地小碎步转正再迈步前行，避免横移滑步。
-                        const align = Math.max(0.08, Math.min(1, 1 - Math.max(0, angleErr - 24) / 70));
-                        const approach = Math.max(0.18, Math.min(1, (distance - 0.10) / 0.55));
+                        const align = Math.max(0.12, Math.min(1, 1 - Math.max(0, angleErr - 28) / 70));
+                        const approach = Math.max(0.28, Math.min(1, (distance - 0.10) / 0.45));
                         desiredSpeed = cruise * align * approach;
                     }
                     a.node.setPosition(pos.x, 0, pos.z);
