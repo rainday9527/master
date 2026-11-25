@@ -94,9 +94,11 @@ export class Main extends Component {
     private pairCooldowns = new Map<string, number>();
     private bubbleLayer: Node | null = null;
     private socialBubbles: SocialBubble[] = [];
-    private needBubbles = new Map<number, { node: Node; icon: string; until: number }>();
+    private needBubbles = new Map<number, { node: Node; icon: string; until: number; urgent: boolean }>();
     private needHistory = new Map<number, number[]>();
     private needQueue = new Map<number, { icon: string; threshold: number }[]>();
+    private needZeroNextAt = new Map<number, number>();
+    private needZeroCursor = new Map<number, number>();
     private materials = new Map<string, Material>();
     private meshes = new Map<string, ReturnType<typeof utils.createMesh>>();
     private petRigs = new Map<Kind, Promise<PetRigAsset | null>>();
@@ -2229,30 +2231,91 @@ export class Main extends Component {
         }
     }
 
+    public pickSocialSpeech(pet: Pet): { text: string; level: 'zero' | 'low' | 'normal'; stat?: PetStat } {
+        const stats: [PetStat, number][] = [
+            ['hunger', pet.hunger],
+            ['energy', pet.energy],
+            ['clean', pet.clean],
+            ['joy', pet.joy],
+        ];
+        const zeroPhrases: Record<PetStat, string[]> = {
+            hunger: ['快饿死啦！', '快饿扁啦！', '肚子空空要晕啦', '救命想吃东西！'],
+            energy: ['累瘫走不动了！', '没一点力气了…', '困到睁不开眼！', '电量彻底耗尽！'],
+            clean: ['全身脏兮兮啦！', '急需洗香香！', '毛毛黏糊糊的！', '快帮我洗个澡！'],
+            joy: ['超级孤单难过…', '好无聊快发霉了', '求抱抱陪我玩！', '委屈巴巴想玩耍'],
+        };
+        const lowPhrases: Record<PetStat, string[]> = {
+            hunger: ['有点饿啦~', '肚子咕咕叫了', '想吃小零食', '该开饭了吧？'],
+            energy: ['有点没活力~', '稍微有点困了', '想打个小盹', '走得有点累啦'],
+            clean: ['毛毛有点乱了', '该洗香香啦~', '有点灰扑扑的', '想泡泡澡呀'],
+            joy: ['有点小无聊~', '想找人一起玩', '好想追小球呀', '陪我玩一会儿嘛'],
+        };
+        const zeros = stats.filter(([, v]) => v <= 0);
+        if (zeros.length) {
+            const [stat] = zeros[Math.floor(Math.random() * zeros.length)];
+            const list = zeroPhrases[stat];
+            return { text: list[Math.floor(Math.random() * list.length)], level: 'zero', stat };
+        }
+        const lows = stats.filter(([, v]) => v <= 50);
+        if (lows.length) {
+            lows.sort((a, b) => a[1] - b[1]);
+            const minVal = lows[0][1];
+            const candidates = lows.filter(([, v]) => v <= minVal + 8);
+            const [stat] = candidates[Math.floor(Math.random() * candidates.length)];
+            const list = lowPhrases[stat];
+            return { text: list[Math.floor(Math.random() * list.length)], level: 'low', stat };
+        }
+        const common = ['好朋友~', '一起玩呀！', '今天好开心', '见到你真好', '贴贴蹭蹭~', '阳光好暖呀', '一起去散步！', '你好可爱呀', '草地软绵绵~', '今天也要开心'];
+        const extra = BREEDS[pet.id].kind === 'cat'
+            ? ['喵呜~贴贴', '呼噜呼噜~', '一起晒太阳喵', '蹭蹭你好朋友']
+            : ['汪！一起跑呀', '摇尾巴打招呼', '汪呜~好开心', '咱们去探险吧'];
+        const pool = common.concat(extra);
+        return { text: pool[Math.floor(Math.random() * pool.length)], level: 'normal' };
+    }
+
     private showSocialBubble(actor: Actor, side: number) {
         if (!isValid(this.ui, true)) return;
         if (!this.bubbleLayer || !isValid(this.bubbleLayer, true)) {
             this.bubbleLayer = this.uiNode(this.ui, '伙伴相遇气泡层', 0, 0, this.width, this.height);
             this.bubbleLayer.setSiblingIndex(0);
         }
-        const node = this.uiNode(this.bubbleLayer, '友好相遇', 0, 0, 146, 48);
-        this.card(node, C.cream, 20);
+        const speech = this.pickSocialSpeech(actor.pet);
+        const node = this.uiNode(this.bubbleLayer, '友好相遇', 0, 0, 186, 52);
+        const bgHex = speech.level === 'zero' ? '#FFF0EC' : speech.level === 'low' ? '#FFF6E2' : C.cream;
+        const borderHex = speech.level === 'zero' ? '#D96B52' : speech.level === 'low' ? '#D9A15B' : '';
+        const textHex = speech.level === 'zero' ? '#C43D35' : speech.level === 'low' ? '#B35B2B' : C.coral;
+        this.card(node, bgHex, 22);
         const g = node.getComponent(Graphics)!;
-        g.fillColor = this.color(C.cream);
-        g.moveTo(-8, -21); g.lineTo(0, -31); g.lineTo(10, -21); g.close(); g.fill();
-        g.fillColor = this.color(C.coral); g.strokeColor = this.color(C.coral); g.lineWidth = 2;
-        if (Math.random() < 0.5) {
-            g.moveTo(-48, -9);
-            g.bezierCurveTo(-73, 6, -56, 20, -48, 9);
-            g.bezierCurveTo(-40, 20, -23, 6, -48, -9); g.close(); g.fill();
-        } else {
-            g.circle(-48, 1, 12); g.stroke();
-            g.circle(-52, 5, 1.6); g.fill(); g.circle(-44, 5, 1.6); g.fill();
-            g.moveTo(-54, -1); g.bezierCurveTo(-51, -7, -45, -7, -42, -1); g.stroke();
+        if (borderHex) {
+            g.strokeColor = this.color(borderHex); g.lineWidth = 3;
+            g.roundRect(-93, -26, 186, 52, 22); g.stroke();
         }
-        const phrases = ['好朋友', '一起玩', '好开心', '见到你真好'];
-        this.text(node, phrases[Math.floor(Math.random() * phrases.length)], 15, 0, 104, 38, 21, C.coral);
-        this.socialBubbles.push({ node, actor, until: this.socialTime + 2, side });
+        g.fillColor = this.color(bgHex);
+        g.moveTo(-8, -23); g.lineTo(0, -33); g.lineTo(10, -23); g.close(); g.fill();
+        g.fillColor = this.color(textHex); g.strokeColor = this.color(textHex); g.lineWidth = 2.2;
+        if (speech.level === 'zero') {
+            // 危急状态：醒目感叹号圆徽章
+            g.circle(-68, 0, 12); g.fill();
+            g.fillColor = this.color(C.white);
+            g.roundRect(-70, -1, 4, 9, 2); g.fill();
+            g.circle(-68, -6, 2.2); g.fill();
+        } else if (speech.level === 'low') {
+            // 偏低提醒：水滴/委屈提示小徽章
+            g.circle(-68, -2, 10); g.stroke();
+            g.circle(-71.5, 1, 1.5); g.fill(); g.circle(-64.5, 1, 1.5); g.fill();
+            g.moveTo(-72, -6); g.bezierCurveTo(-70, -3, -66, -3, -64, -6); g.stroke();
+        } else if (Math.random() < 0.5) {
+            g.moveTo(-68, -9);
+            g.bezierCurveTo(-93, 6, -76, 20, -68, 9);
+            g.bezierCurveTo(-60, 20, -43, 6, -68, -9); g.close(); g.fill();
+        } else {
+            g.circle(-68, 1, 12); g.stroke();
+            g.circle(-72, 5, 1.6); g.fill(); g.circle(-64, 5, 1.6); g.fill();
+            g.moveTo(-74, -1); g.bezierCurveTo(-71, -7, -65, -7, -62, -1); g.stroke();
+        }
+        const label = this.text(node, speech.text, 16, 0, 138, 40, 20, textHex);
+        label.isBold = speech.level === 'zero';
+        this.socialBubbles.push({ node, actor, until: this.socialTime + (speech.level === 'zero' ? 2.6 : 2.2), side });
     }
 
     private updateNeedBubbles() {
@@ -2272,10 +2335,28 @@ export class Main extends Component {
                     if (crossed !== undefined) {
                         queue = queue.filter(item => item.icon !== icon);
                         queue.push({ icon, threshold: crossed });
+                        if (crossed === 0) this.needZeroNextAt.set(pet.id, this.socialTime + 30);
                     }
                 });
             }
             this.needHistory.set(pet.id, needs.map(item => item[0]));
+            // 任意状态跌到 0 时每隔 30 秒温和提醒一次（不刷屏），避免玩家不知道需要照顾。
+            const zeroNeeds = needs.filter(([value]) => value <= 0);
+            if (!zeroNeeds.length) {
+                this.needZeroNextAt.delete(pet.id);
+            } else {
+                const nextAt = this.needZeroNextAt.get(pet.id);
+                if (nextAt === undefined) {
+                    // 首次发现已有 0 状态时错开几秒再温和提醒一次。
+                    this.needZeroNextAt.set(pet.id, this.socialTime + 5 + (pet.id % 3) * 3);
+                } else if (this.socialTime >= nextAt && !this.needBubbles.has(pet.id)) {
+                    const cursor = this.needZeroCursor.get(pet.id) || 0;
+                    const [, icon] = zeroNeeds[cursor % zeroNeeds.length];
+                    this.needZeroCursor.set(pet.id, cursor + 1);
+                    if (!queue.some(item => item.icon === icon)) queue.push({ icon, threshold: 0 });
+                    this.needZeroNextAt.set(pet.id, this.socialTime + 30);
+                }
+            }
             // A care action cancels pending reminders for the recovered need.
             queue = queue.filter(item => needs.find(need => need[1] === item.icon)![0] <= item.threshold);
             queue.sort((a, b) => a.threshold - b.threshold);
@@ -2289,14 +2370,17 @@ export class Main extends Component {
             const visiblePage = this.page === 'home' || this.page === 'pet';
             if (!bubble && (!queue.length || !visiblePage)) continue;
             if (!bubble) {
-                const icon = queue.shift()!.icon;
+                const nextItem = queue.shift()!;
+                const icon = nextItem.icon;
+                const urgent = nextItem.threshold <= 0;
                 if (!this.bubbleLayer || !isValid(this.bubbleLayer, true)) {
                     this.bubbleLayer = this.uiNode(this.ui, '伙伴相遇气泡层', 0, 0, this.width, this.height);
                     this.bubbleLayer.setSiblingIndex(0);
                 }
                 const node = this.uiNode(this.bubbleLayer, '照顾需求-' + pet.id, 0, 0, 94, 94);
                 const g = node.addComponent(Graphics);
-                g.fillColor = this.color(C.cream); g.strokeColor = this.color('#D9B88B'); g.lineWidth = 3;
+                g.fillColor = this.color(urgent ? '#FFF1EC' : C.cream);
+                g.strokeColor = this.color(urgent ? '#D96B52' : '#D9B88B'); g.lineWidth = urgent ? 4 : 3;
                 g.roundRect(-47, -47, 94, 94, 26); g.fill(); g.stroke();
                 g.moveTo(-10, -46); g.lineTo(0, -59); g.lineTo(12, -46); g.close(); g.fill();
                 const image = this.uiNode(node, '照顾图标', 0, 0, 74, 74).addComponent(Sprite);
@@ -2308,7 +2392,7 @@ export class Main extends Component {
                     this.selected = pet.id;
                     if (!alreadySelected) this.open('pet');
                 }, this);
-                bubble = { node, icon, until: this.socialTime + 2 }; this.needBubbles.set(pet.id, bubble);
+                bubble = { node, icon, until: this.socialTime + (urgent ? 2.6 : 2.0), urgent }; this.needBubbles.set(pet.id, bubble);
             }
             const world = actor.node.worldPosition.clone(); world.y += 1.1;
             const screen = this.worldCamera.worldToScreen(world, new Vec3());
@@ -2321,7 +2405,10 @@ export class Main extends Component {
                 Math.max(minY, Math.min(maxY, local.y + (social ? 135 : 70))), 0);
         }
         this.needHistory.forEach((_, id) => {
-            if (!alive.has(id)) { this.needHistory.delete(id); this.needQueue.delete(id); }
+            if (!alive.has(id)) {
+                this.needHistory.delete(id); this.needQueue.delete(id);
+                this.needZeroNextAt.delete(id); this.needZeroCursor.delete(id);
+            }
         });
         this.needBubbles.forEach((bubble, id) => {
             if (alive.has(id)) return;
@@ -2338,10 +2425,10 @@ export class Main extends Component {
             const screen = this.worldCamera.worldToScreen(world, new Vec3());
             const uiWorld = this.uiCamera.screenToWorld(screen, new Vec3());
             const local = this.bubbleLayer!.getComponent(UITransform)!.convertToNodeSpaceAR(uiWorld);
-            const x = local.x + bubble.side * 78, y = local.y + 20;
+            const x = local.x + bubble.side * 96, y = local.y + 20;
             const minY = -this.height / 2 + 230, maxY = this.height / 2 - 335;
             bubble.node.active = screen.z >= 0 && screen.z <= 1 && this.page === 'home' && maxY > minY;
-            bubble.node.setPosition(Math.max(-this.width / 2 + 80, Math.min(this.width / 2 - 80, x)), Math.max(minY, Math.min(maxY, y)), 0);
+            bubble.node.setPosition(Math.max(-this.width / 2 + 98, Math.min(this.width / 2 - 98, x)), Math.max(minY, Math.min(maxY, y)), 0);
             return true;
         });
     }
@@ -2538,7 +2625,7 @@ export class Main extends Component {
         this.socialBubbles.forEach(b => { if (isValid(b.node, true)) b.node.destroy(); });
         this.socialBubbles = []; this.pairCooldowns.clear();
         this.needBubbles.forEach(b => { if (isValid(b.node, true)) b.node.destroy(); });
-        this.needBubbles.clear(); this.needHistory.clear(); this.needQueue.clear();
+        this.needBubbles.clear(); this.needHistory.clear(); this.needQueue.clear(); this.needZeroNextAt.clear(); this.needZeroCursor.clear();
         if (this.bubbleLayer && isValid(this.bubbleLayer, true)) this.bubbleLayer.destroy();
         this.bubbleLayer = null;
         if (this.selectionRing && isValid(this.selectionRing, true)) this.selectionRing.destroy();
