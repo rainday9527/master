@@ -1,6 +1,6 @@
 """从商店原图恢复紫色礼物内部被色键误删的像素，不重新导入其他素材。"""
 from pathlib import Path
-from PIL import Image, ImageChops, ImageDraw
+from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / 'art/generated/参考附图_为同一款可爱卡通猫狗庭院游戏制作可裁切的商店UI素_2026-11-23T15-38-18.png'
@@ -18,9 +18,8 @@ def main():
     patch = original.crop(REGION)
     mask = Image.new('L', patch.size)
     # 盒身轮廓外的相邻蝴蝶结和侧边仅采用严格非背景掩膜。
-    from PIL import ImageFilter
     mask.putdata([0 if r - g > 100 and b - g > 100 else 255
-                  for r, g, b, _ in patch.getdata()])
+                  for r, g, b, _ in patch.get_flattened_data()])
     mask = mask.filter(ImageFilter.MinFilter(5))
     outline = [(489, 151), (506, 151), (522, 151), (545, 158),
                (566, 158), (578, 163), (583, 170), (580, 181),
@@ -36,10 +35,12 @@ def main():
             if mask.getpixel((x, y)) == 255 and image.getpixel(point) != original.getpixel(point):
                 image.putpixel(point, original.getpixel(point))
                 restored += 1
-    difference = ImageChops.difference(before, image)
+    difference = ImageChops.difference(before, image).convert('RGB')
+    alpha_difference = ImageChops.difference(before.getchannel('A'), image.getchannel('A'))
+    bounds = ImageChops.lighter(difference.convert('L'), alpha_difference).getbbox()
     if restored:
         image.save(TARGET)
-    print(f'恢复像素数: {restored}; 差异范围: {difference.getbbox()}')
+    print(f'恢复像素数: {restored}; 差异范围: {bounds}')
 
 
 if __name__ == '__main__':
