@@ -3359,10 +3359,10 @@ export class Main extends Component {
             const owned = this.data.itemInventory[card.id] || 0;
             const item = findItem(card.id);
             const canBuy = !!item && remaining > 0 && this.data[item.currency] >= item.price;
-            // 限购文字独立显示：可购买时绿色，无法购买（售罄或货币不足）时蓝色；与玩家持有数量分离，不再混用颜色。
+            // 限购文字独立显示：可购买时绿色，无法购买（售罄或货币不足）时红色；与玩家持有数量分离，不再混用颜色。
             if (isValid(card.stock, true)) {
                 card.stock.string = '限购 ' + remaining;
-                card.stock.color = this.color(canBuy ? '#228B3C' : '#2D72C8');
+                card.stock.color = this.color(canBuy ? '#228B3C' : '#C93832');
             }
             if (isValid(card.owned, true)) {
                 card.owned.string = '持有 ' + owned;

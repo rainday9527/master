@@ -432,8 +432,21 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
     }, buyTarget.id);
     console.log('shop rapid buy & sold-out color check:', JSON.stringify(afterRapidBuy));
     assert.equal(afterRapidBuy.remaining, 0, 'rapid clicking 200ms apart must smoothly buy out every stock');
-    assert.deepEqual(afterRapidBuy.soldOutRgb, [45, 114, 200], 'sold-out stock label must turn blue');
+    assert.deepEqual(afterRapidBuy.soldOutRgb, [201, 56, 50], 'sold-out stock label must turn red');
     assert.deepEqual(afterRapidBuy.ownedRgb, [110, 83, 60], 'owned label must stay neutral brown independent of stock');
+    // Verify refreshed shop shelf guarantees balanced coin (>=3) and gem (>=2) slots!
+    await page.evaluate(() => { main.shopClickTime = 0; main.refreshShop(); });
+    await page.waitForTimeout(350);
+    const currencyMix = await page.evaluate(() => {
+      let coins = 0, gems = 0;
+      main.shopCards.forEach(c => {
+        const iconName = c.currency.spriteFrame?.name || '';
+        if (iconName.includes('diamond')) gems++; else coins++;
+      });
+      return { coins, gems };
+    });
+    console.log('shop currency mix check:', JSON.stringify(currencyMix));
+    assert.ok(currencyMix.gems >= 2 && currencyMix.coins >= 3, 'shop shelf must balance gem (>=2) and coin (>=3) items');
     await page.evaluate(() => { main.data.coins = 260; main.data.gems = 100; main.updateShopLabels(); main.renderHeader(); });
     await page.waitForTimeout(200);
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-shop-after.png') });
