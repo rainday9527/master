@@ -2328,16 +2328,17 @@ export class Main extends Component {
         summaryGem.name = '图鉴汇总钻石图标';
         summaryGem.active = false;
 
-        // 分类筛选页签：全部 / 猫咪 / 狗狗
-        const tabs: [string, 'all' | Kind][] = [
-            ['全部 (' + BREEDS.length + ')', 'all'],
-            ['猫咪 (' + BREEDS.filter(b => b.kind === 'cat').length + ')', 'cat'],
-            ['狗狗 (' + BREEDS.filter(b => b.kind === 'dog').length + ')', 'dog'],
+        // 分类筛选页签：全部 / 猫咪 / 狗狗（配手绘爪子/猫头/狗头图标 + 无变形九宫格页签）
+        const tabs: [string, 'all' | Kind, string][] = [
+            ['全部(' + BREEDS.length + ')', 'all', 'icon-all'],
+            ['猫咪(' + BREEDS.filter(b => b.kind === 'cat').length + ')', 'cat', 'icon-cat'],
+            ['狗狗(' + BREEDS.filter(b => b.kind === 'dog').length + ')', 'dog', 'icon-dog'],
         ];
-        tabs.forEach(([title, filter], i) => {
-            const tab = this.uiNode(panel, '图鉴筛选-' + filter, -240 + i * 240, 174, 212, 58);
-            this.albumArt(tab, this.albumFilter === filter ? 'tab-active' : 'tab-normal', 0, 0, 212, 58, '页签底图', true);
-            const label = this.dailyText(tab, title, 0, 0, 192, 38, 23);
+        tabs.forEach(([title, filter, iconKey], i) => {
+            const tab = this.uiNode(panel, '图鉴筛选-' + filter, -240 + i * 240, 174, 214, 58);
+            this.albumArt(tab, this.albumFilter === filter ? 'tab-active' : 'tab-normal', 0, 0, 214, 58, '页签底图', true);
+            this.albumArt(tab, iconKey, -64, 0, 34, 30, '页签图标-' + filter);
+            const label = this.dailyText(tab, title, 18, 0, 140, 38, 22);
             label.node.name = '页签文字';
             this.intercept(tab); this.pressVisualFeedback(tab, tab.children.slice());
             tab.on(Node.EventType.TOUCH_END, () => {
@@ -2389,45 +2390,46 @@ export class Main extends Component {
         content.children.slice().forEach(child => { child.active = false; child.removeFromParent(); child.destroy(); });
 
         const list = BREEDS.filter(b => this.albumFilter === 'all' || b.kind === this.albumFilter);
-        const cols = 3, cardW = 232, cardH = 224, gapX = 18, gapY = 18;
+        const cols = 3, cardW = 230, cardH = 224, gapX = 18, gapY = 12;
         const rows = Math.max(1, Math.ceil(list.length / cols));
-        const totalH = Math.max(704, rows * (cardH + gapY) + 12);
+        const totalH = Math.max(704, rows * (cardH + gapY) + 8);
         content.getComponent(UITransform)!.setContentSize(748, totalH);
         viewport!.getComponent(ScrollView)!.scrollToTop(0);
 
         list.forEach((b, idx) => {
             const col = idx % cols, row = Math.floor(idx / cols);
             const x = (col - 1) * (cardW + gapX);
-            const y = -(cardH / 2 + 8 + row * (cardH + gapY));
+            const y = -(cardH / 2 + 4 + row * (cardH + gapY));
             const pet = this.data.pets.find(p => p.id === b.id);
             const owned = !!pet;
             const rarity = RARITY_INFO[b.rarity];
             const canClaim = owned && !this.data.albumClaimed[b.id];
 
             const card = this.uiNode(content, '图鉴卡片-' + b.id, x, y, cardW, cardH);
-            // 手绘本风格稀有度卡片底框（9宫格）：R 绿卡 / SR 蓝卡 / SSR 金卡。
-            const cardFrame = this.albumArt(card, 'card-' + b.rarity.toLowerCase(), 0, 0, cardW, cardH, '图鉴卡片底框', true);
+            // 手绘水彩爪印稀有度卡片（右上角星与底部骨头铭牌零变形）。
+            const cardFrame = this.albumArt(card, 'card-' + b.rarity.toLowerCase(), 0, 0, cardW, cardH, '图鉴卡片底框', false);
             const cardSprite = cardFrame.getComponent(Sprite)!;
-            if (!owned) cardSprite.color = new Color(224, 226, 230, 255);
+            if (!owned) cardSprite.color = new Color(216, 220, 226, 255);
 
-            // 质感稀有度徽章（按 180:86 原比例无拉伸显示）
-            this.albumArt(card, 'rarity-' + b.rarity.toLowerCase(), -68, 86, 76, 36, '稀有度徽章-' + b.rarity);
-            // 右上角：使用通用钻石图标显示解锁奖励，已领后显示星级
+            // 左上角：手绘立体稀有度徽章（按真实比例：普通/稀有 172:182、传说 172:206）
+            const badgeH = b.rarity === 'SSR' ? 58 : 52;
+            this.albumArt(card, 'rarity-' + b.rarity.toLowerCase(), -78, 78, 49, badgeH, '稀有度徽章-' + b.rarity);
+            // 右上方（紧贴右上星星左侧）：通用钻石解锁奖励或星级
             if (canClaim) {
-                this.diamondBadge(card, b.unlockGems, 56, 86, 98, 28, '#E05744', '#FFFDF5', 16);
+                this.diamondBadge(card, b.unlockGems, 20, 82, 92, 26, '#E05744', '#FFFDF5', 15);
             } else if (owned) {
-                this.pillBadge(card, '★' + pet!.star, 72, 86, 64, 28, '#E7A23C', '#FFFDF5', 17);
+                this.pillBadge(card, '★' + pet!.star, 26, 82, 62, 26, '#E7A23C', '#FFFDF5', 16);
             } else {
-                this.diamondBadge(card, b.unlockGems, 56, 86, 98, 28, '#8E8B86', '#FFF8EC', 15);
+                this.diamondBadge(card, b.unlockGems, 20, 82, 92, 26, '#8E8B86', '#FFF8EC', 14);
             }
 
             // 中央头像（未解锁采用清晰可见的柔和灰雾+小锁）
-            this.petAvatar(card, b.id, 0, 16, 106, !owned);
-            // 底部名称与状态提示（留出底部手绘木框与角落装饰呼吸空间）
-            const nameLabel = this.dailyText(card, owned ? this.petDisplayName(b.id) : b.name, 0, -58, 200, 30, 22);
+            this.petAvatar(card, b.id, 0, 14, 102, !owned);
+            // 底部骨头铭牌内居中显示伙伴名称与状态提示
+            const nameLabel = this.dailyText(card, owned ? this.petDisplayName(b.id) : b.name, 0, -68, 142, 26, 20);
             nameLabel.color = this.color(owned ? '#49301E' : '#6A6762');
-            const subText = canClaim ? '进入主页领奖 ›' : owned ? PET_TRAITS[pet!.trait].name + ' · 主页 ›' : '未解锁 · 去招募';
-            const subLabel = this.dailyText(card, subText, 0, -84, 196, 24, 16);
+            const subText = canClaim ? '领奖 ›' : owned ? PET_TRAITS[pet!.trait].name + ' ›' : '去招募';
+            const subLabel = this.dailyText(card, subText, 0, -89, 140, 20, 15);
             subLabel.color = canClaim ? this.statusColor(true) : this.color(owned ? '#6D543D' : '#7C7A75');
             subLabel.outlineWidth = 1;
 
@@ -2480,11 +2482,11 @@ export class Main extends Component {
         const trait = PET_TRAITS[pet.trait];
         const claimed = !!this.data.albumClaimed[pet.id];
 
-        // 刷新顶部英雄区（使用本风格手绘稀有度卡片底框 + 左侧实时 3D 模型展示舞台）
+        // 刷新顶部英雄区（使用同系列手绘横向稀有度底框 hero-r/sr/ssr + 左侧实时 3D 模型展示舞台）
         const hero = this.sheet.getChildByName('主页英雄区')!;
         hero.children.slice().forEach(c => { c.active = false; c.removeFromParent(); c.destroy(); });
         hero.getComponent(Graphics)?.clear();
-        this.albumArt(hero, 'card-' + breed.rarity.toLowerCase(), 0, 0, 744, 240, '主页英雄底框', true);
+        this.albumArt(hero, 'hero-' + breed.rarity.toLowerCase(), 0, 0, 744, 240, '主页英雄底框', true);
 
         // 左侧 3D 模型待机展示舞台（1:1 RenderTexture 承载，支持滑动旋转 & 点击互动弹跳）
         const stageBox = this.uiNode(hero, '宠物3D预览舞台', -252, 16, 212, 186);
@@ -2524,9 +2526,10 @@ export class Main extends Component {
         });
         setAv.name = '设为头像按钮';
 
-        // 右侧信息区：名称 + 质感稀有度徽章 + 改名
+        // 右侧信息区：名称 + 手绘立体稀有度徽章（按真实比例） + 改名
         this.dailyText(hero, this.petDisplayName(pet.id), -44, 78, 176, 40, 31, true);
-        this.albumArt(hero, 'rarity-' + breed.rarity.toLowerCase(), 116, 80, 96, 46, '主页稀有度徽章-' + breed.rarity);
+        const heroBadgeH = breed.rarity === 'SSR' ? 68 : 62;
+        this.albumArt(hero, 'rarity-' + breed.rarity.toLowerCase(), 116, 76, 58, heroBadgeH, '主页稀有度徽章-' + breed.rarity);
         const renameBtn = this.bagButton(hero, '改名', 274, 78, 112, 40, () => this.showRenameDialog(pet.id));
         renameBtn.name = '宠物改名按钮';
 

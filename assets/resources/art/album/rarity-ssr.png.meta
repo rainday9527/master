@@ -49,10 +49,10 @@
         "offsetY": 0,
         "trimX": 0,
         "trimY": 0,
-        "width": 180,
-        "height": 86,
-        "rawWidth": 180,
-        "rawHeight": 86,
+        "width": 172,
+        "height": 206,
+        "rawWidth": 172,
+        "rawHeight": 206,
         "borderTop": 0,
         "borderBottom": 0,
         "borderLeft": 0,
@@ -66,17 +66,17 @@
         "imageUuidOrDatabaseUri": "5709de63-54bf-4479-8a2a-c99ec507e26e@6c48a",
         "vertices": {
           "rawPosition": [
-            -90,
-            -43,
+            -86,
+            -103,
             0,
-            90,
-            -43,
+            86,
+            -103,
             0,
-            -90,
-            43,
+            -86,
+            103,
             0,
-            90,
-            43,
+            86,
+            103,
             0
           ],
           "indexes": [
@@ -89,12 +89,12 @@
           ],
           "uv": [
             0,
-            86,
-            180,
-            86,
+            206,
+            172,
+            206,
             0,
             0,
-            180,
+            172,
             0
           ],
           "nuv": [
@@ -108,13 +108,13 @@
             1
           ],
           "minPos": [
-            -90,
-            -43,
+            -86,
+            -103,
             0
           ],
           "maxPos": [
-            90,
-            43,
+            86,
+            103,
             0
           ]
         },
