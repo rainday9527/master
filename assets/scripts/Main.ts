@@ -2130,6 +2130,22 @@ export class Main extends Component {
         return node;
     }
 
+    private starTierBadge(parent: Node, star: number, x: number, y: number, size: number) {
+        // 不同星级显示不同手绘星/皇冠图标（1★金爪星→2★蓝爪星→3★紫爪星→4★粉爪星→5★金皇冠→6★羽翼皇冠）；超过 6 阶时在图标旁叠加数字。
+        const maxIconTier = 6;
+        const tier = Math.max(1, Math.min(maxIconTier, Math.floor(star)));
+        const aspect = tier === 6 ? 202 / 150 : tier === 5 ? 158 / 150 : 150 / 148;
+        const iconW = Math.round(size * aspect);
+        const overflow = star > maxIconTier;
+        const wrap = this.uiNode(parent, '星级图标-' + star, x, y, overflow ? iconW + 44 : iconW, size);
+        this.albumArt(wrap, 'star-' + tier, overflow ? -18 : 0, 0, iconW, size, '星阶图标-' + tier);
+        if (overflow) {
+            const num = this.dailyText(wrap, String(star), iconW / 2 + 2, 0, 44, size, Math.max(18, Math.round(size * 0.58)));
+            num.color = this.color('#D9781E');
+        }
+        return wrap;
+    }
+
     public openProfile(petId: number, tab: 'overview' | 'star' | 'outfit' = 'overview') {
         if (!this.data.pets.some(p => p.id === petId)) {
             this.toast('尚未解锁该伙伴，去招募看看吧');
@@ -2414,24 +2430,20 @@ export class Main extends Component {
             // 左上角：手绘立体稀有度徽章（按真实比例：普通/稀有 172:182、传说 172:206）
             const badgeH = b.rarity === 'SSR' ? 58 : 52;
             this.albumArt(card, 'rarity-' + b.rarity.toLowerCase(), -78, 78, 49, badgeH, '稀有度徽章-' + b.rarity);
-            // 右上方（紧贴右上星星左侧）：通用钻石解锁奖励或星级
+            // 右上方（紧贴右上星星左侧）：未领显示通用钻石奖励，已领显示分级星级图标
             if (canClaim) {
                 this.diamondBadge(card, b.unlockGems, 20, 82, 92, 26, '#E05744', '#FFFDF5', 15);
             } else if (owned) {
-                this.pillBadge(card, '★' + pet!.star, 26, 82, 62, 26, '#E7A23C', '#FFFDF5', 16);
+                this.starTierBadge(card, pet!.star, 36, 82, 34);
             } else {
                 this.diamondBadge(card, b.unlockGems, 20, 82, 92, 26, '#8E8B86', '#FFF8EC', 14);
             }
 
             // 中央头像（未解锁采用清晰可见的柔和灰雾+小锁）
-            this.petAvatar(card, b.id, 0, 14, 102, !owned);
-            // 底部骨头铭牌内居中显示伙伴名称与状态提示
-            const nameLabel = this.dailyText(card, owned ? this.petDisplayName(b.id) : b.name, 0, -68, 142, 26, 20);
+            this.petAvatar(card, b.id, 0, 10, 106, !owned);
+            // 底部骨头框正中仅显示伙伴名称（不堆叠性格或跳转字样）
+            const nameLabel = this.dailyText(card, owned ? this.petDisplayName(b.id) : b.name, 0, -78, 136, 30, 21);
             nameLabel.color = this.color(owned ? '#49301E' : '#6A6762');
-            const subText = canClaim ? '领奖 ›' : owned ? PET_TRAITS[pet!.trait].name + ' ›' : '去招募';
-            const subLabel = this.dailyText(card, subText, 0, -89, 140, 20, 15);
-            subLabel.color = canClaim ? this.statusColor(true) : this.color(owned ? '#6D543D' : '#7C7A75');
-            subLabel.outlineWidth = 1;
 
             this.pressVisualFeedback(card, card.children.slice());
             this.scrollTap(card, () => {
@@ -2528,15 +2540,15 @@ export class Main extends Component {
 
         // 右侧信息区：名称 + 手绘立体稀有度徽章（按真实比例） + 改名
         this.dailyText(hero, this.petDisplayName(pet.id), -44, 78, 176, 40, 31, true);
-        const heroBadgeH = breed.rarity === 'SSR' ? 68 : 62;
-        this.albumArt(hero, 'rarity-' + breed.rarity.toLowerCase(), 116, 76, 58, heroBadgeH, '主页稀有度徽章-' + breed.rarity);
+        const heroBadgeH = breed.rarity === 'SSR' ? 62 : 56;
+        this.albumArt(hero, 'rarity-' + breed.rarity.toLowerCase(), 134, 80, 52, heroBadgeH, '主页稀有度徽章-' + breed.rarity);
         const renameBtn = this.bagButton(hero, '改名', 274, 78, 112, 40, () => this.showRenameDialog(pet.id));
         renameBtn.name = '宠物改名按钮';
 
-        // 品种名 + 星级
-        const stars = '★'.repeat(pet.star) + '☆'.repeat(MAX_PET_STAR - pet.star);
-        const sub = this.dailyText(hero, breed.speciesTitle + '  ' + stars, 108, 32, 470, 34, 22, true);
+        // 品种名 + 分级手绘星级图标（错开稀有度徽章，留足间距不重叠）
+        const sub = this.dailyText(hero, breed.speciesTitle, -44, 28, 176, 34, 22, true);
         sub.color = this.color('#7F5328'); sub.outlineWidth = 1;
+        this.starTierBadge(hero, pet.star, 66, 28, 36);
 
         // 性格词条
         this.pillBadge(hero, '性格·' + trait.name, -58, -14, 146, 32, trait.tagColor, C.white, 18);
@@ -2621,8 +2633,17 @@ export class Main extends Component {
             const totalCopies = this.data.recruit.copies[pet.id] || 1;
             const extraCopies = Math.max(0, totalCopies - 1);
             this.dailyText(body, '伙伴升星强化', 0, 206, 420, 42, 30);
-            const starDisplay = this.dailyText(body, '★'.repeat(pet.star) + '☆'.repeat(MAX_PET_STAR - pet.star) + '  （当前 ' + pet.star + ' 星）', 0, 146, 640, 46, 34);
-            starDisplay.color = this.color('#E09124');
+            const starRow = this.uiNode(body, '升星星阶图标展示', 0, 144, 520, 74);
+            if (req) {
+                this.starTierBadge(starRow, pet.star, -86, 0, 62);
+                const arrow = this.dailyText(starRow, '→', 0, 0, 64, 46, 36);
+                arrow.color = this.color('#D9781E');
+                this.starTierBadge(starRow, req.nextStar, 86, 0, 62);
+            } else {
+                this.starTierBadge(starRow, pet.star, -48, 0, 68);
+                const maxTag = this.dailyText(starRow, '已满星', 52, 0, 140, 42, 30);
+                maxTag.color = this.color('#E09124');
+            }
 
             const bonusBox = this.uiNode(body, '升星加成说明', 0, 40, 680, 122);
             const bbg = bonusBox.addComponent(Graphics);

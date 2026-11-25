@@ -323,6 +323,22 @@ def main():
         ensure_sprite_meta(p, img.width, img.height)
         print("wrote", p.name, img.size)
 
+    # 5) 6 tiered hand-painted star/crown icons from Sheet 1 top row (1★..6★+)
+    star_boxes = {
+        "star-1": (56, 74, 206, 222),     # Gold paw star (1★)
+        "star-2": (226, 74, 376, 222),    # Blue paw star (2★)
+        "star-3": (396, 74, 546, 222),    # Purple paw star (3★)
+        "star-4": (566, 74, 714, 222),    # Pink paw star (4★)
+        "star-5": (734, 74, 892, 224),    # Gold paw crown (5★)
+        "star-6": (910, 74, 1112, 224),   # Winged gold paw crown (6★+)
+    }
+    for name, box in star_boxes.items():
+        img = crop_tight(s1, box, pad=2)
+        p = OUT_DIR / f"{name}.png"
+        img.save(p, optimize=True)
+        ensure_sprite_meta(p, img.width, img.height)
+        print("wrote", p.name, img.size)
+
 
 if __name__ == "__main__":
     main()
