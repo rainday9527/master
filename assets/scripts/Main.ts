@@ -231,6 +231,7 @@ export class Main extends Component {
     private shopCostLabel: Label | null = null;
     private shopCostIcon: Node | null = null;
     private shopCards: { node: Node; id: string; title: Label; slotBg: Sprite; icon: Sprite; species: Label; effect: Label; stock: Label; owned: Label; price: Label; currency: Sprite }[] = [];
+    private tombOwnedLabels = new Map<TombstoneId, Label>();
     private spriteRequests = new WeakMap<Sprite, object>();
     private header: { profile: Node; avatar: number; level: Label; xp: Label; fill: Sprite; gems: Label; coins: Label } | null = null;
     private recruitLabels: Label[] = [];
@@ -4747,6 +4748,7 @@ export class Main extends Component {
     }
 
     private renderShopTombstones(panel: Node, content: Node) {
+        this.tombOwnedLabels.clear();
         const tip = this.text(content, '购买或看广告解锁限定纪念碑，在「后院纪念角」立碑刻字', 0, 324, 740, 30, 20, '#6E4B2F');
         tip.isBold = true; tip.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
         const inv = this.data.tombstoneInventory || {};
@@ -4789,6 +4791,7 @@ export class Main extends Component {
             const owned = inv[tomb.id] || 0;
             const ownLbl = this.text(card, '已拥有 ×' + owned, 0, -40, 200, 26, 19, owned > 0 ? '#228B3C' : '#6E533C');
             ownLbl.isBold = true;
+            this.tombOwnedLabels.set(tomb.id, ownLbl);
 
             const buy = this.shopArt(card, 'buy', 0, -102, 190, 68);
             buy.name = tomb.unlockMode === 'ad' ? '墓碑广告按钮-' + tomb.id : '墓碑购买按钮-' + tomb.id;
@@ -4807,6 +4810,14 @@ export class Main extends Component {
         this.shopButton(goMem, () => this.open('memorial'));
     }
 
+    private refreshTombstoneOwnedLabel(id: TombstoneId) {
+        const lbl = this.tombOwnedLabels.get(id);
+        if (!lbl || !isValid(lbl, true)) return;
+        const owned = (this.data.tombstoneInventory || {})[id] || 0;
+        lbl.string = '已拥有 ×' + owned;
+        lbl.color = this.color(owned > 0 ? '#228B3C' : '#6E533C');
+    }
+
     public unlockTombstoneByAd(id: TombstoneId) {
         const tomb = findTombstone(id);
         if (!tomb || tomb.unlockMode !== 'ad') return;
@@ -4816,10 +4827,7 @@ export class Main extends Component {
             if (!this.commitShop(c)) return;
             this.renderHeader();
             this.refreshMemorialEntry();
-            if (this.page === 'shop' && this.shopTab === 'tombstones') {
-                if (this.sheet && isValid(this.sheet, true)) { this.sheet.removeFromParent(); this.sheet.destroy(); this.sheet = null; }
-                this.open('shop');
-            }
+            this.refreshTombstoneOwnedLabel(id);
             this.toast('限定解锁成功！已获得「' + tomb.name + '」');
         }, '暂未解锁限定纪念碑');
     }
@@ -4835,10 +4843,7 @@ export class Main extends Component {
         if (!this.commitShop(c)) return false;
         this.renderHeader();
         this.refreshMemorialEntry();
-        if (this.page === 'shop' && this.shopTab === 'tombstones') {
-            if (this.sheet && isValid(this.sheet, true)) { this.sheet.removeFromParent(); this.sheet.destroy(); this.sheet = null; }
-            this.open('shop');
-        }
+        this.refreshTombstoneOwnedLabel(id);
         this.showRewardToast([{ kind: 'gems', amount: -tomb.priceGems }], '消耗');
         this.toast('已购入「' + tomb.name + '」，可在后院纪念角为伙伴立碑纪念');
         return true;
@@ -5679,25 +5684,27 @@ export class Main extends Component {
             memorials.forEach((rec, idx) => {
                 const col = idx % 2, rowIdx = Math.floor(idx / 2);
                 const cx = col === 0 ? -186 : 186;
-                const cy = curY - 156 - rowIdx * 324;
-                const card = this.uiNode(content, '已立墓碑-' + rec.petId, cx, cy, 354, 304);
-                const cg = card.addComponent(Graphics);
-                cg.fillColor = this.color('#F7F4EA'); cg.strokeColor = this.color('#B8C49E'); cg.lineWidth = 3.5;
-                cg.roundRect(-177, -152, 354, 304, 24); cg.fill(); cg.stroke();
+                const cy = curY - 196 - rowIdx * 404;
+                const card = this.uiNode(content, '已立墓碑-' + rec.petId, cx, cy, 356, 384);
+                const cardBgSp = this.uiNode(card, '墓碑纪念卡底图', 0, 0, 356, 384).addComponent(Sprite);
+                cardBgSp.sizeMode = Sprite.SizeMode.CUSTOM;
+                resources.load('art/memorial/memorial-card-bg/spriteFrame', SpriteFrame, (e, f) => {
+                    if (!e && f && isValid(cardBgSp, true)) cardBgSp.spriteFrame = f;
+                });
                 const tomb = findTombstone(rec.tombstoneId) || TOMBSTONE_CATALOG[0];
-                const tsp = this.uiNode(card, '墓碑图', 0, 44, 162, 162).addComponent(Sprite);
+                const tsp = this.uiNode(card, '墓碑图', 0, 62, 166, 166).addComponent(Sprite);
                 tsp.sizeMode = Sprite.SizeMode.CUSTOM;
                 resources.load('art/memorial/' + tomb.artKey + '/spriteFrame', SpriteFrame, (e, f) => {
                     if (!e && f && isValid(tsp, true)) tsp.spriteFrame = f;
                 });
-                const nLbl = this.text(card, rec.customName, 0, -56, 320, 34, 24, '#4E3422'); nLbl.isBold = true;
-                const eLbl = this.text(card, `「${rec.epitaph}」`, 0, -98, 320, 48, 18, '#7A634C');
-                eLbl.enableWrapText = true; eLbl.lineHeight = 22;
-                const hint = this.text(card, '点击重温生平与冒险高光 ›', 0, -132, 300, 24, 16, '#5D8A52'); hint.isBold = true;
+                const nLbl = this.text(card, rec.customName, 0, -44, 300, 34, 25, '#4E3422'); nLbl.isBold = true;
+                const eLbl = this.text(card, `「${rec.epitaph}」`, 0, -90, 290, 50, 18, '#6D5239');
+                eLbl.enableWrapText = true; eLbl.lineHeight = 23;
+                const hint = this.text(card, '点击重温生平与冒险高光 ›', 0, -138, 280, 26, 17, '#3D7A38'); hint.isBold = true;
                 this.intercept(card); this.pressVisualFeedback(card);
                 card.on(Node.EventType.TOUCH_END, () => this.showMemorialDetailDialog(rec), this);
             });
-            curY -= Math.ceil(memorials.length / 2) * 324 + 24;
+            curY -= Math.ceil(memorials.length / 2) * 404 + 24;
         }
         content.getComponent(UITransform)!.setContentSize(770, Math.max(840, -curY + 24));
     }
@@ -5710,22 +5717,24 @@ export class Main extends Component {
         this.dialog = overlay;
         overlay.addComponent(Graphics); this.intercept(overlay);
 
-        const panel = this.uiNode(overlay, '通用弹窗面板', 0, 0, 880, 980);
+        const panel = this.uiNode(overlay, '通用弹窗面板', 0, 0, 880, 1120);
         this.intercept(panel);
-        const bg = panel.addComponent(Graphics);
-        bg.fillColor = this.color('#FFF9EC'); bg.strokeColor = this.color('#B87B44'); bg.lineWidth = 6;
-        bg.roundRect(-440, -490, 880, 980, 32); bg.fill(); bg.stroke();
-        this.headerText(panel, '立碑刻字纪念', 0, 428, 420, 48, 36).node.name = '弹窗独立标题';
-        const close = this.shopArt(panel, 'close', 384, 428, 68, 69);
+        const panelBg = this.uiNode(panel, '立碑弹窗底图', 0, 0, 880, 1120).addComponent(Sprite);
+        panelBg.sizeMode = Sprite.SizeMode.CUSTOM;
+        resources.load('art/memorial/memorial-dialog-bg/spriteFrame', SpriteFrame, (e, f) => {
+            if (!e && f && isValid(panelBg, true)) panelBg.spriteFrame = f;
+        });
+        this.headerText(panel, '立碑刻字纪念', 0, 446, 420, 48, 36).node.name = '弹窗独立标题';
+        const close = this.shopArt(panel, 'close', 386, 356, 68, 69);
         this.shopButton(close, () => this.closeDialog());
 
         let selectedTomb: TombstoneId = TOMBSTONE_CATALOG.find(t => ((this.data.tombstoneInventory || {})[t.id] || 0) > 0)?.id || 'tomb_stone';
         const redraws: Array<() => void> = [];
-        const svVp = this.uiNode(panel, '立碑选碑视口', 0, 236, 800, 260);
+        const svVp = this.uiNode(panel, '立碑选碑视口', 0, 198, 720, 256);
         svVp.addComponent(Mask).type = Mask.Type.GRAPHICS_RECT;
         const slotW = 216, slotGap = 16;
-        const totalW = Math.max(800, TOMBSTONE_CATALOG.length * (slotW + slotGap) + 24);
-        const svContent = this.uiNode(svVp, '立碑选碑列表', -400, 0, totalW, 256);
+        const totalW = Math.max(720, TOMBSTONE_CATALOG.length * (slotW + slotGap) + 24);
+        const svContent = this.uiNode(svVp, '立碑选碑列表', -360, 0, totalW, 252);
         svContent.getComponent(UITransform)!.setAnchorPoint(0, 0.5);
         const sv = svVp.addComponent(ScrollView);
         sv.content = svContent; sv.horizontal = true; sv.vertical = false; sv.cancelInnerEvents = true; sv.elastic = true;
@@ -5842,52 +5851,54 @@ export class Main extends Component {
         const overlay = this.uiNode(this.ui, '通用弹窗遮罩', 0, 0, this.width, this.height);
         this.dialog = overlay;
         overlay.addComponent(Graphics); this.intercept(overlay);
-        const panel = this.uiNode(overlay, '通用弹窗面板', 0, 0, 860, 980);
+        const panel = this.uiNode(overlay, '通用弹窗面板', 0, 0, 880, 1120);
         this.intercept(panel);
-        const bg = panel.addComponent(Graphics);
-        bg.fillColor = this.color('#FFFDF5'); bg.strokeColor = this.color('#9BB086'); bg.lineWidth = 6;
-        bg.roundRect(-430, -490, 860, 980, 32); bg.fill(); bg.stroke();
-        this.headerText(panel, `怀念 · ${rec.customName}`, 0, 428, 480, 48, 34).node.name = '弹窗独立标题';
-        const close = this.shopArt(panel, 'close', 376, 428, 68, 69);
+        const panelBg = this.uiNode(panel, '怀念弹窗底图', 0, 0, 880, 1120).addComponent(Sprite);
+        panelBg.sizeMode = Sprite.SizeMode.CUSTOM;
+        resources.load('art/memorial/memorial-dialog-bg/spriteFrame', SpriteFrame, (e, f) => {
+            if (!e && f && isValid(panelBg, true)) panelBg.spriteFrame = f;
+        });
+        this.headerText(panel, `怀念 · ${rec.customName}`, 0, 446, 480, 48, 34).node.name = '弹窗独立标题';
+        const close = this.shopArt(panel, 'close', 386, 356, 68, 69);
         this.shopButton(close, () => this.closeDialog());
 
-        // 左侧墓碑 + 右侧生平全身照
-        const tsp = this.uiNode(panel, '追思墓碑图', -180, 240, 200, 200).addComponent(Sprite);
+        // 左侧墓碑（带品质槽底框）+ 右侧生平全身照
+        const tombSlot = this.uiNode(panel, '追思墓碑槽', -168, 210, 206, 206);
+        this.itemSlotBg(tombSlot, tomb.slotTheme, 206, 206, '追思墓碑底图');
+        const tsp = this.uiNode(tombSlot, '追思墓碑图', 0, 4, 168, 168).addComponent(Sprite);
         tsp.sizeMode = Sprite.SizeMode.CUSTOM;
         resources.load('art/memorial/' + tomb.artKey + '/spriteFrame', SpriteFrame, (e, f) => { if (!e && f && isValid(tsp, true)) tsp.spriteFrame = f; });
-        const photoFrame = this.uiNode(panel, '生平照片框', 170, 240, 230, 230);
-        const pfg = photoFrame.addComponent(Graphics);
-        pfg.fillColor = this.color('#FFF4DA'); pfg.strokeColor = this.color('#C89858'); pfg.lineWidth = 4;
-        pfg.roundRect(-115, -115, 230, 230, 22); pfg.fill(); pfg.stroke();
-        const psp = this.uiNode(photoFrame, '生平全身照', 0, 0, 198, 198).addComponent(Sprite);
+        const photoFrame = this.uiNode(panel, '生平照片框', 164, 210, 206, 206);
+        this.itemSlotBg(photoFrame, 'general', 206, 206, '生平照片底框');
+        const psp = this.uiNode(photoFrame, '生平全身照', 0, 0, 174, 174).addComponent(Sprite);
         psp.sizeMode = Sprite.SizeMode.CUSTOM;
         void this.loadPetPortrait(breed.skin).then(f => { if (f && isValid(psp, true)) psp.spriteFrame = f; });
 
         // 墓志铭铭牌
-        const epBox = this.uiNode(panel, '墓志铭卡片', 0, 48, 740, 118);
+        const epBox = this.uiNode(panel, '墓志铭卡片', 0, 32, 680, 114);
         const ebg = epBox.addComponent(Graphics);
-        ebg.fillColor = this.color('#F5F2E6'); ebg.strokeColor = this.color('#C8BEA6'); ebg.lineWidth = 2.5;
-        ebg.roundRect(-370, -59, 740, 118, 18); ebg.fill(); ebg.stroke();
-        const epLbl = this.text(epBox, `“ ${rec.epitaph} ”`, 0, 14, 700, 52, 24, '#4E3422'); epLbl.isBold = true; epLbl.enableWrapText = true;
-        this.text(epBox, `${tomb.name} · 离别原因：${rec.deathReason}`, 0, -34, 700, 28, 18, '#8A745E');
+        ebg.fillColor = this.color('#F5EFDE'); ebg.strokeColor = this.color('#C8B48E'); ebg.lineWidth = 2.5;
+        ebg.roundRect(-340, -57, 680, 114, 18); ebg.fill(); ebg.stroke();
+        const epLbl = this.text(epBox, `“ ${rec.epitaph} ”`, 0, 14, 640, 50, 23, '#4E3422'); epLbl.isBold = true; epLbl.enableWrapText = true;
+        this.text(epBox, `${tomb.name} · 离别原因：${rec.deathReason}`, 0, -34, 640, 26, 18, '#8A745E');
 
         // 冒险高光记录
-        this.headerText(panel, '生平冒险高光记录', 0, -48, 360, 36, 24);
+        this.headerText(panel, '生平冒险高光记录', 0, -64, 360, 36, 24);
         if (!highlights.length) {
-            this.text(panel, '它曾静静陪伴你度过庭院里的温暖时光。', 0, -148, 700, 40, 21, C.muted);
+            this.text(panel, '它曾静静陪伴你度过庭院里的温暖时光。', 0, -162, 660, 40, 21, C.muted);
         } else {
             highlights.forEach((h, i) => {
-                const hl = this.text(panel, `• [${eventBadgeMeta(h.type).label}] ${h.text}`, 0, -104 - i * 68, 740, 58, 19, '#5E4028');
+                const hl = this.text(panel, `• [${eventBadgeMeta(h.type).label}] ${h.text}`, 0, -118 - i * 68, 660, 58, 19, '#5E4028');
                 hl.horizontalAlign = Label.HorizontalAlign.LEFT; hl.enableWrapText = true; hl.lineHeight = 24;
             });
         }
 
         if (pet?.dead) {
-            const rev = this.shopArt(panel, 'buy', -156, -402, 260, 260 * 120 / 321);
+            const rev = this.shopArt(panel, 'buy', -154, -408, 252, 252 * 120 / 321);
             this.headerText(rev, '看广告复活', 0, 0, 210, 40, 26);
             this.shopButton(rev, () => this.revivePetByAd(rec.petId));
         }
-        const ok = this.shopArt(panel, 'buy', pet?.dead ? 156 : 0, -402, 260, 260 * 120 / 321);
+        const ok = this.shopArt(panel, 'buy', pet?.dead ? 154 : 0, -408, 252, 252 * 120 / 321);
         this.headerText(ok, '收起怀念', 0, 0, 210, 40, 26);
         this.shopButton(ok, () => this.closeDialog());
         this.layoutDialog();

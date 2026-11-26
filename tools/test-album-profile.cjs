@@ -723,7 +723,9 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
     const tombShop = await page.evaluate(() => {
       const cards = walk(main.sheet).filter(n => n.name.startsWith('墓碑商品卡-'));
       const adBtns = walk(main.sheet).filter(n => n.name.startsWith('墓碑广告按钮-'));
+      const sheetBefore = main.sheet;
       const boughtSleep = main.buyTombstone('tomb_sleep');
+      const noJumpSameSheet = main.sheet === sheetBefore;
       main.rewardedVideoProvider = null;
       main.unlockTombstoneByAd('tomb_angel');
       const blockedNotice = main.notice.string;
@@ -734,13 +736,14 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
         tombCards: cards.length,
         limitedAdBtns: adBtns.length,
         boughtSleep,
+        noJumpSameSheet,
         blockedNotice,
         ownedAngelBefore,
         ownedAngel: main.data.tombstoneInventory?.tomb_angel || 0,
       };
     });
     console.log('shop tombstones check:', JSON.stringify(tombShop));
-    assert.deepEqual(tombShop, { tombCards: 9, limitedAdBtns: 3, boughtSleep: true, blockedNotice: '激励视频暂未接入', ownedAngelBefore: 0, ownedAngel: 1 });
+    assert.deepEqual(tombShop, { tombCards: 9, limitedAdBtns: 3, boughtSleep: true, noJumpSameSheet: true, blockedNotice: '激励视频暂未接入', ownedAngelBefore: 0, ownedAngel: 1 });
     await page.waitForTimeout(350);
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-shop-tombstones.png') });
 
@@ -762,8 +765,17 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
     });
     console.log('memorial erect check:', JSON.stringify(memRes));
     assert.deepEqual(memRes, { memorials: 1, tombId: 'tomb_sleep', epitaph: '永远记得陪我度过的每一个晴天', sheetY: -10 });
-    await page.waitForTimeout(400);
+    await page.waitForTimeout(450);
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-memorial-corner.png') });
+    // Open Memorial Detail dialog -> verify hand-painted modal art loaded!
+    await page.evaluate(() => {
+      const card = walk(main.sheet).find(n => n.name === '已立墓碑-1');
+      card.emit('touch-end', {});
+    });
+    await page.waitForTimeout(450);
+    const detailBgLoaded = await page.evaluate(() => !!walk(main.dialog).find(n => n.name === '怀念弹窗底图')?.getComponent('cc.Sprite')?.spriteFrame);
+    assert.equal(detailBgLoaded, true, 'memorial detail dialog must load hand-painted modal background');
+    await page.screenshot({ path: path.join(OUT_DIR, 'verify-memorial-detail-dialog.png') });
 
     assert.deepEqual(errors, [], 'zero pageerrors');
     assert.deepEqual(failures, [], 'zero HTTP errors');
