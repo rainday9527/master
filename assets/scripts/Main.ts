@@ -587,6 +587,7 @@ export class Main extends Component {
             sys.localStorage.setItem(this.key, raw);
             this.saveSnapshot = raw;
             this.data = candidate; this.dirty = false;
+            this.refreshTaskRedDots();
             return true;
         } catch { this.toast('保存失败，本次操作未生效，未扣除货币或道具'); return false; }
     }
@@ -1769,6 +1770,7 @@ export class Main extends Component {
         this.intercept(daily); this.pressFeedback(daily);
         this.dailySprite(daily, 'task', 0, 26, 108, 98, false, '每日入口图标');
         this.navCaption(daily, '任务', 0);
+        this.drawRedDot(daily, '任务入口红点', 46, 62, 13);
         daily.on(Node.EventType.TOUCH_END, () => this.open('daily'), this);
 
         // 冒险日记入口：位于每日任务入口正下方
@@ -1789,6 +1791,7 @@ export class Main extends Component {
         this.navCaption(memorial, '纪念角', 2);
         memorial.on(Node.EventType.TOUCH_END, () => this.open('memorial'), this);
         this.refreshMemorialEntry();
+        this.refreshTaskRedDots();
 
         // 庭院布置入口：位于纪念角下方，支持自由摆放/移动/收回猫窝狗窝食盆乐园与装饰
         const layoutBtn = this.uiNode(this.ui, '庭院布置入口', 390, 170, 190, 174);
@@ -2745,6 +2748,7 @@ export class Main extends Component {
         const layoutEntry = this.ui.getChildByName('庭院布置入口');
         if (layoutEntry) layoutEntry.active = page === 'home';
         this.refreshMemorialEntry();
+        this.refreshTaskRedDots();
         const gmEntry = this.ui.getChildByName('GM调试入口');
         if (gmEntry) gmEntry.active = page !== 'album' && page !== 'profile' && page !== 'layout';
         if (this.top) this.top.active = page !== 'album' && page !== 'profile';
@@ -3144,6 +3148,7 @@ export class Main extends Component {
             if (toSpawn.length > 0) this.allDeadPrompted = false;
             this.syncActorVisibility();
             this.refreshMemorialEntry();
+        this.refreshTaskRedDots();
             this.renderHeader(); this.updateRecruit();
             if (this.ui && isValid(this.ui, true) && (mode !== 'reward' || !this.dialog)) {
                 this.showRecruitResultDialog(mode, ids, new Set(added.map(p => p.id)), claimed);
@@ -6098,6 +6103,44 @@ export class Main extends Component {
         if (id !== 'rest') { this.bagFilter = id === 'clean' ? 'soap' : id === 'play' ? 'toy' : id === 'heal' ? 'medicine' : 'food'; this.bagPage = 0; this.open('bag'); }
     }
 
+    private drawRedDot(parent: Node, name: string, x: number, y: number, r = 13): Node {
+        const dot = this.uiNode(parent, name, x, y, r * 2 + 8, r * 2 + 8);
+        const g = dot.addComponent(Graphics);
+        g.fillColor = this.color('#F03A3A');
+        g.strokeColor = this.color('#FFFDF8');
+        g.lineWidth = 3;
+        g.circle(0, 0, r);
+        g.fill(); g.stroke();
+        dot.active = false;
+        return dot;
+    }
+
+    public hasClaimableDaily(): boolean {
+        if (!this.data?.daily) return false;
+        const d = this.dailyCandidate().daily;
+        return !d.packClaimed || DAILY_TASKS.some(t => !d.claimed[t.id] && (d.progress[t.id] || 0) >= t.target);
+    }
+
+    public hasClaimableAchievement(): boolean {
+        if (!this.data) return false;
+        const a = restoreAchievements(this.data.achievements);
+        return ACHIEVEMENTS.some(def => achievementTierInfo(a, def).claimable);
+    }
+
+    public refreshTaskRedDots() {
+        if (!this.ui || !isValid(this.ui, true) || !this.data) return;
+        const dailyReady = this.hasClaimableDaily();
+        const achReady = this.hasClaimableAchievement();
+        const entryDot = this.ui.getChildByName('每日任务入口')?.getChildByName('任务入口红点');
+        if (entryDot && isValid(entryDot, true)) entryDot.active = dailyReady || achReady;
+        if (this.page === 'daily' && this.sheet && isValid(this.sheet, true)) {
+            const dDot = this.sheet.getChildByName('任务页签-daily')?.getChildByName('页签红点');
+            if (dDot && isValid(dDot, true)) dDot.active = dailyReady;
+            const aDot = this.sheet.getChildByName('任务页签-achievement')?.getChildByName('页签红点');
+            if (aDot && isValid(aDot, true)) aDot.active = achReady;
+        }
+    }
+
     public claimAchievement(id: AchievementId): boolean {
         const def = ACHIEVEMENTS.find(a => a.id === id);
         if (!def) return false;
@@ -6139,6 +6182,7 @@ export class Main extends Component {
             tg.roundRect(-130, -29, 260, 58, 26); tg.fill(); tg.stroke();
             const tl = this.text(tabNode, label, 0, 0, 230, 38, 26, active ? '#4E2912' : '#7D5E40');
             tl.isBold = true; tl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+            this.drawRedDot(tabNode, '页签红点', 112, 20, 11);
             this.intercept(tabNode); this.pressVisualFeedback(tabNode);
             tabNode.on(Node.EventType.TOUCH_END, () => {
                 if (this.taskTab === tabKey) return;
@@ -6278,6 +6322,7 @@ export class Main extends Component {
             });
             this.dailyText(panel, '所有操作次数永久保存 · 每阶完成自动解锁更高钻石奖励', -12, -530, 680, 36, 22);
         }
+        this.refreshTaskRedDots();
     }
 
     private adventureAction() {
@@ -6573,6 +6618,7 @@ export class Main extends Component {
             if (!this.commitShop(c)) return;
             this.renderHeader();
             this.refreshMemorialEntry();
+        this.refreshTaskRedDots();
             this.refreshTombstoneOwnedLabel(id);
             this.toast('限定解锁成功！已获得「' + tomb.name + '」');
         }, '暂未解锁限定纪念碑');
@@ -6589,6 +6635,7 @@ export class Main extends Component {
         if (!this.commitShop(c)) return false;
         this.renderHeader();
         this.refreshMemorialEntry();
+        this.refreshTaskRedDots();
         this.refreshTombstoneOwnedLabel(id);
         this.showRewardToast([{ kind: 'gems', amount: -tomb.priceGems }], '消耗');
         this.toast('已购入「' + tomb.name + '」，可在后院纪念角为伙伴立碑纪念');
@@ -7223,6 +7270,7 @@ export class Main extends Component {
         });
         this.renderHeader();
         this.refreshMemorialEntry();
+        this.refreshTaskRedDots();
         {
             const gained: RewardGrantItem[] = [];
             if (outcome.coins) gained.push({ kind: 'coins', amount: outcome.coins });
@@ -7270,6 +7318,7 @@ export class Main extends Component {
             this.persist();
             this.syncActorVisibility();
             this.refreshMemorialEntry();
+        this.refreshTaskRedDots();
             this.renderHeader();
             const names = respawned.slice(0, 2).map(id => this.petDisplayName(id)).join('、');
             const suffix = respawned.length > 2 ? `等 ${respawned.length} 位伙伴` : '';
@@ -7373,6 +7422,7 @@ export class Main extends Component {
             this.closeDialog();
             this.renderHeader();
             this.refreshMemorialEntry();
+        this.refreshTaskRedDots();
             if (this.page === 'diary' || this.page === 'memorial') {
                 const pg = this.page;
                 if (this.sheet) { this.sheet.destroy(); this.sheet = null; }
@@ -7673,6 +7723,7 @@ export class Main extends Component {
             this.closeDialog();
             this.renderHeader();
             this.refreshMemorialEntry();
+        this.refreshTaskRedDots();
             if (this.sheet && isValid(this.sheet, true)) { this.sheet.removeFromParent(); this.sheet.destroy(); this.sheet = null; }
             this.open('memorial');
             this.toast('已为「' + customName + '」立碑纪念');
@@ -8145,6 +8196,7 @@ export class Main extends Component {
             title: '重病离世', text: `「${this.petDisplayName(pet.id)}」因${reason}离开了庭院……`, resolved: false,
         });
         this.refreshMemorialEntry();
+        this.refreshTaskRedDots();
         const actor = this.actors.find(a => a.pet.id === pet.id);
         const inYard = this.page === 'home' || this.page === 'pet';
         if (this.selected === pet.id && (this.page === 'pet' || this.page === 'bag')) {

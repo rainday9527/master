@@ -25,10 +25,10 @@ export const DAILY_TASKS: readonly { id: DailyTaskId; title: string; icon: strin
     { id: 'play', title: '陪玩 5 次', icon: 'play', currency: 'coins', amount: 100, target: 5 },
     { id: 'rest', title: '休息/睡觉 4 次', icon: 'rest', currency: 'coins', amount: 80, target: 4 },
     { id: 'adventure', title: '伙伴外出冒险 3 次', icon: 'adventure', currency: 'gems', amount: 25, target: 3 },
-    { id: 'shopBuy', title: '商店购物 3 次', icon: 'play', currency: 'coins', amount: 120, target: 3 },
-    { id: 'recruit', title: '招募伙伴 2 次', icon: 'adventure', currency: 'gems', amount: 30, target: 2 },
-    { id: 'heal', title: '治疗伙伴 2 次', icon: 'clean', currency: 'coins', amount: 100, target: 2 },
-    { id: 'furniture', title: '布置/摆放家具 2 次', icon: 'rest', currency: 'gems', amount: 20, target: 2 },
+    { id: 'shopBuy', title: '商店购物 3 次', icon: 'shop', currency: 'coins', amount: 120, target: 3 },
+    { id: 'recruit', title: '招募伙伴 2 次', icon: 'recruit', currency: 'gems', amount: 30, target: 2 },
+    { id: 'heal', title: '治疗伙伴 2 次', icon: 'heal', currency: 'coins', amount: 100, target: 2 },
+    { id: 'furniture', title: '布置/摆放家具 2 次', icon: 'furniture', currency: 'gems', amount: 20, target: 2 },
 ];
 
 export const DAILY_PACK = { food: 2, soap: 1, toy: 1 } as const;
@@ -121,11 +121,11 @@ export const ACHIEVEMENTS: readonly AchievementDef[] = [
     { id: 'play', title: '快乐玩伴', verb: '累计陪玩/乐园', icon: 'play', targets: HIGH_FREQ_TARGETS, gems: TIER_GEMS },
     { id: 'rest', title: '好梦守护者', verb: '累计休息/睡觉', icon: 'rest', targets: HIGH_FREQ_TARGETS, gems: TIER_GEMS },
     { id: 'adventure', title: '冒险领航员', verb: '累计伙伴外出冒险', icon: 'adventure', targets: MID_FREQ_TARGETS, gems: TIER_GEMS },
-    { id: 'recruit', title: '招募达人', verb: '累计招募伙伴', icon: 'adventure', targets: MID_FREQ_TARGETS, gems: TIER_GEMS },
-    { id: 'shop', title: '庭院大买手', verb: '累计商店购物', icon: 'play', targets: MID_FREQ_TARGETS, gems: TIER_GEMS },
-    { id: 'heal', title: '暖心小兽医', verb: '累计治疗伙伴', icon: 'clean', targets: MID_FREQ_TARGETS, gems: TIER_GEMS },
-    { id: 'furniture', title: '庭院建筑师', verb: '累计购买/布置家具', icon: 'rest', targets: MID_FREQ_TARGETS, gems: TIER_GEMS },
-    { id: 'star', title: '星级培育师', verb: '累计伙伴升星', icon: 'feed-dog', targets: MID_FREQ_TARGETS, gems: TIER_GEMS },
+    { id: 'recruit', title: '招募达人', verb: '累计招募伙伴', icon: 'recruit', targets: MID_FREQ_TARGETS, gems: TIER_GEMS },
+    { id: 'shop', title: '庭院大买手', verb: '累计商店购物', icon: 'shop', targets: MID_FREQ_TARGETS, gems: TIER_GEMS },
+    { id: 'heal', title: '暖心小兽医', verb: '累计治疗伙伴', icon: 'heal', targets: MID_FREQ_TARGETS, gems: TIER_GEMS },
+    { id: 'furniture', title: '庭院建筑师', verb: '累计购买/布置家具', icon: 'furniture', targets: MID_FREQ_TARGETS, gems: TIER_GEMS },
+    { id: 'star', title: '星级培育师', verb: '累计伙伴升星', icon: 'star', targets: MID_FREQ_TARGETS, gems: TIER_GEMS },
 ];
 
 export function newAchievements(): AchievementState {
