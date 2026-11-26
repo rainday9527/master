@@ -574,7 +574,8 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
       main.care('medicine');
       const stayedOnPet = main.page === 'pet';
       const h1 = main.data.pets.find(p => p.id === 0).health;
-      const healToast = main.notice?.string || '';
+      const usePill = main.ui?.getChildByName('浮动奖励提示');
+      const hasIconToast = !!usePill && !!usePill.getChildByName('获得图标') && walk(usePill).some(n => n.getComponent('cc.Label')?.string === '-1');
       // Out of stock -> auto jump to Shop!
       main.data.itemInventory.bandage = 0;
       ['pet_vitamins','cough_syrup','herbal_salve','magic_elixir','first_aid_kit'].forEach(k => { main.data.itemInventory[k] = 0; });
@@ -586,10 +587,10 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
       // Check shop guarantees at least 1 medicine item
       main.shopClickTime = 0; main.refreshShop();
       const medInShop = main.data.shop.slots.some(s => ['bandage','pet_vitamins','cough_syrup','herbal_salve','magic_elixir','first_aid_kit'].includes(s.id));
-      return { poopsAfter: cs.poopsAfter, coinGain: cs.coinGain, broomActive: cs.broomActive, stayedOnPet, jumpedToShop, hasMedTab, healthBefore: h0, healthAfter: h1, medInShop, hasUsedItemToast: healToast.includes('爱心创可贴') || healToast.includes('治疗成功') };
+      return { poopsAfter: cs.poopsAfter, coinGain: cs.coinGain, broomActive: cs.broomActive, stayedOnPet, jumpedToShop, hasMedTab, healthBefore: h0, healthAfter: h1, medInShop, hasIconToast };
     }, cleanStep);
     console.log('heal & clean check:', JSON.stringify(healAndClean));
-    assert.deepEqual(healAndClean, { poopsAfter: 1, coinGain: 5, broomActive: 1, stayedOnPet: true, jumpedToShop: true, hasMedTab: true, healthBefore: 20, healthAfter: 45, medInShop: true, hasUsedItemToast: true });
+    assert.deepEqual(healAndClean, { poopsAfter: 1, coinGain: 5, broomActive: 1, stayedOnPet: true, jumpedToShop: true, hasMedTab: true, healthBefore: 20, healthAfter: 45, medInShop: true, hasIconToast: true });
 
     // Trigger pet death in yard -> capture fallen pet + rising ghost screenshot -> verify pet disappears after animation!
     await page.evaluate(() => {

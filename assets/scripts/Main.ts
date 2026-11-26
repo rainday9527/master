@@ -1712,7 +1712,7 @@ export class Main extends Component {
         const list = rewards.filter(r => r.amount !== 0).slice(0, 4);
         if (!list.length || !this.ui || !isValid(this.ui, true)) return;
         const old = this.ui.getChildByName('浮动奖励提示');
-        if (old && isValid(old, true)) { old.destroy(); }
+        if (old && isValid(old, true)) { old.active = false; old.removeFromParent(); old.destroy(); }
         const cellW = 150, w = 130 + list.length * cellW, h = 74;
         const pill = this.uiNode(this.ui, '浮动奖励提示', 0, this.height / 2 - 380, w, h);
         const g = pill.addComponent(Graphics);
@@ -1728,7 +1728,8 @@ export class Main extends Component {
                 const ic = this.uiNode(pill, '获得图标', x - 40, 0, 44, 44);
                 const sp = ic.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM;
                 resources.load(path + '/spriteFrame', SpriteFrame, (e, f) => { if (!e && f && isValid(sp, true)) sp.spriteFrame = f; });
-                const n = this.text(pill, `×${rw.amount}`, x + 22, 0, 70, 40, 30, '#FFF6DC'); n.isBold = true;
+                const numTxt = rw.amount < 0 ? `${rw.amount}` : `×${rw.amount}`;
+                const n = this.text(pill, numTxt, x + 22, 0, 76, 40, 30, '#FFF6DC'); n.isBold = true;
             }
         });
         const op = pill.addComponent(UIOpacity); op.opacity = 0;
@@ -2569,6 +2570,11 @@ export class Main extends Component {
         if (actor) { actor.pet = nextPet; actor.timer = -1.2; actor.tailExcite = 1; }
         this.renderHeader();
         if (this.page === 'bag') this.updateBag(); else if (this.page === 'pet') this.open('pet');
+        if (legacy && legacy !== 'rest' && legacy !== 'medicine') {
+            this.showRewardToast([{ kind: 'care', careType: legacy, amount: -1 }], '使用');
+        } else if (item && legacy !== 'rest') {
+            this.showRewardToast([{ kind: 'item', itemId: item.id, amount: -1 }], '使用');
+        }
         if (category === 'medicine') {
             this.toast(wasSick && nextPet.health >= 30 ? '治疗成功！' + this.petDisplayName(p.id) + ' 恢复健康啦！' : '使用「' + (item?.name || '治疗') + '」，健康度 +' + (effects.health || 0));
         } else {
