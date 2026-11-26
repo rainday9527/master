@@ -1867,10 +1867,6 @@ export class Main extends Component {
         if (page === 'pet') {
             this.sheet = this.uiNode(this.ui, '宠物状态', 0, -this.height / 2 + 356, 960, 334);
             this.headerArt(this.sheet, 'pet-status-pill'); this.intercept(this.sheet);
-            const titleLbl = this.text(this.sheet, this.petDisplayName(this.selected), 56, 82, 380, 36, 25, '#5E3A1E');
-            titleLbl.isBold = true; titleLbl.horizontalAlign = Label.HorizontalAlign.LEFT;
-            titleLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
-            titleLbl.node.name = '宠物标题';
             const goProfile = this.uiNode(this.sheet, '宠物状态进主页', 332, 82, 118, 42);
             const gpb = goProfile.addComponent(Graphics);
             gpb.fillColor = this.color('#FFD666'); gpb.strokeColor = this.color('#8A562C'); gpb.lineWidth = 2.5;
@@ -1894,11 +1890,43 @@ export class Main extends Component {
     private renderPet() {
         const p = this.data.pets.find(v => v.id === this.selected && !v.dead);
         if (!p || !this.sheet) return;
-        const title = this.sheet.getChildByName('宠物标题')?.getComponent(Label);
-        const sickTag = p.health < 30 ? ' [生病中]' : p.energy <= 0 ? ' [疲惫]' : '';
-        if (title) {
-            title.string = this.petDisplayName(this.selected) + ' ★' + p.star + ' · ' + PET_TRAITS[p.trait].name + sickTag;
-            title.color = this.color(p.health < 30 ? '#C93832' : '#5E3A1E');
+
+        // 顶部信息行：宠物名字 + 真实阶位星级图标 + 彩色性格标签 + 生病/疲惫警示标签
+        const hdrName = '状态卡顶部信息行';
+        const dispName = this.petDisplayName(this.selected);
+        const trait = PET_TRAITS[p.trait];
+        const statusFlag = p.health < 30 ? '生病中' : p.energy <= 0 ? '疲惫' : '';
+        const hdrKey = `${p.id}|${dispName}|${p.star}|${p.trait}|${statusFlag}`;
+        const existingHdr = this.sheet.getChildByName(hdrName);
+        if (!existingHdr || (existingHdr as any)._hdrKey !== hdrKey) {
+            if (existingHdr) existingHdr.destroy();
+            const hdr = this.uiNode(this.sheet, hdrName, 0, 82, 540, 44);
+            (hdr as any)._hdrKey = hdrKey;
+            const nameW = Math.min(168, Math.max(76, dispName.length * 27 + 6));
+            const nameLeft = -134;
+            const nameLbl = this.text(hdr, dispName, nameLeft + nameW / 2, 0, nameW, 36, 25, '#5E3A1E');
+            nameLbl.isBold = true; nameLbl.horizontalAlign = Label.HorizontalAlign.LEFT;
+            nameLbl.overflow = Label.Overflow.CLAMP;
+            nameLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+            nameLbl.node.name = '宠物标题';
+
+            // 星级图标徽章（使用与图鉴/主页一致的 6 阶星级图标）
+            const starCenterX = nameLeft + nameW + 30;
+            this.starTierBadge(hdr, p.star, starCenterX, 0, 30);
+
+            // 性格彩色胶囊标签
+            const traitW = 104;
+            const traitCenterX = starCenterX + (p.star % 5 === 0 ? 74 : 92);
+            this.pillBadge(hdr, trait.name, traitCenterX, 0, traitW, 32, trait.color || '#3B8EA5', '#FFFFFF', 18);
+
+            // 生病/疲惫彩色警示标签
+            if (statusFlag) {
+                const flagW = statusFlag.length >= 3 ? 78 : 62;
+                const flagX = traitCenterX + traitW / 2 + 8 + flagW / 2;
+                if (flagX + flagW / 2 <= 264) {
+                    this.pillBadge(hdr, statusFlag, flagX, 0, flagW, 30, '#E05246', '#FFFFFF', 16);
+                }
+            }
         }
 
         // 左侧绿色圆框内的宠物头像（可点击直接进入宠物主页）
