@@ -197,6 +197,7 @@ export class Main extends Component {
     private advLogNextId = 1;
     private shopTab: 'items' | 'outfits' | 'tombstones' = 'items';
     private pendingAlerts: { kind: 'lost' | 'dead'; petId: number; reason: string }[] = [];
+    private allDeadPrompted = false;
     private socialBubbles: SocialBubble[] = [];
     private needBubbles = new Map<number, { node: Node; icon: string; until: number; urgent: boolean }>();
     private needHistory = new Map<number, number[]>();
@@ -5844,19 +5845,40 @@ export class Main extends Component {
             this.pendingAlerts.push({ kind: 'lost', petId: pet.id, reason: outcome.text });
             this.checkMainCityAlerts();
         } else if (outcome.setDead) {
+            this.allDeadPrompted = false;
             this.pendingAlerts.push({ kind: 'dead', petId: pet.id, reason: outcome.deathReason || '冒险途中遭遇猫狗贩子' });
             this.checkMainCityAlerts();
         }
     }
 
-    private checkMainCityAlerts() {
-        if (this.page !== 'home' || this.dialog || !this.pendingAlerts.length) return;
-        const alert = this.pendingAlerts.shift()!;
-        const pet = this.data.pets.find(p => p.id === alert.petId);
-        if (!pet) return;
-        if (alert.kind === 'lost' && !pet.lost) return;
-        if (alert.kind === 'dead' && !pet.dead) return;
-        this.showPetCrisisDialog(alert.kind, pet.id, alert.reason);
+    public checkMainCityAlerts() {
+        if (this.page !== 'home' || this.dialog) return;
+        if (this.pendingAlerts.length) {
+            const alert = this.pendingAlerts.shift()!;
+            const pet = this.data.pets.find(p => p.id === alert.petId);
+            if (!pet) return;
+            if (alert.kind === 'lost' && !pet.lost) return;
+            if (alert.kind === 'dead' && !pet.dead) return;
+            this.showPetCrisisDialog(alert.kind, pet.id, alert.reason);
+            return;
+        }
+        // 当庭院所有伙伴均已离世且尚无存活宠物时，弹出温馨提醒引导玩家前往招募领养或纪念角复活
+        if (!this.allDeadPrompted && this.data.pets.length > 0 && this.data.pets.every(p => p.dead)) {
+            this.allDeadPrompted = true;
+            this.showAllPetsDeadDialog();
+        }
+    }
+
+    public showAllPetsDeadDialog() {
+        if (this.dialog) this.closeDialog();
+        this.showDialog(
+            '庭院空荡荡的',
+            '庭院里的所有毛孩子都已离世……\n快去招募领养新伙伴，或前往纪念角复活它们吧！',
+            [
+                { title: '去招募领养', run: () => { this.closeDialog(); this.open('recruit'); } },
+                { title: '去复活伙伴', run: () => { this.closeDialog(); this.open('memorial'); } },
+            ],
+        );
     }
 
     public showPetCrisisDialog(kind: 'lost' | 'dead', petId: number, reason: string) {
@@ -5890,6 +5912,7 @@ export class Main extends Component {
             (c.adventureLogs || []).forEach(l => { if (l.petId === petId && l.type === 'lost') l.resolved = true; });
             if (!this.commitShop(c)) return;
             if (!this.actors.some(a => a.pet.id === petId)) this.spawnPet(target);
+            this.allDeadPrompted = false;
             this.syncActorVisibility();
             this.closeDialog();
             this.renderHeader();
@@ -5916,6 +5939,7 @@ export class Main extends Component {
             (c.adventureLogs || []).forEach(l => { if (l.petId === petId && (l.type === 'death_trafficker' || l.type === 'death_sick')) l.resolved = true; });
             if (!this.commitShop(c)) return;
             if (!this.actors.some(a => a.pet.id === petId)) this.spawnPet(target);
+            this.allDeadPrompted = false;
             this.syncActorVisibility();
             this.closeDialog();
             this.renderHeader();
@@ -6640,6 +6664,12 @@ export class Main extends Component {
                 actor.node.destroy();
                 this.actors = this.actors.filter(a => a !== actor);
             }
+        }
+        if (this.data.pets.length > 0 && this.data.pets.every(p => p.dead)) {
+            this.allDeadPrompted = false;
+            this.scheduleOnce(() => {
+                if (isValid(this, true)) this.checkMainCityAlerts();
+            }, inYard && actor ? 2.8 : 0.2);
         }
     }
 

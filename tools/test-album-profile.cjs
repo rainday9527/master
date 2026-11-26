@@ -801,6 +801,32 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
     assert.equal(detailBgLoaded, true, 'memorial detail dialog must load hand-painted modal background');
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-memorial-detail-dialog.png') });
 
+    // 14) All pets dead -> verify yard empty reminder dialog with Recruit & Revive buttons!
+    const allDeadRes = await page.evaluate(() => {
+      main.closeDialog();
+      main.data.pets.forEach(p => { p.dead = true; p.health = 0; });
+      main.allDeadPrompted = false;
+      main.open('home');
+      const title = walk(main.dialog).find(n => n.name === '弹窗独立标题')?.getComponent('cc.Label')?.string;
+      const hasRecruitBtn = !!walk(main.dialog).find(n => n.name === '弹窗按钮-去招募领养');
+      const hasReviveBtn = !!walk(main.dialog).find(n => n.name === '弹窗按钮-去复活伙伴');
+      return { title, hasRecruitBtn, hasReviveBtn };
+    });
+    console.log('all pets dead reminder check:', JSON.stringify(allDeadRes));
+    assert.deepEqual(allDeadRes, { title: '庭院空荡荡的', hasRecruitBtn: true, hasReviveBtn: true });
+    await page.waitForTimeout(350);
+    await page.screenshot({ path: path.join(OUT_DIR, 'verify-all-dead-dialog.png') });
+    const navAfterClick = await page.evaluate(() => {
+      walk(main.dialog).find(n => n.name === '弹窗按钮-去招募领养').emit('touch-end', {});
+      const p1 = main.page;
+      main.allDeadPrompted = false;
+      main.open('home');
+      walk(main.dialog).find(n => n.name === '弹窗按钮-去复活伙伴').emit('touch-end', {});
+      const p2 = main.page;
+      return { toRecruit: p1, toMemorial: p2 };
+    });
+    assert.deepEqual(navAfterClick, { toRecruit: 'recruit', toMemorial: 'memorial' });
+
     assert.deepEqual(errors, [], 'zero pageerrors');
     assert.deepEqual(failures, [], 'zero HTTP errors');
     console.log('ALL ALBUM + PROFILE + 12-BREED + TRAITS + 3D OUTFITS CHECKS PASSED!');
