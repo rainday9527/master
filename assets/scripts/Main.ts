@@ -287,6 +287,7 @@ export class Main extends Component {
         this.makeCamera();
         this.makeLighting();
         this.data.pets.forEach(p => this.spawnPet(p));
+        this.scheduleOnce(() => { if (isValid(this, true)) this.checkMainCityAlerts(); }, 0.35);
         this.makeUI();
         input.on(Input.EventType.TOUCH_END, this.onWorldTouch, this);
         this.schedule(this.tick, 1);
@@ -3453,6 +3454,7 @@ export class Main extends Component {
             this.actors.forEach(a => { if (isValid(a.node, true)) a.node.destroy(); });
             this.actors = [];
             this.data.pets.forEach(p => this.spawnPet(p));
+        this.scheduleOnce(() => { if (isValid(this, true)) this.checkMainCityAlerts(); }, 0.35);
             this.selected = 0; this.petSelected = false;
             this.closeGmPanel();
             this.open('home');
@@ -5900,8 +5902,48 @@ export class Main extends Component {
         }
     }
 
+    /** 若庭院中某品种已离世但玩家仍有招募多余本体（copies >= 2），或拥有本体却尚未在庭院列表，自动消耗 1 枚本体生成回庭院（同品种仅显示一只） */
+    public autoRespawnFromSpareCopies(): number[] {
+        const respawned: number[] = [];
+        const copies = this.data.recruit.copies;
+        // 1) 已有品种离世且有富余本体（>=2）：消耗 1 个本体满状态重回庭院
+        for (const p of this.data.pets) {
+            if (p.dead && (copies[p.id] || 0) >= 2) {
+                copies[p.id] = (copies[p.id] || 2) - 1;
+                p.dead = false; p.lost = false; p.adventuring = false; p.adventureReturnAt = undefined;
+                p.health = 100; p.hunger = 85; p.clean = 85; p.energy = 90; p.joy = 85;
+                (this.data.adventureLogs || []).forEach(l => {
+                    if (l.petId === p.id && (l.type === 'death_trafficker' || l.type === 'death_sick')) l.resolved = true;
+                });
+                respawned.push(p.id);
+            }
+        }
+        // 2) 背包/招募记录已有本体（>=1）但 pets 列表中缺失该品种：直接补回庭院
+        for (const [idStr, cnt] of Object.entries(copies)) {
+            const id = Number(idStr);
+            if (cnt >= 1 && BREEDS[id] && !this.data.pets.some(p => p.id === id)) {
+                this.data.pets.push(this.makePet(id));
+                respawned.push(id);
+            }
+        }
+        if (respawned.length > 0) {
+            this.allDeadPrompted = false;
+            this.dirty = true;
+            this.persist();
+            this.syncActorVisibility();
+            this.refreshMemorialEntry();
+            this.renderHeader();
+            const names = respawned.slice(0, 2).map(id => this.petDisplayName(id)).join('、');
+            const suffix = respawned.length > 2 ? `等 ${respawned.length} 位伙伴` : '';
+            this.toast(`已用招募本体让「${names}」${suffix}重新回到庭院！`);
+        }
+        return respawned;
+    }
+
     public checkMainCityAlerts() {
         if (this.page !== 'home' || this.dialog) return;
+        // 先检查是否可用已有招募本体自动补回庭院，避免玩家手上有本体却庭院空荡荡
+        this.autoRespawnFromSpareCopies();
         if (this.pendingAlerts.length) {
             const alert = this.pendingAlerts.shift()!;
             const pet = this.data.pets.find(p => p.id === alert.petId);
@@ -6714,7 +6756,7 @@ export class Main extends Component {
                 this.actors = this.actors.filter(a => a !== actor);
             }
         }
-        if (this.data.pets.length > 0 && this.data.pets.every(p => p.dead)) {
+        if ((this.data.recruit.copies[pet.id] || 0) >= 2 || (this.data.pets.length > 0 && this.data.pets.every(p => p.dead))) {
             this.allDeadPrompted = false;
             this.scheduleOnce(() => {
                 if (isValid(this, true)) this.checkMainCityAlerts();

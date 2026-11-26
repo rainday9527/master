@@ -586,6 +586,7 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
     await page.evaluate(() => {
       main.open('home');
       const p1 = main.data.pets.find(p => p.id === 1);
+      main.data.recruit.copies[1] = 1; // 无多余本体，验证正常离世与纪念角流程
       const a1 = main.actors.find(a => a.pet.id === 1);
       if (a1) a1.node.setPosition(0.0, 0, 1.5);
       main.triggerPetDeath(p1);
@@ -801,10 +802,10 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
     assert.equal(detailBgLoaded, true, 'memorial detail dialog must load hand-painted modal background');
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-memorial-detail-dialog.png') });
 
-    // 14) All pets dead -> verify yard empty reminder dialog with Recruit & Revive buttons!
+    // 14) All pets dead (with no spare copies) -> verify yard empty reminder dialog with Recruit & Revive buttons!
     const allDeadRes = await page.evaluate(() => {
       main.closeDialog();
-      main.data.pets.forEach(p => { p.dead = true; p.health = 0; });
+      main.data.pets.forEach(p => { p.dead = true; p.health = 0; main.data.recruit.copies[p.id] = 1; });
       main.allDeadPrompted = false;
       main.open('home');
       const title = walk(main.dialog).find(n => n.name === '弹窗独立标题')?.getComponent('cc.Label')?.string;
@@ -849,6 +850,27 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
     console.log('recruit respawn after all-dead check:', JSON.stringify(respawnRes));
     assert.ok(respawnRes.aliveCount > 0, 'recruiting after all pets died must bring drawn breeds back alive');
     assert.equal(respawnRes.uniqueMatchesAlive, true, 'yard must display strictly 1 actor per living breed');
+
+    // 16) Auto-respawn from existing spare recruit copies WITHOUT needing to recruit again!
+    const spareRes = await page.evaluate(() => {
+      main.data.pets.forEach(p => { p.dead = true; p.health = 0; main.data.recruit.copies[p.id] = 1; });
+      main.data.recruit.copies[0] = 3; // 2 spare copies for pet 0
+      main.data.recruit.copies[7] = 2; // 1 spare copy for pet 7
+      main.allDeadPrompted = false;
+      main.open('home');
+      const p0Alive = !main.data.pets.find(p => p.id === 0)?.dead;
+      const p7Alive = !main.data.pets.find(p => p.id === 7)?.dead;
+      const p1StillDead = !!main.data.pets.find(p => p.id === 1)?.dead;
+      const activeIds = main.actors.filter(a => a.node && a.node.active).map(a => a.pet.id).sort((a, b) => a - b);
+      return {
+        p0Alive, p7Alive, p1StillDead,
+        c0Left: main.data.recruit.copies[0],
+        c7Left: main.data.recruit.copies[7],
+        activeIds,
+      };
+    });
+    console.log('auto-respawn from spare copies check:', JSON.stringify(spareRes));
+    assert.deepEqual(spareRes, { p0Alive: true, p7Alive: true, p1StillDead: true, c0Left: 2, c7Left: 1, activeIds: [0, 7] });
 
     assert.deepEqual(errors, [], 'zero pageerrors');
     assert.deepEqual(failures, [], 'zero HTTP errors');
