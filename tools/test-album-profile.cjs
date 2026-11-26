@@ -174,7 +174,7 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
     assert.equal(hopCheck.hopAfterScarf, 0, 'equipping outfit must NOT trigger jump/hop');
     await page.waitForFunction(() => {
       const icons = walk(main.sheet).filter(n => n.name.startsWith('装扮图标-'));
-      return icons.length === 6 && icons.every(n => !!n.getComponent('cc.Sprite')?.spriteFrame) && !!main.previewRig?.outfitNode;
+      return icons.length === 12 && icons.every(n => !!n.getComponent('cc.Sprite')?.spriteFrame) && !!main.previewRig?.outfitNode;
     }, { timeout: 10000 });
     await page.waitForTimeout(250);
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-pet-profile-scarf.png') });
@@ -747,17 +747,26 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
     await page.waitForTimeout(350);
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-shop-tombstones.png') });
 
-    // Switch to Shop Outfits tab in-place -> verify ZERO sheet rebuild & outfit cards rendered!
+    // Switch to Shop Outfits tab in-place -> verify pure store (no pet switcher), 14 outfit/coat cards, buy into bag, & free unlock on pet profile!
     const outfitTabRes = await page.evaluate(() => {
       const sheetBefore = main.sheet;
       const tabBtn = walk(main.sheet).find(n => n.name === '商店页签-装扮');
       tabBtn.emit('touch-end', {});
       const cards = walk(main.sheet).filter(n => n.name.startsWith('装扮商品卡-')).length;
-      return { sameSheet: main.sheet === sheetBefore, cards };
+      const adBtns = walk(main.sheet).filter(n => n.name.startsWith('装扮广告按钮-')).length;
+      const noPetBar = !walk(main.sheet).find(n => n.name === '装扮伙伴切换栏');
+      main.data.coins += 1000;
+      const boughtToBag = main.buyOutfitToBag('flower_wreath');
+      const bagCntAfterBuy = main.data.outfitInventory?.flower_wreath || 0;
+      const cBeforeEquip = main.data.coins;
+      const freeUnlocked = main.selectPetOutfit(0, 'flower_wreath');
+      const coinsSpentOnEquip = cBeforeEquip - main.data.coins;
+      const bagCntAfterEquip = main.data.outfitInventory?.flower_wreath || 0;
+      return { sameSheet: main.sheet === sheetBefore, cards, adBtns, noPetBar, boughtToBag, bagCntAfterBuy, freeUnlocked, coinsSpentOnEquip, bagCntAfterEquip };
     });
     console.log('shop outfits tab check:', JSON.stringify(outfitTabRes));
-    assert.ok(outfitTabRes.sameSheet && outfitTabRes.cards >= 8, 'shop outfits tab must switch in-place without jumping and show outfit & coat cards');
-    await page.waitForTimeout(350);
+    assert.deepEqual(outfitTabRes, { sameSheet: true, cards: 14, adBtns: 3, noPetBar: true, boughtToBag: true, bagCntAfterBuy: 1, freeUnlocked: true, coinsSpentOnEquip: 0, bagCntAfterEquip: 0 });
+    await page.waitForTimeout(450);
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-shop-outfits.png') });
 
     // Open Memorial Corner -> erect tombstone for dead pet #1 with custom epitaph -> verify!

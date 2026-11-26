@@ -2,7 +2,19 @@
 export type PetKind = 'cat' | 'dog';
 export type PetRarity = 'R' | 'SR' | 'SSR';
 export type TraitId = 'glutton' | 'bold' | 'tidy' | 'energetic' | 'playful' | 'lucky' | 'gentle' | 'explorer';
-export type OutfitId = 'none' | 'bell_collar' | 'blue_scarf' | 'pink_bow' | 'straw_hat' | 'gold_crown';
+export type OutfitId =
+    | 'none'
+    | 'bell_collar'
+    | 'blue_scarf'
+    | 'pink_bow'
+    | 'straw_hat'
+    | 'gold_crown'
+    | 'flower_wreath'
+    | 'star_glasses'
+    | 'wizard_hat'
+    | 'angel_halo'
+    | 'butterfly_wings'
+    | 'royal_cape';
 export type CoatId = 'original' | 'cream_glow' | 'sunset_warm' | 'sakura_blush';
 
 export interface RarityInfo {
@@ -190,6 +202,12 @@ export interface OutfitDefinition {
     price: number;
     currency: 'coins' | 'gems';
     freeAtStar?: number;
+    unlockMode?: 'buy' | 'ad';
+    limited?: boolean;
+    effectTag?: string;
+    adventureBonus?: number; // 冒险收益加成（如 0.20 = +20%）
+    xpBonus?: number;        // 照顾经验加成（如 0.18 = +18%）
+    decayMult?: number;      // 心情/健康衰减倍率（如 0.75 = 慢 25%）
     desc: string;
     swatch: string;
 }
@@ -200,7 +218,13 @@ export const PET_OUTFITS: OutfitDefinition[] = [
     { id: 'blue_scarf', name: '海盐小围巾', price: 180, currency: 'coins', desc: '软萌天蓝色可爱三角围巾。', swatch: '#5E9FE0' },
     { id: 'pink_bow', name: '草莓蝴蝶结', price: 240, currency: 'coins', desc: '别在耳畔的立体粉色蝴蝶结。', swatch: '#F088A4' },
     { id: 'straw_hat', name: '田园小草帽', price: 320, currency: 'coins', desc: '遮阳又俏皮的夏日小草帽。', swatch: '#E7C475' },
-    { id: 'gold_crown', name: '星光小皇冠', price: 60, currency: 'gems', freeAtStar: 3, desc: '闪耀小金冠（3★免费解锁）。', swatch: '#F2BC3C' },
+    { id: 'flower_wreath', name: '春日花环', price: 280, currency: 'coins', effectTag: '心情缓降15%', decayMult: 0.85, desc: '清新花朵编织花环，佩戴后心情下降减缓 15%。', swatch: '#F2A2B8' },
+    { id: 'star_glasses', name: '星光墨镜', price: 45, currency: 'gems', effectTag: '冒险+12%', adventureBonus: 0.12, desc: '酷萌星星墨镜，冒险带回金币与宝箱加成 +12%。', swatch: '#E5A33C' },
+    { id: 'gold_crown', name: '星光小皇冠', price: 60, currency: 'gems', freeAtStar: 3, effectTag: '经验+10%', xpBonus: 0.10, desc: '闪耀小金冠（3★免费解锁），照顾经验 +10%。', swatch: '#F2BC3C' },
+    { id: 'wizard_hat', name: '魔法巫师帽', price: 80, currency: 'gems', effectTag: '经验+18%', xpBonus: 0.18, desc: '星辰尖顶魔法帽，照顾伙伴获得经验 +18%。', swatch: '#4B63A6' },
+    { id: 'angel_halo', name: '圣光天使环', price: 0, currency: 'gems', unlockMode: 'ad', limited: true, effectTag: '状态缓降25%', decayMult: 0.75, desc: '限定 · 温暖圣光天使环，心情与健康衰减减缓 25%。', swatch: '#FFE066' },
+    { id: 'butterfly_wings', name: '蝶梦小翅膀', price: 0, currency: 'gems', unlockMode: 'ad', limited: true, effectTag: '冒险收益+20%', adventureBonus: 0.20, desc: '限定 · 幻彩蝶翼，冒险宝箱与寻宝收益 +20%。', swatch: '#F5A6D6' },
+    { id: 'royal_cape', name: '星月披风', price: 0, currency: 'gems', unlockMode: 'ad', limited: true, effectTag: '经验与冒险+20%', xpBonus: 0.20, adventureBonus: 0.20, desc: '限定 · 梦幻星月小披风，经验与冒险收益双 +20%。', swatch: '#9E7AE0' },
 ];
 
 export interface CoatDefinition {

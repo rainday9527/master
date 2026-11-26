@@ -78,6 +78,8 @@ interface Save {
     adventureIdleStart?: number;
     adventureLogs?: AdventureLogEntry[];
     tombstoneInventory?: Record<string, number>;
+    outfitInventory?: Record<string, number>;
+    coatInventory?: Record<string, number>;
     memorials?: MemorialRecord[];
 }
 type RigPartName = 'body' | 'head' | 'face' | 'earL' | 'earR' | 'legFL' | 'legFR' | 'legBL' | 'legBR' | 'tail';
@@ -316,7 +318,7 @@ export class Main extends Component {
                 type: 'depart', title: '独自出门冒险',
                 text: `「${BREEDS[0].name}」摇着尾巴悄悄钻过庭院木门，踏上了阳光花径的冒险之旅！`,
             }],
-            tombstoneInventory: {}, memorials: [] };
+            tombstoneInventory: {}, outfitInventory: {}, coatInventory: {}, memorials: [] };
     }
 
     private load(): Save {
@@ -399,6 +401,18 @@ export class Main extends Component {
                 if (validInt(c)) tombInv[t.id] = c;
             });
             s.tombstoneInventory = tombInv;
+            const outInv: Record<string, number> = {};
+            PET_OUTFITS.forEach(o => {
+                const c = (s as any).outfitInventory && (s as any).outfitInventory[o.id];
+                if (validInt(c)) outInv[o.id] = c;
+            });
+            s.outfitInventory = outInv;
+            const coatInv: Record<string, number> = {};
+            PET_COATS.forEach(co => {
+                const c = (s as any).coatInventory && (s as any).coatInventory[co.id];
+                if (validInt(c)) coatInv[co.id] = c;
+            });
+            s.coatInventory = coatInv;
             s.memorials = Array.isArray((s as any).memorials) ? ((s as any).memorials as MemorialRecord[]).slice(0, BREEDS.length) : [];
             const inventory: Record<string, number> = {};
             ITEM_CATALOG.forEach(item => {
@@ -795,7 +809,8 @@ export class Main extends Component {
 
     private buildOutfitNode(outfit: OutfitId, rig: ActorRig): Node | null {
         if (outfit === 'none') return null;
-        const headMounted = outfit === 'pink_bow' || outfit === 'straw_hat' || outfit === 'gold_crown';
+        const headMounted = outfit === 'pink_bow' || outfit === 'straw_hat' || outfit === 'gold_crown'
+            || outfit === 'flower_wreath' || outfit === 'star_glasses' || outfit === 'wizard_hat' || outfit === 'angel_halo';
         const parent = headMounted ? rig.head : rig.modelNode;
         if (!isValid(parent, true)) return null;
         const root = new Node('宠物装扮-' + outfit);
@@ -841,6 +856,35 @@ export class Main extends Component {
                 this.shape(crown, 'cone', '#FFD75E', [Math.sin(rad) * 0.18, 0.13, Math.cos(rad) * 0.18], [0.11, 0.16, 0.11]);
             }
             this.shape(crown, 'sphere', '#E85D75', [0, 0.01, 0.21], [0.09, 0.09, 0.07]);
+        } else if (outfit === 'flower_wreath') {
+            this.shape(root, 'torus', '#6AB05C', [0, 0.57, 0.04], [0.84, 0.22, 0.80], [-8, 0, 0]);
+            const cols = ['#F79AB5', '#FFE066', '#8CC8F5', '#FFA8C4', '#FFF2A6', '#A6D8FA'];
+            for (let i = 0; i < 6; i++) {
+                const rad = (i * 60) * Math.PI / 180;
+                this.shape(root, 'sphere', cols[i], [Math.sin(rad) * 0.40, 0.60, 0.04 + Math.cos(rad) * 0.38], [0.14, 0.12, 0.14]);
+            }
+        } else if (outfit === 'star_glasses') {
+            this.shape(root, 'sphere', '#E8A238', [-0.24, 0.15, 0.64], [0.24, 0.22, 0.08]);
+            this.shape(root, 'sphere', '#E8A238', [0.24, 0.15, 0.64], [0.24, 0.22, 0.08]);
+            this.shape(root, 'box', '#7A4C1E', [0, 0.16, 0.64], [0.18, 0.04, 0.04]);
+        } else if (outfit === 'wizard_hat') {
+            this.shape(root, 'cylinder', '#3E5394', [0, 0.58, 0.02], [1.10, 0.05, 1.06], [-6, 0, 0]);
+            this.shape(root, 'cone', '#384B8A', [0, 0.90, 0.0], [0.68, 0.62, 0.66], [-10, 0, 6]);
+            this.shape(root, 'cylinder', '#F4C244', [0, 0.63, 0.02], [0.68, 0.08, 0.66], [-6, 0, 0]);
+            this.shape(root, 'sphere', '#FFE168', [0.14, 0.84, 0.22], [0.10, 0.10, 0.08]);
+        } else if (outfit === 'angel_halo') {
+            this.shape(root, 'torus', '#FFE066', [0, 0.92, 0.02], [0.76, 0.24, 0.72], [8, 0, 0]);
+            this.shape(root, 'sphere', '#FFF9E8', [-0.46, 0.82, -0.02], [0.24, 0.14, 0.10], [0, 0, 24]);
+            this.shape(root, 'sphere', '#FFF9E8', [0.46, 0.82, -0.02], [0.24, 0.14, 0.10], [0, 0, -24]);
+        } else if (outfit === 'butterfly_wings') {
+            this.shape(root, 'sphere', '#F7A8D4', [-0.46, 0.84, -0.18], [0.46, 0.34, 0.08], [10, 22, 24]);
+            this.shape(root, 'sphere', '#A6DEFA', [-0.36, 0.62, -0.22], [0.34, 0.26, 0.08], [10, 20, -14]);
+            this.shape(root, 'sphere', '#F7A8D4', [0.46, 0.84, -0.18], [0.46, 0.34, 0.08], [10, -22, -24]);
+            this.shape(root, 'sphere', '#A6DEFA', [0.36, 0.62, -0.22], [0.34, 0.26, 0.08], [10, -20, 14]);
+        } else if (outfit === 'royal_cape') {
+            this.shape(root, 'box', '#8F6AD6', [0, 0.62, -0.34], [0.88, 0.56, 0.16], [28, 0, 0]);
+            this.shape(root, 'torus', '#F5CA4C', [0, 0.66, 0.26], [0.96, 0.36, 0.92], [24, 0, 0]);
+            this.shape(root, 'sphere', '#FFE066', [0, 0.56, 0.76], [0.16, 0.16, 0.10]);
         }
         return root;
     }
@@ -3451,28 +3495,38 @@ export class Main extends Component {
         let owned = pet.ownedOutfits.includes(outfitId) || (def.freeAtStar !== undefined && pet.star >= def.freeAtStar);
         let coins = this.data.coins, gems = this.data.gems;
         const ownedOutfits = pet.ownedOutfits.slice();
+        const outInv = { ...(this.data.outfitInventory || {}) };
+        let usedBag = false;
         if (!owned) {
-            if (def.currency === 'coins') {
+            if ((outInv[outfitId] || 0) > 0) {
+                outInv[outfitId] = outInv[outfitId] - 1;
+                owned = true;
+                usedBag = true;
+            } else if (def.unlockMode === 'ad') {
+                this.unlockOutfitByAd(outfitId, petId);
+                return false;
+            } else if (def.currency === 'coins') {
                 if (coins < def.price) { this.showCoinDialog(); return false; }
                 coins -= def.price;
+                owned = true;
             } else {
                 if (gems < def.price) { this.showGemDialog(); return false; }
                 gems -= def.price;
+                owned = true;
             }
-            owned = true;
         }
         if (owned && !ownedOutfits.includes(outfitId)) ownedOutfits.push(outfitId);
         const nextPet: Pet = { ...pet, outfit: outfitId, ownedOutfits };
         const candidate: Save = {
             ...this.dailyCandidate(),
-            coins, gems,
+            coins, gems, outfitInventory: outInv,
             pets: this.data.pets.map(p => p.id === petId ? nextPet : p),
         };
         if (!this.commitShop(candidate)) return false;
         void this.refreshPetAppearance(petId);
         this.renderHeader();
         if (this.page === 'profile') this.refreshProfileInPlace();
-        this.toast('已为' + this.petDisplayName(petId) + '换上「' + def.name + '」');
+        this.toast(usedBag ? `使用背包库存为${this.petDisplayName(petId)}免费解锁「${def.name}」` : '已为' + this.petDisplayName(petId) + '换上「' + def.name + '」');
         return true;
     }
 
@@ -3480,30 +3534,38 @@ export class Main extends Component {
         const pet = this.data.pets.find(p => p.id === petId);
         const def = PET_COATS.find(c => c.id === coatId);
         if (!pet || !def) return false;
-        const owned = pet.ownedCoats.includes(coatId);
+        let owned = pet.ownedCoats.includes(coatId);
         let coins = this.data.coins, gems = this.data.gems;
         const ownedCoats = pet.ownedCoats.slice();
+        const coatInv = { ...(this.data.coatInventory || {}) };
+        let usedBag = false;
         if (!owned) {
-            if (def.currency === 'coins') {
+            if ((coatInv[coatId] || 0) > 0) {
+                coatInv[coatId] = coatInv[coatId] - 1;
+                owned = true;
+                usedBag = true;
+            } else if (def.currency === 'coins') {
                 if (coins < def.price) { this.showCoinDialog(); return false; }
                 coins -= def.price;
+                owned = true;
             } else {
                 if (gems < def.price) { this.showGemDialog(); return false; }
                 gems -= def.price;
+                owned = true;
             }
-            ownedCoats.push(coatId);
+            if (owned) ownedCoats.push(coatId);
         }
         const nextPet: Pet = { ...pet, coat: coatId, ownedCoats };
         const candidate: Save = {
             ...this.dailyCandidate(),
-            coins, gems,
+            coins, gems, coatInventory: coatInv,
             pets: this.data.pets.map(p => p.id === petId ? nextPet : p),
         };
         if (!this.commitShop(candidate)) return false;
         void this.refreshPetAppearance(petId);
         this.renderHeader();
         if (this.page === 'profile') this.refreshProfileInPlace();
-        this.toast('已换上皮肤「' + def.name + '」');
+        this.toast(usedBag ? `使用背包库存为${this.petDisplayName(petId)}免费解锁「${def.name}」` : '已换上皮肤「' + def.name + '」');
         return true;
     }
 
@@ -4072,9 +4134,18 @@ export class Main extends Component {
                 }
                 const nm = this.text(tile, o.name, 0, -48, 196, 30, 22, '#4E2F1A');
                 nm.isBold = true; nm.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+                const bagCnt = (this.data.outfitInventory || {})[o.id] || 0;
                 if (equipped || owned) {
                     const stPill = drawCard(tile, '装扮状态条', 0, -84, 156, 34, equipped ? '#469A50' : '#85C47B', '#FFFFFF', 0, 17);
                     const st = this.text(stPill, equipped ? '穿戴中 ✓' : '已拥有', 0, 0, 146, 28, 19, '#FFFDF5');
+                    st.isBold = true; st.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+                } else if (bagCnt > 0) {
+                    const stPill = drawCard(tile, '装扮背包解锁条', 0, -84, 166, 34, '#3B9E5A', '#FFFFFF', 0, 17);
+                    const st = this.text(stPill, `背包×${bagCnt} 解锁`, 0, 0, 156, 28, 18, '#FFFDF5');
+                    st.isBold = true; st.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+                } else if (o.unlockMode === 'ad') {
+                    const stPill = drawCard(tile, '装扮广告条', 0, -84, 166, 34, '#D94343', '#FFFFFF', 0, 17);
+                    const st = this.text(stPill, '限定·看广告', 0, 0, 156, 28, 18, '#FFFDF5');
                     st.isBold = true; st.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
                 } else {
                     const affordable = (o.currency === 'coins' ? this.data.coins : this.data.gems) >= o.price;
@@ -4105,9 +4176,14 @@ export class Main extends Component {
                 }
                 const nm = this.text(tile, c.name, 0, -48, 196, 30, 22, '#4E2F1A');
                 nm.isBold = true; nm.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+                const bagCnt = (this.data.coatInventory || {})[c.id] || 0;
                 if (equipped || owned) {
                     const stPill = drawCard(tile, '皮肤状态条', 0, -84, 156, 34, equipped ? '#469A50' : '#85C47B', '#FFFFFF', 0, 17);
                     const st = this.text(stPill, equipped ? '穿戴中 ✓' : '已拥有', 0, 0, 146, 28, 19, '#FFFDF5');
+                    st.isBold = true; st.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+                } else if (bagCnt > 0) {
+                    const stPill = drawCard(tile, '皮肤背包解锁条', 0, -84, 166, 34, '#3B9E5A', '#FFFFFF', 0, 17);
+                    const st = this.text(stPill, `背包×${bagCnt} 解锁`, 0, 0, 156, 28, 18, '#FFFDF5');
                     st.isBold = true; st.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
                 } else {
                     const affordable = (c.currency === 'coins' ? this.data.coins : this.data.gems) >= c.price;
@@ -4647,8 +4723,8 @@ export class Main extends Component {
         const panel = this.sheet!;
         const daily = this.dailyCandidate().daily;
         this.dailySprite(panel, 'panel-clean', 0, 0, 1024, 1400, true);
-        // 标题投影至源图 y≈249..302，完全位于原标题牌 y=240..310 内。
-        this.dailyText(panel, '任务', 0, 425, 440, 58, 42, false, true);
+        // 1024×1400 九宫格缩放后木牌中心位于 y=382，文字完全居中不超框。
+        this.dailyText(panel, '任务', 0, 382, 440, 58, 42, false, true);
         const close = this.uiNode(panel, '收起', 420, 390, 128, 128);
         this.dailySprite(close, 'close', 0, 0, 112, 112, false, '关闭图标');
         this.shopButton(close, () => this.open('home'));
@@ -4776,63 +4852,41 @@ export class Main extends Component {
         this.toast('寻宝成功' + note + '！金币 +' + coinGain + '，钻石 +' + gemGain + '，经验 +25' + (bonusItemName ? '，带回【' + bonusItemName + '】×1' : ''));
     }
 
-    /** 商店「装扮」页签：3D 配饰与服装皮肤展柜，支持原地切换伙伴、购买与穿戴零跳动 */
-    private renderShopOutfits(body: Node, content: Node) {
-        const alivePets = this.data.pets.filter(p => !p.dead && !p.lost);
-        if (!alivePets.some(p => p.id === this.selected) && alivePets.length) {
-            this.selected = alivePets[0].id;
-        }
-        const getTargetPet = () => this.data.pets.find(p => p.id === this.selected) || alivePets[0];
+    /** 商店「装扮」页签：纯售卖展柜（不绑定特定宠物），买进背包后在任意宠物主页直接点选解锁免重复购买；含 3 款限定广告效果装扮 */
+    private renderShopOutfits(_body: Node, content: Node) {
+        const tip = this.text(content, '购买或看广告解锁装扮后存入背包，前往任意伙伴主页即可免费点选穿戴', 0, 326, 740, 28, 19, '#6E4B2F');
+        tip.isBold = true; tip.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
 
-        const bar = this.uiNode(content, '装扮伙伴切换栏', 0, 322, 740, 52);
-        const bgG = bar.addComponent(Graphics);
-        bgG.fillColor = this.color('#F5E8C8'); bgG.strokeColor = this.color('#CFA86E'); bgG.lineWidth = 2.5;
-        bgG.roundRect(-370, -26, 740, 52, 18); bgG.fill(); bgG.stroke();
-        const petLbl = this.text(bar, '', -96, 0, 460, 32, 22, '#4E2C15');
-        petLbl.isBold = true; petLbl.horizontalAlign = Label.HorizontalAlign.LEFT;
-
-        const switchBtn = this.bagButton(bar, '切换伙伴 ›', 256, 0, 178, 40, () => {
-            const list = this.data.pets.filter(p => !p.dead && !p.lost);
-            if (list.length <= 1) return;
-            const cur = list.findIndex(p => p.id === this.selected);
-            this.selected = list[(cur + 1) % list.length].id;
-            refreshOutfitStates();
-        });
-        switchBtn.name = '商店装扮切换伙伴';
-
-        const vp = this.uiNode(content, '装扮商品滚动视口', 0, -26, 760, 620);
+        const vp = this.uiNode(content, '装扮商品滚动视口', 0, -34, 760, 684);
         vp.addComponent(Mask).type = Mask.Type.GRAPHICS_RECT;
         const outfitList = PET_OUTFITS.filter(o => o.id !== 'none');
         const coatList = PET_COATS.filter(c => c.id !== 'original');
         type ShopOutfitEntry =
-            | { kind: 'outfit'; id: OutfitId; name: string; price: number; currency: Currency; freeAtStar?: number; theme: SlotBgTheme }
-            | { kind: 'coat'; id: CoatId; name: string; price: number; currency: Currency; color: string; theme: SlotBgTheme };
+            | { kind: 'outfit'; id: OutfitId; name: string; icon: string; price: number; currency: Currency; unlockMode?: 'buy' | 'ad'; limited?: boolean; effectTag?: string; theme: SlotBgTheme }
+            | { kind: 'coat'; id: CoatId; name: string; icon: string; price: number; currency: Currency; unlockMode?: 'buy' | 'ad'; limited?: boolean; effectTag?: string; theme: SlotBgTheme };
         const entries: ShopOutfitEntry[] = [
             ...outfitList.map(o => ({
-                kind: 'outfit' as const, id: o.id, name: o.name, price: o.price, currency: o.currency, freeAtStar: o.freeAtStar,
-                theme: (o.freeAtStar ? 'coin' : o.currency === 'gems' ? 'epic' : 'gem') as SlotBgTheme,
+                kind: 'outfit' as const, id: o.id, name: o.name, icon: o.id, price: o.price, currency: o.currency,
+                unlockMode: o.unlockMode, limited: o.limited, effectTag: o.effectTag,
+                theme: (o.limited ? 'rainbow' : o.id === 'wizard_hat' || o.freeAtStar ? 'coin' : o.currency === 'gems' ? 'epic' : o.price >= 240 ? 'gem' : 'heal') as SlotBgTheme,
             })),
             ...coatList.map(c => ({
-                kind: 'coat' as const, id: c.id, name: c.name, price: c.price, currency: c.currency, color: c.swatch,
-                theme: (c.currency === 'gems' ? 'epic' : 'heal') as SlotBgTheme,
+                kind: 'coat' as const, id: c.id, name: c.name, icon: c.icon, price: c.price, currency: c.currency,
+                theme: (c.price >= 200 ? 'gem' : c.price >= 150 ? 'heal' : 'general') as SlotBgTheme,
             })),
         ];
 
         const rows = Math.ceil(entries.length / 3);
-        const cardW = 240, cardH = 300, gapX = 12, gapY = 12;
-        const totalH = Math.max(620, rows * (cardH + gapY) + 24);
-        const grid = this.uiNode(vp, '装扮商品网格', 0, 310, 760, totalH);
+        const cardW = 240, cardH = 316, gapX = 12, gapY = 12;
+        const totalH = Math.max(684, rows * (cardH + gapY) + 24);
+        const grid = this.uiNode(vp, '装扮商品网格', 0, 342, 760, totalH);
         grid.getComponent(UITransform)!.setAnchorPoint(0.5, 1);
         const scroll = vp.addComponent(ScrollView);
         scroll.content = grid; scroll.horizontal = false; scroll.vertical = true;
         scroll.cancelInnerEvents = true; scroll.elastic = true;
 
         const updaters: Array<() => void> = [];
-        const refreshOutfitStates = () => {
-            const p = getTargetPet();
-            petLbl.string = p ? `当前装扮伙伴：${this.petDisplayName(p.id)}（★${p.star}）` : '暂无可装扮伙伴';
-            updaters.forEach(fn => fn());
-        };
+        const refreshAll = () => updaters.forEach(fn => fn());
 
         entries.forEach((entry, idx) => {
             const col = idx % 3, row = Math.floor(idx / 3);
@@ -4841,80 +4895,103 @@ export class Main extends Component {
 
             const card = this.shopArt(grid, 'card', x, y, cardW, cardH);
             card.name = '装扮商品卡-' + entry.id;
-            const title = this.headerText(card, entry.name, 0, 122, 224, 30, 22);
+            const title = this.headerText(card, entry.name, 0, 128, 224, 30, 22);
             title.overflow = Label.Overflow.SHRINK; title.enableWrapText = false;
 
-            const slotBox = this.uiNode(card, '装扮图标槽', 0, 42, 118, 118);
-            this.itemSlotBg(slotBox, entry.theme, 118, 118, '装扮槽底图');
-            if (entry.kind === 'outfit') {
-                const sp = this.uiNode(slotBox, '装扮商品图标', 0, 2, 92, 92).addComponent(Sprite);
-                sp.sizeMode = Sprite.SizeMode.CUSTOM;
-                resources.load('art/outfits/' + entry.id + '/spriteFrame', SpriteFrame, (e, f) => {
-                    if (!e && f && isValid(sp, true)) sp.spriteFrame = f;
-                });
-            } else {
-                const sw = this.uiNode(slotBox, '皮肤色块', 0, 0, 74, 74);
-                const swg = sw.addComponent(Graphics);
-                swg.fillColor = this.color(entry.color); swg.strokeColor = this.color('#6A4728'); swg.lineWidth = 4;
-                swg.circle(0, 0, 34); swg.fill(); swg.stroke();
+            const slotBox = this.uiNode(card, '装扮图标槽', 0, 52, 114, 114);
+            this.itemSlotBg(slotBox, entry.theme, 114, 114, '装扮槽底图');
+            const sp = this.uiNode(slotBox, '装扮商品图标', 0, 2, 90, 90).addComponent(Sprite);
+            sp.sizeMode = Sprite.SizeMode.CUSTOM;
+            this.loadOutfitIcon(sp, entry.icon);
+
+            if (entry.limited) {
+                this.pillBadge(card, '限定', 76, 98, 62, 24, '#D94343', C.white, 15);
             }
 
-            const statusLbl = this.text(card, '', 0, -38, 210, 26, 19, '#6E533C');
-            statusLbl.isBold = true;
+            // 效果词条（如有）或品类说明
+            const effLbl = this.text(card, entry.effectTag || (entry.kind === 'coat' ? '3D 服装换肤' : '3D 时尚配饰'), 0, -24, 220, 24, 17, entry.effectTag ? '#B85A18' : '#8A6D52');
+            effLbl.isBold = !!entry.effectTag; effLbl.overflow = Label.Overflow.SHRINK; effLbl.enableWrapText = false;
 
-            const buyBtn = this.shopArt(card, 'buy', 0, -100, 190, 66);
-            buyBtn.name = '装扮购买按钮-' + entry.id;
-            const btnOverlay = this.uiNode(buyBtn, '按钮内容', 0, 0, 184, 60);
+            const ownedLbl = this.text(card, '', 0, -52, 210, 24, 18, '#6E533C');
+            ownedLbl.isBold = true;
 
-            const updateCard = () => {
-                const p = getTargetPet();
-                if (!p) return;
-                const isEquipped = entry.kind === 'outfit' ? p.outfit === entry.id : p.coat === entry.id;
-                const isOwned = entry.kind === 'outfit'
-                    ? (p.ownedOutfits.includes(entry.id) || (entry.freeAtStar !== undefined && p.star >= entry.freeAtStar))
-                    : p.ownedCoats.includes(entry.id);
+            const buyBtn = this.shopArt(card, 'buy', 0, -108, 190, 66);
+            buyBtn.name = entry.unlockMode === 'ad' ? '装扮广告按钮-' + entry.id : '装扮购买按钮-' + entry.id;
+            if (entry.unlockMode === 'ad') {
+                this.headerText(buyBtn, '看广告解锁', 0, 0, 176, 36, 22);
+                this.shopButton(buyBtn, () => this.unlockOutfitByAd(entry.id as OutfitId, undefined, refreshAll));
+            } else {
+                this.addPriceTag(buyBtn, entry.currency, entry.price, 8, 0, 30, '#FFFFFF');
+                this.shopButton(buyBtn, () => {
+                    const ok = entry.kind === 'outfit'
+                        ? this.buyOutfitToBag(entry.id)
+                        : this.buyCoatToBag(entry.id);
+                    if (ok) refreshAll();
+                });
+            }
 
-                statusLbl.string = isEquipped ? '当前已穿戴' : isOwned ? '已拥有' : (entry.kind === 'outfit' && entry.freeAtStar ? `★${entry.freeAtStar} 免费解锁` : '未拥有');
-                statusLbl.color = this.color(isEquipped ? '#228B3C' : isOwned ? '#3B7DD8' : '#7A5B3E');
-
-                btnOverlay.removeAllChildren();
-                if (isEquipped) {
-                    this.headerText(btnOverlay, '已穿戴', 0, 0, 168, 36, 23);
-                } else if (isOwned) {
-                    this.headerText(btnOverlay, '立即换上', 0, 0, 168, 36, 23);
-                } else {
-                    this.addPriceTag(btnOverlay, entry.currency, entry.price, 8, 0, 30, '#FFFFFF');
-                }
-            };
-            updaters.push(updateCard);
-
-            this.shopButton(buyBtn, () => {
-                const p = getTargetPet();
-                if (!p) return;
-                const wasOwned = entry.kind === 'outfit'
-                    ? (p.ownedOutfits.includes(entry.id) || (entry.freeAtStar !== undefined && p.star >= entry.freeAtStar))
-                    : p.ownedCoats.includes(entry.id);
-                const ok = entry.kind === 'outfit'
-                    ? this.selectPetOutfit(p.id, entry.id)
-                    : this.selectPetCoat(p.id, entry.id);
-                if (ok) {
-                    if (!wasOwned && entry.price > 0) {
-                        this.showRewardToast([{ kind: entry.currency, amount: -entry.price }], '消耗');
-                    }
-                    refreshOutfitStates();
-                }
+            updaters.push(() => {
+                const cnt = entry.kind === 'outfit'
+                    ? ((this.data.outfitInventory || {})[entry.id] || 0)
+                    : ((this.data.coatInventory || {})[entry.id] || 0);
+                ownedLbl.string = '背包已存 ×' + cnt;
+                ownedLbl.color = this.color(cnt > 0 ? '#228B3C' : '#6E533C');
             });
         });
+        refreshAll();
+    }
 
-        const goProfile = this.shopArt(body, 'buy', 0, -534, 340, 340 * 120 / 321);
-        goProfile.name = '商店进档案试穿按钮';
-        this.headerText(goProfile, '前往 3D 档案试穿 ›', 0, 0, 310, 44, 25);
-        this.shopButton(goProfile, () => {
-            const p = getTargetPet();
-            if (p) this.openProfile(p.id, 'outfit');
-        });
+    public buyOutfitToBag(id: OutfitId): boolean {
+        const def = PET_OUTFITS.find(o => o.id === id);
+        if (!def || def.id === 'none' || def.unlockMode === 'ad') return false;
+        if (def.currency === 'coins' && this.data.coins < def.price) { this.showCoinDialog(); return false; }
+        if (def.currency === 'gems' && this.data.gems < def.price) { this.showGemDialog(); return false; }
+        const c = this.dailyCandidate();
+        if (def.currency === 'coins') c.coins -= def.price; else c.gems -= def.price;
+        c.outfitInventory = { ...(c.outfitInventory || {}), [id]: ((c.outfitInventory || {})[id] || 0) + 1 };
+        if (!this.commitShop(c)) return false;
+        this.renderHeader();
+        if (def.price > 0) this.showRewardToast([{ kind: def.currency, amount: -def.price }], '消耗');
+        this.toast('已购入「' + def.name + '」存入背包，可在任意伙伴主页免费解锁穿戴');
+        return true;
+    }
 
-        refreshOutfitStates();
+    public buyCoatToBag(id: CoatId): boolean {
+        const def = PET_COATS.find(co => co.id === id);
+        if (!def || def.id === 'original') return false;
+        if (def.currency === 'coins' && this.data.coins < def.price) { this.showCoinDialog(); return false; }
+        if (def.currency === 'gems' && this.data.gems < def.price) { this.showGemDialog(); return false; }
+        const c = this.dailyCandidate();
+        if (def.currency === 'coins') c.coins -= def.price; else c.gems -= def.price;
+        c.coatInventory = { ...(c.coatInventory || {}), [id]: ((c.coatInventory || {})[id] || 0) + 1 };
+        if (!this.commitShop(c)) return false;
+        this.renderHeader();
+        if (def.price > 0) this.showRewardToast([{ kind: def.currency, amount: -def.price }], '消耗');
+        this.toast('已购入「' + def.name + '」存入背包，可在任意伙伴主页免费解锁穿戴');
+        return true;
+    }
+
+    public unlockOutfitByAd(id: OutfitId, equipPetId?: number, onDone?: () => void) {
+        const def = PET_OUTFITS.find(o => o.id === id);
+        if (!def || def.unlockMode !== 'ad') return;
+        this.requestRewardedAd(() => {
+            const c = this.dailyCandidate();
+            if (equipPetId !== undefined) {
+                const pet = c.pets.find(p => p.id === equipPetId);
+                if (pet) {
+                    const ownedOutfits = pet.ownedOutfits.includes(id) ? pet.ownedOutfits : [...pet.ownedOutfits, id];
+                    c.pets = c.pets.map(p => p.id === equipPetId ? { ...p, outfit: id, ownedOutfits } : p);
+                }
+            } else {
+                c.outfitInventory = { ...(c.outfitInventory || {}), [id]: ((c.outfitInventory || {})[id] || 0) + 1 };
+            }
+            if (!this.commitShop(c)) return;
+            if (equipPetId !== undefined) void this.refreshPetAppearance(equipPetId);
+            this.renderHeader();
+            if (this.page === 'profile') this.refreshProfileInPlace();
+            onDone?.();
+            this.toast('限定装扮解锁成功！已获得「' + def.name + '」');
+        }, '暂未解锁限定装扮');
     }
 
     private renderShopTombstones(panel: Node, content: Node) {
@@ -5373,10 +5450,14 @@ export class Main extends Component {
             return false;
         }
         const bonusItems = rollIdleBonusItems(preview.itemCount);
+        const outfitAdvBonus = this.data.pets.filter(p => !p.dead && !p.lost).reduce((acc, p) => acc + (PET_OUTFITS.find(o => o.id === p.outfit)?.adventureBonus || 0), 0);
+        const outfitXpBonus = this.data.pets.filter(p => !p.dead && !p.lost).reduce((acc, p) => acc + (PET_OUTFITS.find(o => o.id === p.outfit)?.xpBonus || 0), 0);
+        const finalCoins = Math.round(preview.coins * (1 + Math.min(0.8, outfitAdvBonus)));
+        const finalGems = Math.round(preview.gems * (1 + Math.min(0.5, outfitAdvBonus * 0.5)));
         const c = this.dailyCandidate();
-        c.coins = Math.min(100000000, c.coins + preview.coins);
-        c.gems = Math.min(100000000, c.gems + preview.gems);
-        c.xp = Math.min(100000000, c.xp + Math.max(15, Math.min(200, preview.minutes * 2)));
+        c.coins = Math.min(100000000, c.coins + finalCoins);
+        c.gems = Math.min(100000000, c.gems + finalGems);
+        c.xp = Math.min(100000000, c.xp + Math.round(Math.max(15, Math.min(200, preview.minutes * 2)) * (1 + Math.min(0.8, outfitXpBonus))));
         c.adventureIdleStart = Date.now();
         c.itemInventory = { ...c.itemInventory };
         bonusItems.forEach(bi => { c.itemInventory[bi.id] = (c.itemInventory[bi.id] || 0) + bi.count; });
@@ -5392,17 +5473,17 @@ export class Main extends Component {
             petName: '冒险小队',
             type: 'chest',
             title: '开启挂机宝箱',
-            text: `开启了累计 ${preview.minutes} 分钟的冒险宝箱：金币 +${preview.coins}、钻石 +${preview.gems}${itemSummary ? '，带回 ' + itemSummary : ''}！`,
+            text: `开启了累计 ${preview.minutes} 分钟的冒险宝箱：金币 +${finalCoins}、钻石 +${finalGems}${itemSummary ? '，带回 ' + itemSummary : ''}！`,
             itemId: firstItem?.id,
             itemCount: firstItem?.count,
-            coins: preview.coins,
-            gems: preview.gems,
+            coins: finalCoins,
+            gems: finalGems,
         });
         this.renderHeader();
         this.updateAdventureLabel();
         const grantRewards: RewardGrantItem[] = [];
-        if (preview.coins > 0) grantRewards.push({ kind: 'coins', amount: preview.coins });
-        if (preview.gems > 0) grantRewards.push({ kind: 'gems', amount: preview.gems });
+        if (finalCoins > 0) grantRewards.push({ kind: 'coins', amount: finalCoins });
+        if (finalGems > 0) grantRewards.push({ kind: 'gems', amount: finalGems });
         bonusItems.forEach(bi => grantRewards.push({ kind: 'item', itemId: bi.id, amount: bi.count }));
         this.playChestOpenEffect();
         const dialogTitle = `累计挂机 ${preview.minutes} 分钟 · 满载而归！`;
@@ -6435,10 +6516,12 @@ export class Main extends Component {
                 // 小院便便越多，清洁度下降越快（3坨及以上触发加速惩罚）。
                 const poopPenalty = poopCount >= 3 ? poopCount * 1.15 : poopCount * 0.6;
                 p.clean = Math.max(0, p.clean - (0.7 + poopPenalty) * (tr.cleanDecayMult ?? 1));
-                p.joy = Math.max(0, p.joy - (0.5 + (p.hunger < 20 ? 0.5 : 0) + (p.clean < 30 ? 0.4 : 0)) * (tr.joyDecayMult ?? 1));
+                const outfitDef = PET_OUTFITS.find(o => o.id === p.outfit);
+                const outfitDecay = outfitDef?.decayMult ?? 1;
+                p.joy = Math.max(0, p.joy - (0.5 + (p.hunger < 20 ? 0.5 : 0) + (p.clean < 30 ? 0.4 : 0)) * (tr.joyDecayMult ?? 1) * outfitDecay);
                 p.energy = Math.max(0, p.energy - 0.35 * (tr.energyDecayMult ?? 1));
                 if (p.hunger < 20 || p.clean < 30) {
-                    const hDrop = (p.hunger < 20 ? 1.6 : 0) + (p.clean < 30 ? 1.8 : 0) + (poopCount >= 3 ? 0.6 : 0);
+                    const hDrop = ((p.hunger < 20 ? 1.6 : 0) + (p.clean < 30 ? 1.8 : 0) + (poopCount >= 3 ? 0.6 : 0)) * outfitDecay;
                     p.health = Math.max(0, p.health - hDrop);
                     if (p.health <= 0) toDie.push(p);
                 }
