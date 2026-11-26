@@ -134,6 +134,7 @@ export class Main extends Component {
     private petSkins = new Map<string, Promise<Texture2D | null>>();
     private compositeTextures = new Map<string, Texture2D>();
     private petAvatars = new Map<string, Promise<SpriteFrame | null>>();
+    private petPortraits = new Map<string, Promise<SpriteFrame | null>>();
     private shadowTexture: Promise<Texture2D | null> | null = null;
     private page: Page = 'home';
     private selected = 0;
@@ -2948,6 +2949,45 @@ export class Main extends Component {
         this.renderAlbumGrid();
     }
 
+    private loadPetPortrait(skinKey: string): Promise<SpriteFrame | null> {
+        let loading = this.petPortraits.get(skinKey);
+        if (!loading) {
+            loading = new Promise<SpriteFrame | null>(resolve => {
+                resources.load('pets/portraits/' + skinKey + '/spriteFrame', SpriteFrame, (error, frame) => {
+                    if (!isValid(this, true)) { resolve(null); return; }
+                    resolve(error || !frame ? null : frame);
+                });
+            });
+            this.petPortraits.set(skinKey, loading);
+        }
+        return loading;
+    }
+
+    private petPortrait(parent: Node, id: number, x: number, y: number, size: number, locked = false) {
+        const b = BREEDS[id];
+        const n = this.uiNode(parent, '伙伴立绘-' + b.kind + '-' + id, x, y, size, size);
+        const art = this.uiNode(n, '伙伴头像图', 0, 0, size, size);
+        const sprite = art.addComponent(Sprite); sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+        if (locked) sprite.color = new Color(156, 162, 172, 255);
+        void this.loadPetPortrait(b.skin).then(frame => {
+            if (!isValid(n, true) || !isValid(sprite, true)) return;
+            if (frame) sprite.spriteFrame = frame;
+        });
+        if (locked) {
+            const lock = this.uiNode(n, '未解锁遮罩', size * 0.28, -size * 0.28, 42, 42);
+            const lg = lock.addComponent(Graphics);
+            lg.fillColor = new Color(68, 72, 82, 220);
+            lg.circle(0, 0, 20); lg.fill();
+            lg.strokeColor = this.color('#F5E6C8'); lg.lineWidth = 3;
+            lg.arc(0, 4, 6.5, 0, Math.PI, false); lg.stroke();
+            lg.fillColor = this.color('#F5C85B');
+            lg.roundRect(-8.5, -10, 17, 13, 3.5); lg.fill();
+            lg.fillColor = new Color(68, 72, 82, 255);
+            lg.circle(0, -3.5, 2.3); lg.fill();
+        }
+        return n;
+    }
+
     private renderAlbumGrid() {
         if (this.page !== 'album' || !this.sheet || !isValid(this.sheet, true)) return;
         const panel = this.sheet;
@@ -2978,11 +3018,14 @@ export class Main extends Component {
         content.children.slice().forEach(child => { child.active = false; child.removeFromParent(); child.destroy(); });
 
         const list = BREEDS.filter(b => this.albumFilter === 'all' || b.kind === this.albumFilter);
-        const cols = 3, cardW = 264, cardH = 256, gapX = 20, gapY = 18;
+        // 参考竖版长条图鉴卡片（268×360）：上方稀有度底色框 + 全身立绘 + 全星级展示 + 可升星/领奖红点标签 + 底部白条名字
+        const cols = 3, cardW = 268, cardH = 360, gapX = 20, gapY = 20;
         const rows = Math.max(1, Math.ceil(list.length / cols));
-        const totalH = Math.max(944, rows * (cardH + gapY) + 14);
+        const totalH = Math.max(996, rows * (cardH + gapY) + 16);
         content.getComponent(UITransform)!.setContentSize(880, totalH);
         viewport!.getComponent(ScrollView)!.scrollToTop(0);
+
+        const rarityTint: Record<'R' | 'SR' | 'SSR', string> = { R: '#E0F1DB', SR: '#E0EBFC', SSR: '#FFF0C2' };
 
         list.forEach((b, idx) => {
             const col = idx % cols, row = Math.floor(idx / cols);
@@ -2992,30 +3035,76 @@ export class Main extends Component {
             const owned = !!pet;
             const rarity = RARITY_INFO[b.rarity];
             const canClaim = owned && !this.data.albumClaimed[b.id];
+            const req = pet ? STAR_REQUIREMENTS[pet.star] : undefined;
+            const extraCopies = Math.max(0, (this.data.recruit.copies[b.id] || 0) - 1);
+            const canUpgrade = !!pet && !!req && extraCopies >= req.extraCopies && this.data.coins >= req.coins;
 
             const card = this.uiNode(content, '图鉴卡片-' + b.id, x, y, cardW, cardH);
-            // 手绘水彩爪印稀有度卡片（右上角星与底部骨头铭牌零变形）。
-            const cardFrame = this.albumArt(card, 'card-' + b.rarity.toLowerCase(), 0, 0, cardW, cardH, '图鉴卡片底框', false);
-            const cardSprite = cardFrame.getComponent(Sprite)!;
-            if (!owned) cardSprite.color = new Color(216, 220, 226, 255);
+            // 竖版圆角白底外框 + 深棕手绘描边
+            const cg = card.addComponent(Graphics);
+            cg.fillColor = this.color('#FFFDF8');
+            cg.strokeColor = this.color(owned ? '#6E4226' : '#96938E');
+            cg.lineWidth = 3.5;
+            cg.roundRect(-cardW / 2, -cardH / 2, cardW, cardH, 22);
+            cg.fill(); cg.stroke();
+            // 上方稀有度柔和底色区（承载全身立绘与所有星级）
+            cg.fillColor = this.color(owned ? rarityTint[b.rarity] : '#E2E5EB');
+            cg.roundRect(-cardW / 2 + 12, -cardH / 2 + 66, cardW - 24, cardH - 78, 16);
+            cg.fill();
 
             // 左上角：手绘立体稀有度徽章
-            const badgeH = b.rarity === 'SSR' ? 64 : 58;
-            this.albumArt(card, 'rarity-' + b.rarity.toLowerCase(), -89, 89, 55, badgeH, '稀有度徽章-' + b.rarity);
-            // 右上方：未领显示通用钻石奖励，已领显示分级星级图标
+            const badgeH = b.rarity === 'SSR' ? 62 : 56;
+            this.albumArt(card, 'rarity-' + b.rarity.toLowerCase(), -92, 134, 54, badgeH, '稀有度徽章-' + b.rarity);
+
+            // 右上角：待领图鉴钻显示醒目「领奖」提醒胶囊+红点（引导进主页领奖）；未解锁显示首获钻石
             if (canClaim) {
-                this.diamondBadge(card, b.unlockGems, 20, 93, 98, 28, '#E05744', '#FFFDF5', 16);
-            } else if (owned) {
-                this.starTierBadge(card, pet!.star, 40, 93, 38);
-            } else {
-                this.diamondBadge(card, b.unlockGems, 20, 93, 98, 28, '#8E8B86', '#FFF8EC', 15);
+                const claimTag = this.uiNode(card, '图鉴领奖提醒-' + b.id, 72, 134, 96, 44);
+                const tg = claimTag.addComponent(Graphics);
+                tg.fillColor = this.color('#E55243'); tg.strokeColor = this.color('#FFFDF5'); tg.lineWidth = 2.5;
+                tg.roundRect(-48, -22, 96, 44, 22); tg.fill(); tg.stroke();
+                this.currencyIcon(claimTag, 'gems', -26, 0, 26);
+                const tLbl = this.text(claimTag, '领奖', 16, 0, 56, 30, 20, '#FFFDF5');
+                tLbl.isBold = true; tLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+                // 右上小红点
+                tg.fillColor = this.color('#FF3B30'); tg.circle(42, 18, 8); tg.fill();
+            } else if (!owned) {
+                this.diamondBadge(card, b.unlockGems, 68, 138, 96, 28, '#8E8B86', '#FFF8EC', 15);
             }
 
-            // 中央头像（未解锁采用清晰可见的柔和灰雾+小锁）
-            this.petAvatar(card, b.id, 0, 12, 120, !owned);
-            // 底部骨头框正中仅显示伙伴名称
-            const nameLabel = this.dailyText(card, owned ? this.petDisplayName(b.id) : b.name, 0, -90, 154, 34, 24);
-            nameLabel.color = this.color(owned ? '#49301E' : '#6A6762');
+            // 中央：全新手绘全身猫狗立绘（未解锁为清晰柔和灰雾+小锁）
+            this.petPortrait(card, b.id, 0, 36, 186, !owned);
+
+            // 立绘下方：完整展示当前阶位所有星级（1~5颗金/蓝/紫/粉星或皇冠，绝不省略！）
+            if (owned && pet) {
+                const tier = Math.max(1, Math.min(6, Math.ceil(pet.star / 5)));
+                const litCount = ((pet.star - 1) % 5) + 1;
+                const starAspect = tier === 6 ? 202 / 150 : tier === 5 ? 158 / 150 : 150 / 148;
+                const starSize = 36;
+                const starW = Math.round(starSize * starAspect);
+                const step = Math.min(40, Math.round(starW + 4));
+                const startX = -((litCount - 1) * step) / 2;
+                const starRow = this.uiNode(card, '图鉴全星级行-' + b.id, 0, -82, 236, 42);
+                for (let s = 0; s < litCount; s++) {
+                    this.albumArt(starRow, 'star-' + tier, startX + s * step, 0, starW, starSize, '卡片星标-' + s);
+                }
+                // 可升星提醒标签 + 红点（位于星级右侧偏上，完全复刻参考图）
+                if (canUpgrade) {
+                    const upTag = this.uiNode(card, '图鉴可升星标签-' + b.id, 78, -42, 88, 32);
+                    const ug = upTag.addComponent(Graphics);
+                    ug.fillColor = this.color('#E55243'); ug.strokeColor = this.color('#FFFDF5'); ug.lineWidth = 2;
+                    ug.roundRect(-44, -16, 88, 32, 16); ug.fill(); ug.stroke();
+                    const uLbl = this.text(upTag, '可升星', 0, 0, 80, 26, 18, '#FFFDF5');
+                    uLbl.isBold = true; uLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+                    ug.fillColor = this.color('#FF3B30'); ug.circle(40, 14, 7); ug.fill();
+                }
+            } else {
+                const lockHint = this.text(card, '未解锁', 0, -82, 140, 28, 19, '#7A7E86');
+                lockHint.isBold = true; lockHint.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+            }
+
+            // 底部白条：居中展示清晰大号伙伴名称
+            const nameLabel = this.text(card, owned ? this.petDisplayName(b.id) : b.name, 0, -146, 220, 38, 26, owned ? '#4E2F1A' : '#6A6762');
+            nameLabel.isBold = true; nameLabel.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
 
             this.pressVisualFeedback(card, card.children.slice());
             this.scrollTap(card, () => {
