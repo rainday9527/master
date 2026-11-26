@@ -5356,10 +5356,20 @@ export class Main extends Component {
                 this.shopCards.push(binding);
                 this.shopButton(buy, () => this.buyShopItem(binding.id));
             }
-            const timer = this.shopArt(body, 'timer-panel', -194, -526, 330, 82);
-            this.shopArt(timer, 'clock', -120, 0, 40, 47);
-            this.shopTimerLabel = this.text(timer, '', 20, 0, 220, 46, 32, C.white);
+            const timer = this.uiNode(body, '商店倒计时条', -194, -526, 330, 80);
+            const tg = timer.addComponent(Graphics);
+            tg.fillColor = new Color(138, 92, 46, 48);
+            tg.roundRect(-165, -44, 330, 80, 40); tg.fill();
+            tg.fillColor = this.color('#F8E9CC');
+            tg.strokeColor = this.color('#B98048');
+            tg.lineWidth = 3.5;
+            tg.roundRect(-165, -40, 330, 80, 40); tg.fill(); tg.stroke();
+            tg.fillColor = new Color(255, 252, 240, 120);
+            tg.roundRect(-152, 2, 304, 30, 15); tg.fill();
+            this.shopArt(timer, 'clock', -116, 0, 40, 47);
+            this.shopTimerLabel = this.text(timer, '', 22, 0, 224, 46, 32, '#5B3418');
             this.shopTimerLabel.isBold = true;
+            this.shopTimerLabel.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
             const refresh = this.shopArt(body, 'buy', 202, -526, 270, 270 * 120 / 321);
             this.shopCostLabel = this.headerText(refresh, '', 0, 0, 250, 46, 29);
             this.shopCostIcon = this.uiNode(refresh, '刷新钻石图标', 58, 0, 42, 42 * 315 / 353);
