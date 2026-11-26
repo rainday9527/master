@@ -235,16 +235,17 @@ def build_body(kind: str) -> dict:
 
 
 def build_head(kind: str) -> dict:
-    """Adorable sculpted chubby plushie head in HeadPivot local space.
-    Matches the exact round chubby-cheek silhouette of our generated avatars!
+    """Adorable sculpted round chubby mochi-plushie head in HeadPivot local space.
+    Matches the wide, round, dome-crowned chubby-cheek silhouette of our generated avatars!
     UV Quadrant 1: u in [0.03, 0.47], v in [0.03, 0.47]
     - u = 0.25 is dead-center front face (+Z)
     - v = 0.03 is top crown, v = 0.25 is eye/cheek midline, v = 0.47 is chin
     """
     is_cat = kind == "cat"
-    rx_base = 0.64 if is_cat else 0.61
-    ry_base = 0.61 if is_cat else 0.59
-    rz_base = 0.58 if is_cat else 0.58
+    # Broad, round, chubby head proportions (wider than tall, NO top pinch!)
+    rx_base = 0.72 if is_cat else 0.69
+    ry_base = 0.58 if is_cat else 0.57
+    rz_base = 0.59 if is_cat else 0.60
 
     def eval_fn(uf: float, vf: float):
         theta = lerp(0.015, math.pi - 0.015, vf)
@@ -258,59 +259,62 @@ def build_head(kind: str) -> dict:
         uy = ct
         uz = st * ca
 
-        # 1) Plump chubby lower cheeks (extra kawaii roundness!)
-        cheek_band = math.exp(-((uy + 0.24) / 0.42) ** 2)
-        cheek_side = (abs(ux) ** 1.15) * smoothstep(-0.35, 0.75, uz + 0.35)
-        rx = rx_base * (1.0 + 0.14 * cheek_band * (0.50 + 0.50 * cheek_side) - 0.05 * smoothstep(0.35, 0.95, uy))
+        # 1) Smooth, broad mochi roundness from crown down through chubby cheeks (zero onion/cone pinch!)
+        cheek_band = math.exp(-((uy + 0.14) / 0.52) ** 2)
+        crown_round = 0.035 * math.exp(-((uy - 0.42) / 0.38) ** 2)
+        rx = rx_base * (1.0 + (0.075 if is_cat else 0.080) * cheek_band + crown_round)
         x = ux * rx
+        # Gently soften the very top crown so it reads as a plush rounded dome, never a pointy egg
         y = uy * ry_base
+        if uy > 0.55:
+            y -= 0.025 * smoothstep(0.55, 1.0, uy)
         z = uz * rz_base
 
         # 2) Soft plush muzzle / snout cushion on front-lower face
         if uz > 0.1:
-            muzzle_w = 0.36 if is_cat else 0.33
-            muzzle_h = 0.26 if is_cat else 0.29
-            muzzle_y = -0.17 if is_cat else -0.15
+            muzzle_w = 0.34 if is_cat else 0.37
+            muzzle_h = 0.25 if is_cat else 0.29
+            muzzle_y = -0.15 if is_cat else -0.14
             dm = ((ux / muzzle_w) ** 2) + (((uy - muzzle_y) / muzzle_h) ** 2)
-            muzzle_puff = math.exp(-dm * 1.85) * smoothstep(0.25, 0.85, uz)
-            z += (0.095 if is_cat else 0.155) * muzzle_puff
-            y -= (0.012 if is_cat else 0.020) * muzzle_puff
+            muzzle_puff = math.exp(-dm * 1.75) * smoothstep(0.22, 0.85, uz)
+            z += (0.085 if is_cat else 0.175) * muzzle_puff
+            y -= (0.010 if is_cat else 0.016) * muzzle_puff
 
             # Twin cute ":3" whisker pads
             for sx in (-1.0, 1.0):
-                px = sx * (0.15 if is_cat else 0.13)
-                py = -0.21 if is_cat else -0.20
-                dp = ((ux - px) / 0.17) ** 2 + ((uy - py) / 0.14) ** 2
-                pad = math.exp(-dp * 2.3) * smoothstep(0.50, 0.92, uz)
-                z += (0.048 if is_cat else 0.044) * pad
+                px = sx * (0.145 if is_cat else 0.135)
+                py = -0.19 if is_cat else -0.185
+                dp = ((ux - px) / 0.175) ** 2 + ((uy - py) / 0.145) ** 2
+                pad = math.exp(-dp * 2.2) * smoothstep(0.45, 0.92, uz)
+                z += (0.052 if is_cat else 0.048) * pad
 
-        # 3) Soft cheek puff bulge
+        # 3) Gentle round cheek fullness (soft & even, never triangular)
         for sx in (-1.0, 1.0):
-            dc = ((ux - sx * 0.72) / 0.38) ** 2 + ((uy + 0.24) / 0.35) ** 2 + ((uz - 0.25) / 0.65) ** 2
+            dc = ((ux - sx * 0.68) / 0.44) ** 2 + ((uy + 0.18) / 0.42) ** 2 + ((uz - 0.22) / 0.68) ** 2
             puff = math.exp(-dc * 1.45)
-            x += sx * (0.050 if is_cat else 0.042) * puff
-            z += 0.022 * puff
+            x += sx * (0.032 if is_cat else 0.036) * puff
+            z += 0.024 * puff
 
         if y < -0.46:
-            y = -0.46 + (y + 0.46) * 0.68
+            y = -0.46 + (y + 0.46) * 0.72
 
         u = 0.03 + uf * 0.44
         v = 0.03 + vf * 0.44
         return x, y, z, u, v
 
     def ao_fn(x: float, y: float, z: float, uf: float, vf: float):
-        return lerp(0.88, 1.0, smoothstep(-0.56, -0.20, y))
+        return lerp(0.89, 1.0, smoothstep(-0.56, -0.18, y))
 
     return make_grid_mesh(44, 30, eval_fn, ao_fn)
 
 
 def build_cat_ear(side: int) -> dict:
-    """Chubby, wide, rounded plush kitty ear with cozy rosy pink front inner dish!
-    Matches cat_naitang / cat_juzi / cat_yunduo / cat_buou avatars!
+    """Chubby, thick, cozy rounded plush kitty ear with rosy pink front inner dish!
+    Matches cat_naitang / cat_juzi / cat_yunduo / cat_yingduan / cat_buou avatars!
     """
-    ear_h = 0.44
-    ear_w = 0.28
-    ear_d = 0.14
+    ear_h = 0.40
+    ear_w = 0.29
+    ear_d = 0.16
 
     def eval_fn(uf: float, vf: float):
         # vf: 0 (base embedded in head) -> 1 (plump rounded tip)
@@ -320,27 +324,75 @@ def build_cat_ear(side: int) -> dict:
         ca = math.cos(angle)  # +1 front face (+Z), -1 back face (-Z)
 
         # Wide, soft, chubby rounded-triangle profile (plump rounded tip!)
-        env_w = math.sin(lerp(0.18, math.pi - 0.02, t)) ** 0.75 * (1.0 - 0.48 * (t ** 1.3))
-        env_d = math.sin(lerp(0.18, math.pi - 0.02, t)) ** 0.70 * (1.0 - 0.45 * t)
+        env_w = math.sin(lerp(0.20, math.pi - 0.02, t)) ** 0.72 * (1.0 - 0.44 * (t ** 1.35))
+        env_d = math.sin(lerp(0.20, math.pi - 0.02, t)) ** 0.68 * (1.0 - 0.40 * t)
         width_env = ear_w * max(0.03, env_w)
-        depth_env = ear_d * max(0.025, env_d)
+        depth_env = ear_d * max(0.028, env_d)
 
         lx = width_env * sa
         lz = depth_env * ca
-        ly = ear_h * (t ** 0.90) - 0.06
+        ly = ear_h * (t ** 0.90) - 0.07
 
         # Cozy concave front inner ear pocket
-        front_mask = smoothstep(0.15, 0.85, ca) * smoothstep(0.10, 0.35, t) * smoothstep(0.88, 0.58, t)
-        lz -= 0.048 * front_mask * (1.0 - sa * sa)
+        front_mask = smoothstep(0.15, 0.85, ca) * smoothstep(0.12, 0.36, t) * smoothstep(0.86, 0.56, t)
+        lz -= 0.044 * front_mask * (1.0 - sa * sa)
 
         # Gentle outward kawaii tilt
+        tilt = math.radians(side * -26.0)
+        rx = lx * math.cos(tilt) - ly * math.sin(tilt)
+        ry = lx * math.sin(tilt) + ly * math.cos(tilt)
+        rz = lz + 0.022 * t
+
+        # Front dish maps to Ear Inner UV [0.27..0.47, 0.53..0.73], back/rim -> Ear Outer [0.03..0.23, 0.53..0.73]
+        if ca >= 0.18:
+            u = 0.37 + sa * 0.088
+            v = 0.72 - t * 0.175
+        else:
+            u = 0.13 + sa * 0.088
+            v = 0.72 - t * 0.175
+        return rx, ry, rz, u, v
+
+    def ao_fn(x: float, y: float, z: float, uf: float, vf: float):
+        angle = (uf - 0.5) * 2.0 * math.pi
+        ca = math.cos(angle)
+        inner = smoothstep(0.2, 0.9, ca) * smoothstep(0.1, 0.4, vf) * smoothstep(0.9, 0.55, vf)
+        return lerp(1.0, 0.91, inner)
+
+    return make_grid_mesh(26, 16, eval_fn, ao_fn)
+
+
+def build_dog_upright_ear(side: int) -> dict:
+    """Fluffy perked rounded fox/corgi/shiba puppy ear with rosy inner dish!
+    Matches dog_keji (Corgi) & dog_chaiquan (Shiba) avatars!
+    """
+    ear_h = 0.46
+    ear_w = 0.29
+    ear_d = 0.16
+
+    def eval_fn(uf: float, vf: float):
+        t = lerp(0.015, 0.99, vf)
+        angle = (uf - 0.5) * 2.0 * math.pi
+        sa = math.sin(angle)
+        ca = math.cos(angle)
+
+        env_w = math.sin(lerp(0.18, math.pi - 0.02, t)) ** 0.72 * (1.0 - 0.46 * (t ** 1.35))
+        env_d = math.sin(lerp(0.18, math.pi - 0.02, t)) ** 0.68 * (1.0 - 0.42 * t)
+        width_env = ear_w * max(0.03, env_w)
+        depth_env = ear_d * max(0.028, env_d)
+
+        lx = width_env * sa
+        lz = depth_env * ca
+        ly = ear_h * (t ** 0.90) - 0.07
+
+        front_mask = smoothstep(0.15, 0.85, ca) * smoothstep(0.12, 0.36, t) * smoothstep(0.86, 0.56, t)
+        lz -= 0.044 * front_mask * (1.0 - sa * sa)
+
         tilt = math.radians(side * -24.0)
         rx = lx * math.cos(tilt) - ly * math.sin(tilt)
         ry = lx * math.sin(tilt) + ly * math.cos(tilt)
-        rz = lz + 0.025 * t
+        rz = lz + 0.024 * t
 
-        # Front dish maps to Ear Inner UV [0.27..0.47, 0.53..0.73], back/rim -> Ear Outer [0.03..0.23, 0.53..0.73]
-        if ca >= 0.12:
+        if ca >= 0.18:
             u = 0.37 + sa * 0.088
             v = 0.72 - t * 0.175
         else:
@@ -358,13 +410,13 @@ def build_cat_ear(side: int) -> dict:
 
 
 def build_dog_ear(side: int) -> dict:
-    """Super cute thick pillowy rounded floppy puppy ear!
-    Matches dog_buding / dog_zhima / dog_taotao avatars!
+    """Big, plush, pillowy rounded floppy puppy ear clearly framing the cheeks from the front!
+    Matches dog_buding / dog_zhima / dog_taotao / dog_jinmao avatars!
     Guaranteed outward CCW winding via ensure_outward_winding!
     """
-    ear_len = 0.48
-    ear_w = 0.22
-    ear_thick = 0.11
+    ear_len = 0.58
+    ear_w = 0.27
+    ear_thick = 0.145
 
     def eval_fn(uf: float, vf: float):
         t = lerp(0.015, 0.985, vf)
@@ -372,18 +424,18 @@ def build_dog_ear(side: int) -> dict:
         sa = math.sin(angle)
         ca = math.cos(angle)
 
-        # Pillowy rounded teardrop flap: gently wider near bottom, plush rounded tip
-        flap_env = (math.sin(t * math.pi) ** 0.56) * (0.76 + 0.34 * t)
-        thick_env = math.sin(t * math.pi) ** 0.52
+        # Plump rounded teardrop flap: fuller & wider near lower half so ears frame the puppy cheeks!
+        flap_env = (math.sin(t * math.pi) ** 0.50) * (0.78 + 0.38 * t)
+        thick_env = math.sin(t * math.pi) ** 0.48
 
-        # Centerline starts high on side of head, arches out & drapes cozily alongside chubby cheek
-        cx = side * (0.03 + 0.15 * math.sin(t * math.pi * 0.62) + 0.05 * t)
-        cy = -ear_len * (t ** 1.02) + 0.07 * math.sin(t * math.pi * 0.45)
-        cz = 0.06 * math.sin(t * math.pi * 0.85) + 0.07 * (t ** 1.3)
+        # Centerline arches noticeably outward from upper-side head & drapes generously beside cheek
+        cx = side * (0.05 + 0.23 * math.sin(t * math.pi * 0.65) + 0.08 * t)
+        cy = -ear_len * (t ** 1.00) + 0.08 * math.sin(t * math.pi * 0.45)
+        cz = 0.08 * math.sin(t * math.pi * 0.85) + 0.11 * (t ** 1.25)
 
         lx = ear_thick * thick_env * ca * side
         lz = ear_w * flap_env * sa
-        ly = 0.025 * thick_env * math.cos(t * math.pi)
+        ly = 0.03 * thick_env * math.cos(t * math.pi)
 
         x = cx + lx
         y = cy + ly
@@ -534,32 +586,32 @@ def make_ellipsoid_part(center, radii, uv_box, rot_euler=(0.0, 0.0, 0.0), nu=16,
 
 
 def build_face_accents(kind: str) -> dict:
-    """Crisp, glossy 3D eyes (with UV-mapped twin catchlights) + cute 3D button nose.
-    Tucked snugly into the sculpted face with zero protruding mouth bump!
+    """Crisp, glossy round 3D button eyes (with UV-mapped twin catchlights) + cute 3D nose.
+    Proportioned to match our adorable circular avatars!
     """
     is_cat = kind == "cat"
     parts = []
-    # 1) Glossy big kawaii eyes matching the adorable generated circular avatars
-    eye_x = 0.245 if is_cat else 0.228
-    eye_y = -0.02 if is_cat else 0.00
-    eye_z = 0.535 if is_cat else 0.555
-    eye_r = (0.118, 0.126, 0.056) if is_cat else (0.112, 0.120, 0.055)
+    # 1) Round glossy kawaii eyes seated naturally at mid-face
+    eye_x = 0.248 if is_cat else 0.236
+    eye_y = 0.015 if is_cat else 0.030
+    eye_z = 0.558 if is_cat else 0.578
+    eye_r = (0.098, 0.100, 0.050) if is_cat else (0.092, 0.094, 0.050)
     for sx in (-1.0, 1.0):
         parts.append(
             make_ellipsoid_part(
                 center=(sx * eye_x, eye_y, eye_z),
                 radii=eye_r,
                 uv_box=(0.815, 0.535, 0.965, 0.685),
-                rot_euler=(0.0, sx * 19.0, 0.0),
+                rot_euler=(0.0, sx * 18.0, 0.0),
                 nu=20,
                 nv=16,
                 unshaded=True,
             )
         )
-    # 2) Cute sculpted 3D button nose
-    nose_y = -0.115 if is_cat else -0.095
-    nose_z = 0.640 if is_cat else 0.700
-    nose_r = (0.056, 0.040, 0.038) if is_cat else (0.076, 0.054, 0.048)
+    # 2) Cute sculpted 3D button nose resting right on top of the plush muzzle
+    nose_y = -0.080 if is_cat else -0.068
+    nose_z = 0.648 if is_cat else 0.742
+    nose_r = (0.052, 0.036, 0.035) if is_cat else (0.080, 0.058, 0.050)
     parts.append(
         make_ellipsoid_part(
             center=(0.0, nose_y, nose_z),
@@ -576,26 +628,36 @@ def build_face_accents(kind: str) -> dict:
 
 def build_rig(kind: str) -> dict:
     is_cat = kind == "cat"
-    head_pivot = [0.0, 1.05 if is_cat else 1.02, 0.44 if is_cat else 0.44]
-    ear_l_pivot = [0.33, 0.44, 0.04] if is_cat else [0.42, 0.34, 0.04]
+    is_upright_dog = kind == "dog_upright"
+    body_kind = "cat" if is_cat else "dog"
+    head_pivot = [0.0, 1.04 if is_cat else 1.01, 0.44]
+    if is_cat:
+        ear_l_pivot = [0.39, 0.40, 0.04]
+    elif is_upright_dog:
+        ear_l_pivot = [0.38, 0.39, 0.03]
+    else:
+        ear_l_pivot = [0.47, 0.36, 0.05]
     ear_r_pivot = [-ear_l_pivot[0], ear_l_pivot[1], ear_l_pivot[2]]
     leg_y = 0.40
-    leg_x = 0.25 if is_cat else 0.25
+    leg_x = 0.25
     leg_fz = 0.30 if is_cat else 0.29
     leg_bz = -0.40 if is_cat else -0.39
     tail_pivot = [0.0, 0.68, -0.68 if is_cat else -0.64]
 
+    ear_l_mesh = build_cat_ear(1) if is_cat else (build_dog_upright_ear(1) if is_upright_dog else build_dog_ear(1))
+    ear_r_mesh = build_cat_ear(-1) if is_cat else (build_dog_upright_ear(-1) if is_upright_dog else build_dog_ear(-1))
+
     parts = {
-        "body": build_body(kind),
-        "head": build_head(kind),
-        "face": build_face_accents(kind),
-        "earL": build_cat_ear(1) if is_cat else build_dog_ear(1),
-        "earR": build_cat_ear(-1) if is_cat else build_dog_ear(-1),
-        "legFL": build_leg(kind, True, 1),
-        "legFR": build_leg(kind, True, -1),
-        "legBL": build_leg(kind, False, 1),
-        "legBR": build_leg(kind, False, -1),
-        "tail": build_tail(kind),
+        "body": build_body(body_kind),
+        "head": build_head(body_kind),
+        "face": build_face_accents(body_kind),
+        "earL": ear_l_mesh,
+        "earR": ear_r_mesh,
+        "legFL": build_leg(body_kind, True, 1),
+        "legFR": build_leg(body_kind, True, -1),
+        "legBL": build_leg(body_kind, False, 1),
+        "legBR": build_leg(body_kind, False, -1),
+        "tail": build_tail(body_kind),
     }
 
     total_verts = sum(len(m["positions"]) // 3 for m in parts.values())
@@ -933,9 +995,9 @@ def generate_skin_texture(skin_key: str, cfg: dict, fur_noise: Image.Image) -> I
     elif pattern == "sesame_collie":
         draw_soft_ellipse(img, 256, 145, 235, 145, sec, alpha=170, blur=24)
     elif pattern == "ragdoll_point":
-        # Iconic soft chocolate-seal face mask centered around eyes/muzzle!
-        draw_soft_ellipse(img, 256, 250, 96, 68, stripe, alpha=210, blur=22)
-        draw_soft_ellipse(img, 256, 285, 62, 42, stripe, alpha=185, blur=16)
+        # Iconic soft chocolate-seal face mask centered around raised eyes/muzzle!
+        draw_soft_ellipse(img, 256, 238, 96, 66, stripe, alpha=210, blur=22)
+        draw_soft_ellipse(img, 256, 274, 62, 42, stripe, alpha=185, blur=16)
     elif pattern == "calico":
         # Distinct cute asymmetric ginger-orange (left) & charcoal-brown (right) calico patches!
         dark_patch = hex_rgb(cfg["patch_dark"])
@@ -945,30 +1007,44 @@ def generate_skin_texture(skin_key: str, cfg: dict, fur_noise: Image.Image) -> I
     elif pattern == "british_blue":
         draw_soft_ellipse(img, 256, 145, 220, 130, sec, alpha=140, blur=32)
 
-    # Fluffy cream muzzle, lower cheeks, chin (ZERO grey halo!)
-    muzzle_alpha = 145 if pattern == "british_blue" else 135 if pattern == "ragdoll_point" else 252
-    draw_soft_ellipse(img, 256, 345, 170, 118, cream, alpha=muzzle_alpha, blur=16)
-    if pattern != "ragdoll_point":
-        draw_soft_ellipse(img, 256, 304, 98, 60, cream, alpha=muzzle_alpha, blur=12)
-    draw_soft_ellipse(img, 256, 440, 245, 90, cream, alpha=250 if pattern != "british_blue" else 180, blur=18)
+    # Fluffy muzzle, lower cheeks, chin (keep British Blue & Golden Retriever true to their solid-fur avatars!)
+    if pattern == "golden":
+        golden_light = lerp_rgb(base, cream, 0.58)
+        draw_soft_ellipse(img, 256, 336, 150, 102, golden_light, alpha=155, blur=24)
+        draw_soft_ellipse(img, 256, 294, 90, 56, golden_light, alpha=165, blur=16)
+        draw_soft_ellipse(img, 256, 440, 220, 82, golden_light, alpha=145, blur=22)
+    elif pattern == "british_blue":
+        blue_light = lerp_rgb(base, cream, 0.45)
+        draw_soft_ellipse(img, 256, 336, 140, 96, blue_light, alpha=105, blur=24)
+        draw_soft_ellipse(img, 256, 440, 210, 76, blue_light, alpha=110, blur=22)
+    else:
+        muzzle_alpha = 135 if pattern == "ragdoll_point" else 252
+        draw_soft_ellipse(img, 256, 340, 174, 118, cream, alpha=muzzle_alpha, blur=16)
+        if pattern != "ragdoll_point":
+            draw_soft_ellipse(img, 256, 296, 98, 60, cream, alpha=muzzle_alpha, blur=12)
+        draw_soft_ellipse(img, 256, 440, 245, 90, cream, alpha=250, blur=18)
 
     if cfg.get("blaze"):
         top_y = 66 if cfg["kind"] == "dog" else 118
-        blaze_pts = [(256, top_y), (280, 185), (296, 298), (216, 298), (232, 185)]
+        blaze_pts = [(256, top_y), (280, 185), (296, 292), (216, 292), (232, 185)]
         draw_soft_polygon(img, blaze_pts, cream, alpha=250, blur=9)
 
     if cfg.get("eyebrows"):
         for sx in (-1, 1):
-            draw_soft_ellipse(img, 256 + sx * 42, 198, 14, 9, cream, alpha=240, blur=3.5)
+            draw_soft_ellipse(img, 256 + sx * 42, 186, 15, 10, cream, alpha=245, blur=3.5)
 
     # Sweet rosy cartoon cheek blush!
     blush_a = 165 if skin_key in ("cat_yunduo", "dog_taotao") else 115
     for sx in (-1, 1):
-        draw_soft_ellipse(img, 256 + sx * 76, 286, 24, 15, blush, alpha=blush_a, blur=10)
+        draw_soft_ellipse(img, 256 + sx * 76, 272, 24, 15, blush, alpha=blush_a, blur=10)
 
-    # Crisp adorable ":3" smile painted softly onto front of muzzle pads
-    draw_soft_line(img, [(256, 290), (256, 308)], mouth, width=4, alpha=185, blur=0.8)
-    draw_soft_line(img, [(235, 305), (245, 314), (256, 307), (267, 314), (277, 305)], mouth, width=4, alpha=195, blur=0.8)
+    # Crisp adorable smile painted softly right beneath the 3D button nose
+    if cfg["kind"] == "cat":
+        draw_soft_line(img, [(256, 270), (256, 286)], mouth, width=4, alpha=190, blur=0.8)
+        draw_soft_line(img, [(235, 283), (245, 292), (256, 285), (267, 292), (277, 283)], mouth, width=4, alpha=200, blur=0.8)
+    else:
+        draw_soft_line(img, [(256, 266), (256, 284)], mouth, width=4, alpha=195, blur=0.8)
+        draw_soft_line(img, [(231, 282), (244, 294), (256, 284), (268, 294), (281, 282)], mouth, width=5, alpha=210, blur=0.9)
 
     # =========================================================================
     # QUADRANT 2: BODY (x: 512..1024, y: 0..512)
@@ -996,11 +1072,18 @@ def generate_skin_texture(skin_key: str, cfg: dict, fur_noise: Image.Image) -> I
         draw_soft_ellipse(img, 768, 125, 210, 100, sec, alpha=165, blur=34)
 
     # Fluffy white chest bib (front +Z centered at x=768, y=240..420)
-    chest_rx = 148 if pattern == "corgi" else 108
-    draw_soft_ellipse(img, 768, 310, chest_rx, 115, cream, alpha=250 if pattern != "british_blue" else 175, blur=18)
-    # Fluffy cream belly band along the bottom of Quadrant 2 (y=415..512) -> ZERO rump pinch!
-    d = ImageDraw.Draw(img)
-    draw_soft_ellipse(img, 768, 475, 285, 78, cream, alpha=252, blur=18)
+    if pattern == "golden":
+        golden_light = lerp_rgb(base, cream, 0.55)
+        draw_soft_ellipse(img, 768, 310, 108, 110, golden_light, alpha=145, blur=22)
+        draw_soft_ellipse(img, 768, 475, 275, 74, golden_light, alpha=155, blur=22)
+    elif pattern == "british_blue":
+        blue_light = lerp_rgb(base, cream, 0.40)
+        draw_soft_ellipse(img, 768, 310, 102, 108, blue_light, alpha=110, blur=22)
+        draw_soft_ellipse(img, 768, 475, 275, 74, blue_light, alpha=120, blur=22)
+    else:
+        chest_rx = 148 if pattern == "corgi" else 108
+        draw_soft_ellipse(img, 768, 310, chest_rx, 115, cream, alpha=250, blur=18)
+        draw_soft_ellipse(img, 768, 475, 285, 78, cream, alpha=252, blur=18)
 
     # =========================================================================
     # QUADRANT 3: EARS & TAIL  (x: 0..512, y: 512..1024)
@@ -1192,7 +1275,7 @@ def main():
     SKINS_DIR.mkdir(parents=True, exist_ok=True)
     GEN_DIR.mkdir(parents=True, exist_ok=True)
 
-    for kind in ("cat", "dog"):
+    for kind in ("cat", "dog", "dog_upright"):
         rig = build_rig(kind)
         out_json = PETS_DIR / f"{kind}-rig.json"
         out_json.write_text(json.dumps(rig, separators=(",", ":")), encoding="utf-8")

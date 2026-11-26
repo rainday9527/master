@@ -53,8 +53,10 @@ interface PetRigAsset {
     pivots: Record<string, [number, number, number]>;
     meshes: Record<RigPartName, ReturnType<typeof utils.createMesh>>;
 }
+type RigKey = 'cat' | 'dog' | 'dog_upright';
 interface ActorRig {
     kind: Kind;
+    uprightEars: boolean;
     modelNode: Node;
     head: Node;
     earL: Node;
@@ -128,7 +130,7 @@ export class Main extends Component {
     private needZeroCursor = new Map<number, number>();
     private materials = new Map<string, Material>();
     private meshes = new Map<string, ReturnType<typeof utils.createMesh>>();
-    private petRigs = new Map<Kind, Promise<PetRigAsset | null>>();
+    private petRigs = new Map<RigKey, Promise<PetRigAsset | null>>();
     private petSkins = new Map<string, Promise<Texture2D | null>>();
     private compositeTextures = new Map<string, Texture2D>();
     private petAvatars = new Map<string, Promise<SpriteFrame | null>>();
@@ -536,15 +538,20 @@ export class Main extends Component {
         this.shape(n, 'cylinder', '#8EBAC1', [0.7, 0.27, 2], [0.45, 0.03, 0.45]);
     }
 
-    private loadPetRig(kind: Kind): Promise<PetRigAsset | null> {
-        let loading = this.petRigs.get(kind);
+    private petRigKey(breed: { kind: Kind; skin: string }): RigKey {
+        if (breed.kind === 'cat') return 'cat';
+        return (breed.skin === 'dog_keji' || breed.skin === 'dog_chaiquan') ? 'dog_upright' : 'dog';
+    }
+
+    private loadPetRig(rigKey: RigKey): Promise<PetRigAsset | null> {
+        let loading = this.petRigs.get(rigKey);
         if (!loading) {
             loading = new Promise<PetRigAsset | null>(resolve => {
                 const fail = () => {
-                    if (isValid(this, true)) this.toast((kind === 'cat' ? '猫咪' : '狗狗') + '模型暂未加载，已保留可互动的庭院伙伴');
+                    if (isValid(this, true)) this.toast((rigKey === 'cat' ? '猫咪' : '狗狗') + '模型暂未加载，已保留可互动的庭院伙伴');
                     resolve(null);
                 };
-                resources.load('pets/' + kind + '-rig', JsonAsset, (error, asset) => {
+                resources.load('pets/' + rigKey + '-rig', JsonAsset, (error, asset) => {
                     if (!isValid(this, true)) { resolve(null); return; }
                     if (error || !asset?.json) { fail(); return; }
                     const raw = asset.json as { pivots?: Record<string, [number, number, number]>; parts?: Record<RigPartName, primitives.IGeometry> };
@@ -556,14 +563,14 @@ export class Main extends Component {
                         const meshes = {} as Record<RigPartName, ReturnType<typeof utils.createMesh>>;
                         for (const name of partNames) {
                             const mesh = utils.createMesh(raw.parts[name]);
-                            this.meshes.set('rig:' + kind + ':' + name, mesh);
+                            this.meshes.set('rig:' + rigKey + ':' + name, mesh);
                             meshes[name] = mesh;
                         }
-                        resolve({ kind, pivots: raw.pivots, meshes });
+                        resolve({ kind: rigKey === 'cat' ? 'cat' : 'dog', pivots: raw.pivots, meshes });
                     } catch { fail(); }
                 });
             });
-            this.petRigs.set(kind, loading);
+            this.petRigs.set(rigKey, loading);
         }
         return loading;
     }
@@ -691,7 +698,7 @@ export class Main extends Component {
             const bow = new Node('耳畔蝴蝶结');
             bow.layer = Layers.Enum.DEFAULT;
             root.addChild(bow);
-            bow.setPosition(-0.24, 0.56, 0.24);
+            bow.setPosition(-0.28, 0.52, 0.24);
             bow.setRotationFromEuler(8, -14, 24);
             this.shape(bow, 'sphere', '#F47EA2', [-0.14, 0, 0], [0.25, 0.17, 0.12], [0, 0, 14]);
             this.shape(bow, 'sphere', '#F47EA2', [0.14, 0, 0], [0.25, 0.17, 0.12], [0, 0, -14]);
@@ -699,16 +706,16 @@ export class Main extends Component {
             this.shape(bow, 'box', '#F47EA2', [-0.07, -0.10, 0.02], [0.06, 0.14, 0.04], [0, 0, 16]);
             this.shape(bow, 'box', '#F47EA2', [0.07, -0.10, 0.02], [0.06, 0.14, 0.04], [0, 0, -16]);
         } else if (outfit === 'straw_hat') {
-            this.shape(root, 'cylinder', '#F0CC70', [0, 0.63, 0.03], [1.14, 0.05, 1.10], [-6, 0, 0]);
-            this.shape(root, 'cylinder', '#E4B854', [0, 0.74, 0.02], [0.64, 0.22, 0.62], [-6, 0, 0]);
-            this.shape(root, 'sphere', '#E8BF5E', [0, 0.82, 0.01], [0.62, 0.16, 0.60], [-6, 0, 0]);
-            this.shape(root, 'cylinder', '#DF5446', [0, 0.67, 0.03], [0.67, 0.07, 0.65], [-6, 0, 0]);
-            this.shape(root, 'sphere', '#FFF4CE', [0.32, 0.68, 0.18], [0.12, 0.12, 0.10]);
+            this.shape(root, 'cylinder', '#F0CC70', [0, 0.59, 0.03], [1.14, 0.05, 1.10], [-6, 0, 0]);
+            this.shape(root, 'cylinder', '#E4B854', [0, 0.70, 0.02], [0.64, 0.22, 0.62], [-6, 0, 0]);
+            this.shape(root, 'sphere', '#E8BF5E', [0, 0.78, 0.01], [0.62, 0.16, 0.60], [-6, 0, 0]);
+            this.shape(root, 'cylinder', '#DF5446', [0, 0.63, 0.03], [0.67, 0.07, 0.65], [-6, 0, 0]);
+            this.shape(root, 'sphere', '#FFF4CE', [0.32, 0.64, 0.18], [0.12, 0.12, 0.10]);
         } else if (outfit === 'gold_crown') {
             const crown = new Node('迷你小皇冠');
             crown.layer = Layers.Enum.DEFAULT;
             root.addChild(crown);
-            crown.setPosition(0.04, 0.65, 0.05);
+            crown.setPosition(0.04, 0.61, 0.05);
             crown.setRotationFromEuler(-4, 0, -10);
             this.shape(crown, 'cylinder', '#F4C23D', [0, 0, 0], [0.42, 0.17, 0.42]);
             for (const ang of [0, 72, 144, 216, 288]) {
@@ -764,8 +771,9 @@ export class Main extends Component {
             return;
         }
         const breed = BREEDS[pet.id];
+        const rigKey = this.petRigKey(breed);
         const [rig, skinTexture, shadowTex] = await Promise.all([
-            this.loadPetRig(breed.kind),
+            this.loadPetRig(rigKey),
             this.loadPetSkin(breed.skin),
             this.loadShadowTexture(),
         ]);
@@ -827,7 +835,7 @@ export class Main extends Component {
             sr.shadowCastingMode = 0; sr.receiveShadow = 0;
         }
         const actorRig: ActorRig = {
-            kind: breed.kind, modelNode, head, earL, earR, legFL, legFR, legBL, legBR, tail,
+            kind: breed.kind, uprightEars: rigKey !== 'dog', modelNode, head, earL, earR, legFL, legFR, legBL, legBR, tail,
             shadow, outfitNode: null, renderers, pivots: rig.pivots,
         };
         actorRig.outfitNode = this.buildOutfitNode(pet.outfit, actorRig);
@@ -873,7 +881,7 @@ export class Main extends Component {
             const headPitch = Math.sin(t * 2.2) * 2.8 - (hopY > 0 ? 6 : 0);
             const headRoll = Math.sin(t * 0.82) * 6.5;
             rig.head.setRotationFromEuler(headPitch, headYaw, headRoll);
-            if (isCat) {
+            if (rig.uprightEars) {
                 const earWiggle = Math.sin(t * 1.9) * 2.8;
                 rig.earL.setRotationFromEuler(0, 0, earWiggle);
                 rig.earR.setRotationFromEuler(0, 0, -earWiggle);
@@ -935,8 +943,9 @@ export class Main extends Component {
 
     private async attachPetModel(actor: Actor, fallback: Node) {
         const b = BREEDS[actor.pet.id];
+        const rigKey = this.petRigKey(b);
         const [rig, skinTexture, shadowTex] = await Promise.all([
-            this.loadPetRig(b.kind),
+            this.loadPetRig(rigKey),
             this.loadPetSkin(b.skin),
             this.loadShadowTexture(),
         ]);
@@ -971,7 +980,7 @@ export class Main extends Component {
             const tail = addMeshPart(modelNode, '尾巴', 'tail', rig.pivots.tail);
             const shadow = this.attachPetShadow(actor, shadowTex);
             const actorRig: ActorRig = {
-                kind: b.kind, modelNode, head, earL, earR, legFL, legFR, legBL, legBR, tail,
+                kind: b.kind, uprightEars: rigKey !== 'dog', modelNode, head, earL, earR, legFL, legFR, legBL, legBR, tail,
                 shadow, outfitNode: null, renderers, pivots: rig.pivots,
             };
             actorRig.outfitNode = this.buildOutfitNode(actor.pet.outfit, actorRig);
@@ -4347,9 +4356,9 @@ export class Main extends Component {
                         rig.head.eulerAngles.z + (targetHeadRoll - rig.head.eulerAngles.z) * headEase,
                     );
 
-                    // 耳朵：狗狗垂耳随步态上下Q弹摆动，猫咪尖耳轻缓呼应（平滑插值防跳变）
+                    // 耳朵：垂耳狗狗随步态上下Q弹摆动，猫咪及立耳狗狗（柯基/柴犬）轻缓呼应（平滑插值防跳变）
                     const earEase = 1 - Math.exp(-step * 12);
-                    if (isCat) {
+                    if (rig.uprightEars) {
                         const earBounce = gait * Math.sin(a.phase - 0.6) * 5.0;
                         const earTargetX = earBounce * 0.6;
                         const earTargetZL = earBounce;
