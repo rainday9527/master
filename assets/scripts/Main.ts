@@ -1175,11 +1175,15 @@ export class Main extends Component {
                 this.sheet.setScale(scale, scale, 1);
             }
             if (this.page === 'album') {
-                const navH = 180;
-                const availH = Math.max(1200, this.height - navH);
-                this.sheet.setPosition(0, navH / 2, 0);
-                const scale = Math.min(this.width / 1080, availH / 1740);
+                // 图鉴全屏铺满（与招募页一致覆盖至底部主城导航栏后方，不显示顶栏人物头像与货币）
+                this.sheet.setPosition(0, 0, 0);
+                const scale = Math.min(this.width / 1080, this.height / 1920);
                 this.sheet.setScale(scale, scale, 1);
+                const bg = this.sheet.getChildByName('图鉴正式大底板');
+                if (bg) {
+                    const cover = Math.max(this.width / 1080, this.height / 1920) / scale;
+                    bg.getComponent(UITransform)!.setContentSize(1080 * cover, 1920 * cover);
+                }
             } else if (this.page === 'profile') {
                 this.sheet.setPosition(0, 0, 0);
                 const scale = Math.min(this.width / 1080, this.height / 1920);
@@ -1662,7 +1666,7 @@ export class Main extends Component {
             this.intercept(this.sheet); this.renderShop(); this.layout(); this.animatePanelOpen(); return;
         }
         if (page === 'album') {
-            this.sheet = this.uiNode(this.ui, '伙伴图鉴面板', 0, 90, 1080, 1740);
+            this.sheet = this.uiNode(this.ui, '伙伴图鉴面板', 0, 0, 1080, 1920);
             this.intercept(this.sheet); this.renderAlbum(); this.layout();
             if (this.bottom) this.bottom.setSiblingIndex(this.ui.children.length - 1);
             this.animatePanelOpen(); return;
@@ -2697,16 +2701,17 @@ export class Main extends Component {
     }
 
     private starTierBadge(parent: Node, star: number, x: number, y: number, size: number) {
-        // 不同星级显示不同手绘星/皇冠图标（1★金爪星→2★蓝爪星→3★紫爪星→4★粉爪星→5★金皇冠→6★羽翼皇冠）；超过 6 阶时在图标旁叠加数字。
-        const maxIconTier = 6;
-        const tier = Math.max(1, Math.min(maxIconTier, Math.floor(star)));
+        // 每 5 星进阶一阶图标：5★金星(star-1)、10★蓝星(star-2)、15★紫星(star-3)、20★粉星(star-4)、25★金冠(star-5)、30★羽翼皇冠(star-6)。
+        // 整 5 星时仅显示一颗对应阶位星标；中间星级旁标注当前星数。
+        const s = Math.max(1, Math.floor(star));
+        const tier = Math.max(1, Math.min(6, Math.ceil(s / 5)));
         const aspect = tier === 6 ? 202 / 150 : tier === 5 ? 158 / 150 : 150 / 148;
         const iconW = Math.round(size * aspect);
-        const overflow = star > maxIconTier;
-        const wrap = this.uiNode(parent, '星级图标-' + star, x, y, overflow ? iconW + 44 : iconW, size);
-        this.albumArt(wrap, 'star-' + tier, overflow ? -18 : 0, 0, iconW, size, '星阶图标-' + tier);
-        if (overflow) {
-            const num = this.dailyText(wrap, String(star), iconW / 2 + 2, 0, 44, size, Math.max(18, Math.round(size * 0.58)));
+        const showNum = s % 5 !== 0;
+        const wrap = this.uiNode(parent, '星级图标-' + s, x, y, showNum ? iconW + 34 : iconW, size);
+        this.albumArt(wrap, 'star-' + tier, showNum ? -14 : 0, 0, iconW, size, '星阶图标-' + tier);
+        if (showNum) {
+            const num = this.dailyText(wrap, String(s), iconW / 2 - 2, 0, 36, size, Math.max(16, Math.round(size * 0.56)));
             num.color = this.color('#D9781E');
         }
         return wrap;
@@ -2895,30 +2900,30 @@ export class Main extends Component {
 
     private renderAlbum() {
         const panel = this.sheet!;
-        // 全屏无裁剪图鉴底板（1080×1740，从屏幕最顶端延伸至底部主城导航栏上方，完整保留猫耳标题与底部猫砂盆装饰）
-        this.albumArt(panel, 'panel', 0, 0, 1080, 1740, '图鉴正式大底板');
-        // 标题居中落在顶部猫耳黄色标题牌内（1536×2752 -> 1080×1740，标题牌中心 y=+746）
-        this.dailyText(panel, '宠物图鉴', 0, 746, 440, 70, 48, false, true);
-        const close = this.uiNode(panel, '收起图鉴', 462, 756, 104, 104);
+        // 全屏铺满图鉴底板（1080×1920，参考招募页无缝铺至底栏后方，不显示上方头像与货币栏）
+        this.albumArt(panel, 'panel', 0, 0, 1080, 1920, '图鉴正式大底板');
+        // 标题居中落在顶部猫耳黄色标题牌内（1536×2752 -> 1080×1920，标题牌中心 y=+823）
+        this.dailyText(panel, '宠物图鉴', 0, 823, 440, 72, 48, false, true);
+        const close = this.uiNode(panel, '收起图鉴', 462, 832, 104, 104);
         this.dailySprite(close, 'close', 0, 0, 92, 92, false, '关闭图标');
         this.shopButton(close, () => this.open('home'));
 
         // 顶部奶油横条内展示收集进度 + 待领解锁钻汇总（避开左侧手绘小猫爪印与右侧逗猫棒）
-        const summaryRow = this.uiNode(panel, '图鉴收集统计行', 66, 598, 680, 44);
+        const summaryRow = this.uiNode(panel, '图鉴收集统计行', 66, 660, 680, 44);
         const summary = this.dailyText(summaryRow, '', 0, 0, 680, 40, 25);
         summary.node.name = '图鉴收集统计';
         const summaryGem = this.currencyIcon(summaryRow, 'gems', 120, 0, 28);
         summaryGem.name = '图鉴汇总钻石图标';
         summaryGem.active = false;
 
-        // 分类筛选页签：全部 / 猫咪 / 狗狗（位于内层奶油框顶部 y=+502）
+        // 分类筛选页签：全部 / 猫咪 / 狗狗（位于内层奶油框顶部 y=+558）
         const tabs: [string, 'all' | Kind, string][] = [
             ['全部(' + BREEDS.length + ')', 'all', 'icon-all'],
             ['猫咪(' + BREEDS.filter(b => b.kind === 'cat').length + ')', 'cat', 'icon-cat'],
             ['狗狗(' + BREEDS.filter(b => b.kind === 'dog').length + ')', 'dog', 'icon-dog'],
         ];
         tabs.forEach(([title, filter, iconKey], i) => {
-            const tab = this.uiNode(panel, '图鉴筛选-' + filter, -264 + i * 264, 502, 238, 60);
+            const tab = this.uiNode(panel, '图鉴筛选-' + filter, -264 + i * 264, 558, 238, 60);
             this.albumArt(tab, this.albumFilter === filter ? 'tab-active' : 'tab-normal', 0, 0, 238, 60, '页签底图', false);
             this.albumArt(tab, iconKey, -72, 0, 36, 32, '页签图标-' + filter);
             const label = this.dailyText(tab, title, 18, 0, 150, 40, 24);
@@ -2931,10 +2936,10 @@ export class Main extends Component {
             }, this);
         });
 
-        // 内层圆角奶油区滚动网格（y=-490..+454，单屏可展示 3.5+ 行，完整保留底部小猫简笔画与猫砂盆）
-        const viewport = this.uiNode(panel, '图鉴可视窗口', 0, -18, 880, 944);
+        // 内层圆角奶油区滚动网格（y=-490..+506，完整保留底部小猫简笔画、猫砂盆与主城底栏空间）
+        const viewport = this.uiNode(panel, '图鉴可视窗口', 0, 8, 880, 996);
         viewport.addComponent(Mask).type = Mask.Type.GRAPHICS_RECT;
-        const content = this.uiNode(viewport, '图鉴滚动内容', 0, 472, 880, 944);
+        const content = this.uiNode(viewport, '图鉴滚动内容', 0, 498, 880, 996);
         content.getComponent(UITransform)!.setAnchorPoint(0.5, 1);
         const scroll = viewport.addComponent(ScrollView);
         scroll.content = content; scroll.horizontal = false; scroll.vertical = true;
@@ -3110,13 +3115,22 @@ export class Main extends Component {
         this.intercept(renameBtn); this.pressVisualFeedback(renameBtn);
         renameBtn.on(Node.EventType.TOUCH_END, () => this.showRenameDialog(pet.id), this);
 
-        // 五星行（按当前星级点亮金星，未达星级为柔和灰星）
-        const starsRow = this.uiNode(layer, '宠物星级展示行', 0, 684, 360, 58);
-        for (let s = 1; s <= MAX_PET_STAR; s++) {
-            const sx = (s - 3) * 64;
-            const starTxt = this.text(starsRow, '★', sx, 2, 58, 58, 50, s <= pet.star ? '#FFCA3A' : '#A9A29A');
-            starTxt.outlineColor = this.color('#6E4226'); starTxt.outlineWidth = 3;
+        // 高清晰手绘星级展示条：5 槽手绘爪星/皇冠图标（空槽 star-empty，点亮槽按 5★一阶显示金/蓝/紫/粉星及金/羽翼皇冠）
+        const curTier = Math.max(1, Math.min(6, Math.ceil(pet.star / 5)));
+        const litCount = ((pet.star - 1) % 5) + 1;
+        const starsPill = drawCard(layer, '宠物星级展示行', 0, 680, 412, 66, '#FFF7E2', '#B98C5A', 3, 33);
+        const starAspect = curTier === 6 ? 202 / 150 : curTier === 5 ? 158 / 150 : 150 / 148;
+        for (let s = 1; s <= 5; s++) {
+            const sx = -152 + (s - 1) * 58;
+            const filled = s <= litCount;
+            const iconKey = filled ? ('star-' + curTier) : 'star-empty';
+            const iconH = 48;
+            const iconW = filled ? Math.round(iconH * starAspect) : 48;
+            this.albumArt(starsPill, iconKey, sx, 0, iconW, iconH, '星级槽-' + s);
         }
+        const starBadge = drawCard(starsPill, '星级数字标', 148, 0, 82, 40, '#F3A93A', '#6E4226', 2, 20);
+        const sbLbl = this.text(starBadge, pet.star + '星', 0, 0, 74, 30, 22, '#FFFDF5');
+        sbLbl.isBold = true; sbLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
 
         // 左侧紧凑实用胶囊：设为头像 + 领解锁钻（不占中央地毯、无左侧升星大标）
         const avTitle = this.data.avatar === pet.id ? '当前头像 ✓' : '设为头像';
@@ -3169,10 +3183,10 @@ export class Main extends Component {
             }
         }
 
-        // 5) 中间大卡片：升星/升级区（按第一张参考图横向三栏布局：星级进化 | 消耗材料 | 大号橙色升星按钮）
-        const starCard = drawCard(layer, '升星升级区卡片', 0, -166, 984, 276, '#FFF9EA', '#6E4226', 5, 28);
+        // 5) 中间大卡片：伙伴升星区（去掉“升级”字样，横向三栏：星级跃升 | 消耗材料 | 大号橙色升星按钮）
+        const starCard = drawCard(layer, '升星区卡片', 0, -166, 984, 276, '#FFF9EA', '#6E4226', 5, 28);
         const starTag = drawCard(starCard, '升星区标题条', -308, 102, 276, 52, '#E99B48', '#6E4226', 3, 18);
-        const stTitle = this.text(starTag, '升星 / 升级区', 0, 0, 250, 36, 26, '#FFFDF5');
+        const stTitle = this.text(starTag, '伙伴升星区', 0, 0, 250, 36, 26, '#FFFDF5');
         stTitle.isBold = true; stTitle.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
 
         const req = STAR_REQUIREMENTS[pet.star];
@@ -3181,11 +3195,19 @@ export class Main extends Component {
         const curXp = Math.round(starXpBonus(pet.star) * 100);
         const curAdv = Math.round(starAdventureBonus(pet.star) * 100);
 
-        // 左栏：当前星级 -> 下一星级 + 星级加成
+        // 左栏：当前星级 -> 下一星级（配对应阶位手绘星标）+ 星级加成
         const lvPill = drawCard(starCard, '星级跃升条', -296, 20, 316, 62, '#FDECC2', '#DFB66E', 2, 18);
-        const lvText = req ? (pet.star + '星  ➔  ' + req.nextStar + '星') : ('已满星 ★' + pet.star);
-        const lvLbl = this.dailyText(lvPill, lvText, 0, 0, 296, 42, 30);
-        lvLbl.color = this.color('#5B3418');
+        if (req) {
+            const nextTier = Math.max(1, Math.min(6, Math.ceil(req.nextStar / 5)));
+            this.albumArt(lvPill, 'star-' + curTier, -118, 0, 36, 36, '当前阶星标');
+            const lvLbl = this.dailyText(lvPill, pet.star + '星  ➔  ' + req.nextStar + '星', 0, 0, 194, 40, 27);
+            lvLbl.color = this.color('#5B3418');
+            this.albumArt(lvPill, 'star-' + nextTier, 118, 0, 36, 36, '下阶星标');
+        } else {
+            this.albumArt(lvPill, 'star-6', -92, 0, 44, 34, '满星阶星标');
+            const lvLbl = this.dailyText(lvPill, '已满星 ' + MAX_PET_STAR + '星', 26, 0, 200, 40, 27);
+            lvLbl.color = this.color('#D9781E');
+        }
 
         const bonusPill = drawCard(starCard, '星级加成条', -296, -62, 316, 64, '#FDECC2', '#DFB66E', 2, 18);
         const bonusStr = req
@@ -3209,7 +3231,8 @@ export class Main extends Component {
             const c2 = this.text(matBox, '× ' + req.coins, -108, -48, 176, 36, 26, coinOk ? '#228B3C' : '#C93832');
             c2.isBold = true; c2.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
 
-            const tip = this.text(matBox, req.nextStar === 3 ? '3★免费送星光皇冠' : '属性全面提升', 152, 62, 230, 30, 20, '#7B4F28');
+            const tipText = req.nextStar === 3 ? '3★免费送星光皇冠' : (req.nextStar % 5 === 0 ? req.nextStar + '★进阶新星标！' : '经验与寻宝加成提升');
+            const tip = this.text(matBox, tipText, 152, 62, 236, 30, 20, '#7B4F28');
             tip.isBold = true; tip.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
 
             const upBtn = drawCard(matBox, '立即升星按钮', 152, -22, 212, 92, (copyOk && coinOk) ? '#F37A2D' : '#C99E76', '#6E3212', 4, 24);
@@ -3219,7 +3242,7 @@ export class Main extends Component {
             this.intercept(upBtn); this.pressVisualFeedback(upBtn);
             upBtn.on(Node.EventType.TOUCH_END, () => this.upgradePetStar(pet.id), this);
         } else {
-            const maxNote = this.text(matBox, '★5 实力已拉满，快去换上帅气装扮吧！', 0, -18, 520, 42, 25, '#228B3C');
+            const maxNote = this.text(matBox, '★' + MAX_PET_STAR + ' 羽翼皇冠满阶，实力已达巅峰！', 0, -18, 520, 42, 25, '#228B3C');
             maxNote.isBold = true; maxNote.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
         }
 

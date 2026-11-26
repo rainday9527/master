@@ -130,7 +130,12 @@ export const PET_BREEDS: BreedDefinition[] = [
     { id: 11, name: '阳光金毛', speciesTitle: '黄金巡回猎犬', kind: 'dog', skin: 'dog_jinmao', rarity: 'SSR', unlockGems: 120, defaultTrait: 'lucky', color: '#E8B256', accent: '#C4842E', cost: 120, bio: '笑容像午后阳光般温暖的金毛宝宝，是庭院里最贴心的暖男。' },
 ];
 
-export const MAX_PET_STAR = 5;
+// 6 阶 × 5 星 = 最高 30 星：每满 5 星进阶下一颜色/皇冠图标（5★金星、10★蓝星、15★紫星、20★粉星、25★金冠、30★羽翼皇冠）。
+export const MAX_PET_STAR = 30;
+
+export function starTier(star: number): number {
+    return Math.max(1, Math.min(6, Math.ceil(Math.max(1, Math.floor(star)) / 5)));
+}
 
 export interface StarRequirement {
     nextStar: number;
@@ -138,19 +143,45 @@ export interface StarRequirement {
     coins: number;
 }
 
-export const STAR_REQUIREMENTS: Record<number, StarRequirement> = {
-    1: { nextStar: 2, extraCopies: 1, coins: 100 },
-    2: { nextStar: 3, extraCopies: 2, coins: 250 },
-    3: { nextStar: 4, extraCopies: 3, coins: 500 },
-    4: { nextStar: 5, extraCopies: 4, coins: 1000 },
-};
+const TIER_COPIES: readonly (readonly number[])[] = [
+    [1, 2, 2, 3],          // 1→2, 2→3, 3→4, 4→5（金星阶）
+    [2, 2, 3, 3, 4],       // 5→6..9→10（蓝星阶）
+    [3, 3, 4, 4, 5],       // 10→11..14→15（紫星阶）
+    [4, 4, 5, 5, 6],       // 15→16..19→20（粉星阶）
+    [5, 5, 6, 6, 8],       // 20→21..24→25（金冠阶）
+    [6, 6, 8, 8, 10],      // 25→26..29→30（羽翼皇冠阶）
+];
+const TIER_COINS: readonly (readonly number[])[] = [
+    [100, 200, 320, 480],
+    [600, 750, 900, 1100, 1400],
+    [1600, 1900, 2200, 2600, 3000],
+    [3400, 3900, 4400, 5000, 5800],
+    [6600, 7500, 8500, 9600, 11000],
+    [12500, 14000, 16000, 18000, 22000],
+];
+
+export const STAR_REQUIREMENTS: Record<number, StarRequirement> = (() => {
+    const map: Record<number, StarRequirement> = {};
+    let cur = 1;
+    for (let t = 0; t < TIER_COPIES.length; t++) {
+        for (let step = 0; step < TIER_COPIES[t].length; step++) {
+            map[cur] = { nextStar: cur + 1, extraCopies: TIER_COPIES[t][step], coins: TIER_COINS[t][step] };
+            cur++;
+        }
+    }
+    return map;
+})();
 
 export function starXpBonus(star: number): number {
-    return Math.max(0, star - 1) * 0.15;
+    const s = Math.max(1, Math.min(MAX_PET_STAR, Math.floor(star)));
+    const milestones = Math.floor(s / 5);
+    return (s - 1) * 0.04 + milestones * 0.05;
 }
 
 export function starAdventureBonus(star: number): number {
-    return Math.max(0, star - 1) * 0.10;
+    const s = Math.max(1, Math.min(MAX_PET_STAR, Math.floor(star)));
+    const milestones = Math.floor(s / 5);
+    return (s - 1) * 0.03 + milestones * 0.04;
 }
 
 export interface OutfitDefinition {
