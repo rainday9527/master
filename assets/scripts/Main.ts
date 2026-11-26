@@ -1770,7 +1770,7 @@ export class Main extends Component {
         this.intercept(daily); this.pressFeedback(daily);
         this.dailySprite(daily, 'task', 0, 26, 108, 98, false, '每日入口图标');
         this.navCaption(daily, '任务', 0);
-        this.drawRedDot(daily, '任务入口红点', 46, 62, 13);
+        this.drawRedDot(daily, '任务入口红点', -38, 62, 13);
         daily.on(Node.EventType.TOUCH_END, () => this.open('daily'), this);
 
         // 冒险日记入口：位于每日任务入口正下方
