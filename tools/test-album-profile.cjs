@@ -637,14 +637,17 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
       auraActive: !!main.advChestAura?.active,
       hasChest: !!walk(main.sheet).find(n => n.name === '冒险挂机宝箱'),
       hasTimer: !!walk(main.sheet).find(n => n.name === '宝箱挂机时间牌'),
-      noLogList: !walk(main.sheet).find(n => n.name === '最新冒险快览'),
+      hasLiveLogCard: !!walk(main.sheet).find(n => n.name === '冒险左上实时日志卡'),
+      liveLogItems: walk(main.sheet).filter(n => n.name.startsWith('实时日志实物格-')).length,
       p0ActiveOnAdv: !!main.actors.find(a => a.pet.id === 0)?.node?.active,
+      p0Z: +(main.actors.find(a => a.pet.id === 0)?.node?.position?.z ?? -99).toFixed(2),
       p2ActiveOnAdv: !!main.actors.find(a => a.pet.id === 2)?.node?.active,
       hasDiaryEntryOnHome: !!main.ui.getChildByName('冒险日记入口'),
       hasMemorialEntryOnHome: !!main.ui.getChildByName('后院纪念角入口'),
     }));
     console.log('adventure loop check:', JSON.stringify(advCheck));
-    assert.deepEqual(advCheck, { roadTiles: 2, bgActive: true, auraActive: true, hasChest: true, hasTimer: true, noLogList: true, p0ActiveOnAdv: true, p2ActiveOnAdv: false, hasDiaryEntryOnHome: true, hasMemorialEntryOnHome: true });
+    assert.ok(advCheck.p0Z >= 3.0 && advCheck.p0Z <= 4.6, 'marching pet must be lowered to match Treasure Chest height');
+    assert.deepEqual({ ...advCheck, p0Z: 3.85 }, { roadTiles: 2, bgActive: true, auraActive: true, hasChest: true, hasTimer: true, hasLiveLogCard: true, liveLogItems: 3, p0ActiveOnAdv: true, p0Z: 3.85, p2ActiveOnAdv: false, hasDiaryEntryOnHome: true, hasMemorialEntryOnHome: true });
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-adventure-loop.png') });
 
     // Claim idle treasure chest -> verify coins/gems/items granted AND universal Icon+Number reward cards rendered!

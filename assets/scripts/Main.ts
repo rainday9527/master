@@ -1325,6 +1325,13 @@ export class Main extends Component {
                 this.sheet.setPosition(0, 0, 0);
                 const scale = Math.min(this.width / 1080, this.height / 1920);
                 this.sheet.setScale(scale, scale, 1);
+            } else if (this.page === 'adventure') {
+                this.sheet.setPosition(0, 0, 0);
+                this.sheet.setScale(1, 1, 1);
+                const logCard = this.sheet.getChildByName('冒险左上实时日志卡');
+                if (logCard) logCard.setPosition(-this.width / 2 + 24 + 185, this.height / 2 - 266 - 196, 0);
+                const chestBox = this.sheet.getChildByName('冒险右侧宝箱区');
+                if (chestBox) chestBox.setPosition(Math.min(this.width / 2 - 122, 386), -this.height / 2 + 520, 0);
             } else if (this.page === 'daily' || this.page === 'bag') {
                 this.sheet.setPosition(0, -10, 0);
             }
@@ -2029,6 +2036,7 @@ export class Main extends Component {
         if (page === 'adventure') {
             this.sheet = this.uiNode(this.ui, '冒险挂机全屏层', 0, 0, this.width, this.height);
             this.renderAdventure(); this.layout();
+            this.placeAdventureFormation(true);
             if (this.bottom) this.bottom.setSiblingIndex(this.ui.children.length - 1);
             return;
         }
@@ -4738,8 +4746,11 @@ export class Main extends Component {
         // 1) 开启全屏竖向无缝循环冒险小路（位于背景相机层，我们的真实 3D 猫狗模型在中间小路上循环前行！）
         this.ensureAdventureBackground();
 
-        // 2) 右侧悬浮挂机宝箱 + 旋转金光 + 宝箱下方挂机时间（画面干净清爽，不显示日志列表）
-        const chestBox = this.uiNode(layer, '冒险右侧宝箱区', 386, -120, 230, 320);
+        // 2) 左上方（GM 调试下方）挂钩手账风「实时冒险日志」卡片，点击可查看完整冒险日记
+        this.renderAdventureLiveLogCard(layer);
+
+        // 3) 右侧悬浮挂机宝箱 + 旋转金光 + 宝箱下方挂机时间
+        const chestBox = this.uiNode(layer, '冒险右侧宝箱区', Math.min(this.width / 2 - 122, 386), -this.height / 2 + 520, 230, 320);
 
         // 旋转金光光环（可领取时亮起旋转）
         const aura = this.uiNode(chestBox, '宝箱金光', 0, 26, 250, 250);
@@ -4782,6 +4793,208 @@ export class Main extends Component {
         timerPill.on(Node.EventType.TOUCH_END, () => this.claimAdventureChest(), this);
 
         this.updateAdventureLabel();
+    }
+
+    /** 绘制冒险场景左上方（GM 调试下方）的挂钩手账风「实时冒险日志」卡片 */
+    private renderAdventureLiveLogCard(layer: Node) {
+        const existing = layer.getChildByName('冒险左上实时日志卡');
+        if (existing && isValid(existing, true)) { existing.removeFromParent(); existing.destroy(); }
+
+        const cardW = 370, cardH = 392;
+        const card = this.uiNode(layer, '冒险左上实时日志卡', -this.width / 2 + 24 + cardW / 2, this.height / 2 - 266 - cardH / 2, cardW, cardH);
+        const g = card.addComponent(Graphics);
+
+        // 柔和投影
+        g.fillColor = new Color(62, 38, 16, 56);
+        g.roundRect(-cardW / 2 + 4, -cardH / 2 - 6, cardW, cardH, 26); g.fill();
+
+        // 暖米白纸底
+        g.fillColor = this.color('#FBF4DF');
+        g.roundRect(-cardW / 2, -cardH / 2, cardW, cardH, 26); g.fill();
+
+        // 顶部暖蜜黄标题带
+        const hdrH = 64;
+        g.fillColor = this.color('#F0CF86');
+        g.roundRect(-cardW / 2, cardH / 2 - hdrH, cardW, hdrH, 24); g.fill();
+        g.fillRect(-cardW / 2, cardH / 2 - hdrH, cardW, 18);
+        // 标题底部分割线
+        g.strokeColor = this.color('#C79A59'); g.lineWidth = 2.5;
+        g.moveTo(-cardW / 2 + 4, cardH / 2 - hdrH); g.lineTo(cardW / 2 - 4, cardH / 2 - hdrH); g.stroke();
+
+        // 外圈暖棕描边
+        g.strokeColor = this.color('#7D542E'); g.lineWidth = 3.5;
+        g.roundRect(-cardW / 2, -cardH / 2, cardW, cardH, 26); g.stroke();
+
+        // 内圈手工虚线缝边
+        g.strokeColor = this.color('#D4B88C'); g.lineWidth = 2;
+        const ix0 = -cardW / 2 + 12, ix1 = cardW / 2 - 12, iy0 = -cardH / 2 + 12, iy1 = cardH / 2 - hdrH - 8;
+        for (let x = ix0; x < ix1 - 8; x += 14) {
+            g.moveTo(x, iy0); g.lineTo(Math.min(x + 8, ix1), iy0);
+        }
+        for (let y = iy0; y < iy1 - 8; y += 14) {
+            g.moveTo(ix0, y); g.lineTo(ix0, Math.min(y + 8, iy1));
+            g.moveTo(ix1, y); g.lineTo(ix1, Math.min(y + 8, iy1));
+        }
+        g.stroke();
+
+        // 顶部左右两枚木质挂钩圆环
+        for (const px of [-114, 114]) {
+            g.fillColor = this.color('#6F4724');
+            g.circle(px, cardH / 2 - 14, 10); g.fill();
+            g.fillColor = this.color('#B8844F');
+            g.roundRect(px - 6, cardH / 2 - 16, 12, 30, 6); g.fill();
+            g.strokeColor = this.color('#5A381B'); g.lineWidth = 2.5;
+            g.roundRect(px - 6, cardH / 2 - 16, 12, 30, 6); g.stroke();
+        }
+
+        // 标题两侧小爪印装饰
+        for (const side of [-1, 1]) {
+            const cx = side * 116, cy = cardH / 2 - 33;
+            g.fillColor = new Color(184, 134, 66, 150);
+            g.circle(cx, cy - 3, 6.5); g.fill();
+            g.circle(cx - 7, cy + 5, 3.2); g.fill();
+            g.circle(cx, cy + 8, 3.2); g.fill();
+            g.circle(cx + 7, cy + 5, 3.2); g.fill();
+        }
+
+        const titleLbl = this.text(card, '实时冒险日志', 0, cardH / 2 - 33, 220, 34, 25, '#4B2D16');
+        titleLbl.isBold = true;
+
+        // 中部展示最近 2 条实时冒险记录（宠物头像 + 名字 + 简短收获）
+        const logs = this.data.adventureLogs || [];
+        const recent = logs.slice(0, 2);
+        recent.forEach((log, idx) => {
+            const ry = 88 - idx * 72;
+            const row = this.uiNode(card, `实时日志行-${idx}`, 0, ry, cardW - 36, 62);
+            const breed = BREEDS[log.petId] || BREEDS[0];
+            const avNode = this.uiNode(row, '日志宠物头像', -132, 0, 52, 52);
+            const avSp = avNode.addComponent(Sprite); avSp.sizeMode = Sprite.SizeMode.CUSTOM;
+            void this.loadPetPortrait(breed.skin).then(f => {
+                if (f && isValid(avSp, true)) avSp.spriteFrame = f;
+            });
+
+            const nameLbl = this.text(row, log.petName || breed.name, 26, 15, 236, 26, 20, '#4B2D16');
+            nameLbl.isBold = true; nameLbl.horizontalAlign = Label.HorizontalAlign.LEFT;
+            nameLbl.overflow = Label.Overflow.SHRINK; nameLbl.enableWrapText = false;
+
+            let summary = log.title;
+            if (log.itemId) {
+                const it = findItem(log.itemId);
+                summary = `捡到了 ${it?.name || log.itemId} ×${log.itemCount || 1}`;
+            } else if (log.coins && log.gems) {
+                summary = `收获 金币+${log.coins} 钻石+${log.gems}`;
+            } else if (log.coins) {
+                summary = `捡到了 金币 +${log.coins}`;
+            } else if (log.gems) {
+                summary = `捡到了 钻石 +${log.gems}`;
+            }
+            const descLbl = this.text(row, summary, 26, -14, 236, 24, 18, '#6B4829');
+            descLbl.horizontalAlign = Label.HorizontalAlign.LEFT;
+            descLbl.overflow = Label.Overflow.SHRINK; descLbl.enableWrapText = false;
+        });
+
+        if (!recent.length) {
+            this.text(card, '伙伴们正在林间快乐探险中…', 0, 54, 300, 32, 19, '#8B6846');
+        }
+
+        // 底部 3 格实物收获展示框（与参考图一致：图标 + 物品名）
+        const trayW = 332, trayH = 116;
+        const tray = this.uiNode(card, '实时日志实物格区', 0, -116, trayW, trayH);
+        const tg = tray.addComponent(Graphics);
+        tg.fillColor = this.color('#F2E5C3');
+        tg.roundRect(-trayW / 2, -trayH / 2, trayW, trayH, 18); tg.fill();
+        tg.strokeColor = this.color('#C4A16E'); tg.lineWidth = 2.5;
+        tg.roundRect(-trayW / 2, -trayH / 2, trayW, trayH, 18); tg.stroke();
+
+        // 收集最近 3 件实际收获物品/货币（不足 3 件时用背包已有道具或默认展示补齐视觉）
+        const showcase: { spritePath: string; name: string }[] = [];
+        for (const l of logs) {
+            if (showcase.length >= 3) break;
+            if (l.itemId) {
+                const it = findItem(l.itemId);
+                showcase.push({ spritePath: `art/items/${l.itemId}/spriteFrame`, name: it?.name || l.itemId });
+            } else if (l.coins) {
+                showcase.push({ spritePath: 'art/header/coin-icon/spriteFrame', name: `金币+${l.coins}` });
+            } else if (l.gems) {
+                showcase.push({ spritePath: 'art/header/diamond-icon/spriteFrame', name: `钻石+${l.gems}` });
+            }
+        }
+        const fallbackIds = ['fish', 'ball', 'bone_chew'];
+        for (const fid of fallbackIds) {
+            if (showcase.length >= 3) break;
+            if (showcase.some(s => s.spritePath === `art/items/${fid}/spriteFrame`)) continue;
+            const it = findItem(fid);
+            if (it) showcase.push({ spritePath: `art/items/${it.id}/spriteFrame`, name: it.name });
+        }
+
+        showcase.slice(0, 3).forEach((entry, idx) => {
+            const sx = (idx - 1) * 106;
+            const slot = this.uiNode(tray, `实时日志实物格-${idx}`, sx, 0, 96, 98);
+            const sg = slot.addComponent(Graphics);
+            sg.fillColor = this.color('#FCF5E3');
+            sg.roundRect(-48, -49, 96, 98, 14); sg.fill();
+            sg.strokeColor = this.color('#B89668'); sg.lineWidth = 2;
+            sg.roundRect(-48, -49, 96, 98, 14); sg.stroke();
+
+            const iconNode = this.uiNode(slot, '实物图标', 0, 12, 54, 54);
+            const sp = iconNode.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM;
+            resources.load(entry.spritePath, SpriteFrame, (e, f) => {
+                if (!e && f && isValid(sp, true) && isValid(iconNode, true)) {
+                    sp.spriteFrame = f;
+                    const aspect = f.rect.width / Math.max(1, f.rect.height);
+                    const w = aspect >= 1 ? 54 : 54 * aspect;
+                    const h = aspect >= 1 ? 54 / aspect : 54;
+                    iconNode.getComponent(UITransform)!.setContentSize(w, h);
+                }
+            });
+            const nLbl = this.text(slot, entry.name, 0, -32, 88, 22, 15, '#5C3B20');
+            nLbl.overflow = Label.Overflow.SHRINK; nLbl.enableWrapText = false;
+        });
+
+        this.intercept(card); this.pressFeedback(card);
+        card.on(Node.EventType.TOUCH_END, () => this.open('diary'), this);
+    }
+
+    /** 计算并摆放冒险道路上的 3D 宠物队列（与右侧宝箱齐平，snap=true 时立即落位消除切页错位） */
+    private placeAdventureFormation(snap: boolean, step = 0.016) {
+        const visibleAdv = this.actors.filter(x => isValid(x.node, true) && x.node.active && !x.dying);
+        const rows = Math.max(1, Math.ceil(visibleAdv.length / 2));
+        // 与右侧宝箱（屏幕中下方）齐平：单只/双只落在 z=+3.85，多只以 z=+3.85 为中心前后错开
+        const baseZ = Math.max(1.8, 3.85 - (rows - 1) * 0.48);
+        const blendPos = snap ? 1 : 1 - Math.exp(-step * 8.0);
+        const blendYaw = snap ? 1 : 1 - Math.exp(-step * 10.0);
+
+        visibleAdv.forEach((a, idx) => {
+            const row = Math.floor(idx / 2);
+            const isLastOdd = idx === visibleAdv.length - 1 && visibleAdv.length % 2 === 1;
+            const swayX = snap ? 0 : Math.sin(this.socialTime * 1.1 + idx * 1.7) * 0.07;
+            const laneX = (isLastOdd ? 0 : (idx % 2 === 0 ? -0.46 : 0.46)) + swayX;
+            const laneZ = baseZ + row * 1.05;
+            const pos = a.node.position;
+            a.node.setPosition(
+                snap ? laneX : pos.x + (laneX - pos.x) * blendPos,
+                0,
+                snap ? laneZ : pos.z + (laneZ - pos.z) * blendPos,
+            );
+            const targetYaw = 180 + (snap ? 0 : Math.sin(this.socialTime * 2.2 + idx) * 6);
+            a.facing = 180;
+            a.target.set(laneX, 0, laneZ);
+            a.socialUntil = 0;
+            a.timer = 0;
+            a.lookYaw = 0;
+            a.lookTilt = 0;
+            if (snap) {
+                a.node.setRotationFromEuler(0, 180, 0);
+                a.visual.setPosition(0, 0, 0);
+                a.visual.setRotationFromEuler(0, 0, 0);
+                a.visual.setScale(1, 1, 1);
+                if (a.rig && isValid(a.rig.head, true)) a.rig.head.setRotationFromEuler(0, 0, 0);
+            } else {
+                const yaw = a.node.eulerAngles.y;
+                const diff = ((targetYaw - yaw + 540) % 360) - 180;
+                a.node.setRotationFromEuler(0, yaw + diff * blendYaw, 0);
+            }
+        });
     }
 
     private updateAdventureLabel() {
@@ -4892,6 +5105,12 @@ export class Main extends Component {
                 a.node.active = !a.pet.adventuring;
             }
         });
+        if (this.bubbleLayer && isValid(this.bubbleLayer, true)) {
+            this.bubbleLayer.active = this.page !== 'adventure';
+        }
+        if (this.page === 'adventure') {
+            this.placeAdventureFormation(true);
+        }
     }
 
     /** 派出或召回宠物冒险：派出后从主城隐藏、记录冒险出发日记，并在冒险页小路上现身 */
@@ -4922,6 +5141,9 @@ export class Main extends Component {
         if (this.data.adventureLogs.length > 40) this.data.adventureLogs.length = 40;
         this.dirty = true;
         this.persist();
+        if (this.page === 'adventure' && this.sheet && isValid(this.sheet, true)) {
+            this.renderAdventureLiveLogCard(this.sheet);
+        }
         return entry;
     }
 
@@ -6104,22 +6326,12 @@ export class Main extends Component {
                 const socializing = this.page !== 'adventure' && (a.socialUntil || 0) > this.socialTime;
                 const celebrating = this.page !== 'adventure' && a.timer < 0;
                 if (this.page === 'adventure') {
-                    // 全屏冒险模式：仅在路上的 3D 猫狗模型在中间石板小路上排成小队面向前方持续奔跑！
+                    // 全屏冒险模式：仅在路上的 3D 猫狗模型在中间石板小路上与宝箱齐平持续奔跑！
                     if (!a.node.active) return;
-                    const visibleAdv = this.actors.filter(x => isValid(x.node, true) && x.node.active);
-                    const idx = Math.max(0, visibleAdv.indexOf(a));
-                    const laneX = visibleAdv.length === 1 ? 0 : (idx % 2 === 0 ? -0.45 : 0.45) + Math.sin(this.socialTime * 1.1 + idx * 1.7) * 0.08;
-                    const laneZ = -1.6 + Math.floor(idx / 2) * 1.15;
-                    const pos = a.node.position;
-                    const blend = 1 - Math.exp(-step * 6.0);
-                    a.node.setPosition(pos.x + (laneX - pos.x) * blend, 0, pos.z + (laneZ - pos.z) * blend);
-                    const targetYaw = 180 + Math.sin(this.socialTime * 2.2 + idx) * 8;
-                    const yaw = a.node.eulerAngles.y;
-                    const diff = ((targetYaw - yaw + 540) % 360) - 180;
-                    a.node.setRotationFromEuler(0, yaw + diff * (1 - Math.exp(-step * 8.0)), 0);
                     a.speed = cruise;
                     a.phase = (a.phase + step * 8.6) % (Math.PI * 2);
                     a.tailExcite = 0.55;
+                    a.facing = 180;
                 } else {
                 if (celebrating) {
                     a.timer = Math.min(0, a.timer + step);
@@ -6314,7 +6526,12 @@ export class Main extends Component {
                     }
                 }
             });
-            this.resolvePetCollisions(step);
+            if (this.page === 'adventure') {
+                this.socialTime += step;
+                this.placeAdventureFormation(false, step);
+            } else {
+                this.resolvePetCollisions(step);
+            }
         }
         if (expiredActors.length) {
             expiredActors.forEach(a => {
