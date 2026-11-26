@@ -119,6 +119,14 @@ interface GhostFloat {
     age: number;
     duration: number;
 }
+interface BroomSweep {
+    node: Node;
+    broom: Node;
+    op: UIOpacity;
+    sparkles: { node: Node; vx: number; vy: number; op: UIOpacity }[];
+    age: number;
+    duration: number;
+}
 const BREEDS = PET_BREEDS;
 const C = { cream: '#FFF9ED', ink: '#573D2D', green: '#679B7C', pale: '#E5EFDF', coral: '#A65D45', muted: '#795F48', white: '#FFFFFF' };
 
@@ -153,6 +161,7 @@ export class Main extends Component {
     private poopVisuals = new Map<number, PoopVisual>();
     private poopNextId = 1;
     private ghosts: GhostFloat[] = [];
+    private brooms: BroomSweep[] = [];
     private socialBubbles: SocialBubble[] = [];
     private needBubbles = new Map<number, { node: Node; icon: string; until: number; urgent: boolean }>();
     private needHistory = new Map<number, number[]>();
@@ -4420,6 +4429,7 @@ export class Main extends Component {
         }
         recordDaily(c.daily, 'clean');
         if (!this.commitShop(c)) return;
+        this.playBroomSweep(new Vec3(poop.x, 0.16, poop.z));
         const vis = this.poopVisuals.get(poopId);
         if (vis) {
             vis.smokes.forEach(s => s.mat.destroy());
@@ -4574,6 +4584,74 @@ export class Main extends Component {
             const sc = 0.65 + Math.sin(Math.min(1, t * 2) * Math.PI * 0.5) * 0.42;
             g.node.setScale(sc, sc, 1);
             g.op.opacity = Math.round((t < 0.2 ? t / 0.2 : 1 - (t - 0.2) / 0.8) * 235);
+            return true;
+        });
+    }
+
+    private playBroomSweep(worldPos: Vec3) {
+        if (!isValid(this.ui, true) || !this.worldCamera || !this.uiCamera) return;
+        if (!this.bubbleLayer || !isValid(this.bubbleLayer, true)) {
+            this.bubbleLayer = this.uiNode(this.ui, '伙伴相遇气泡层', 0, 0, this.width, this.height);
+            this.bubbleLayer.setSiblingIndex(0);
+        }
+        const screen = this.worldCamera.worldToScreen(worldPos, new Vec3());
+        const uiWorld = this.uiCamera.screenToWorld(screen, new Vec3());
+        const local = this.bubbleLayer.getComponent(UITransform)!.convertToNodeSpaceAR(uiWorld);
+        const root = this.uiNode(this.bubbleLayer, '扫把清扫特效', local.x, local.y, 160, 160);
+        const op = root.addComponent(UIOpacity);
+        op.opacity = 255;
+
+        const broom = this.uiNode(root, '扫把图', 22, 34, 118, 118);
+        const sp = broom.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM;
+        resources.load('art/yard/broom/spriteFrame', SpriteFrame, (err, frame) => {
+            if (!err && frame && isValid(sp, true)) sp.spriteFrame = frame;
+        });
+
+        // 7 颗闪亮星星与洁净泡泡随清扫飞溅散开
+        const sparkles: BroomSweep['sparkles'] = [];
+        for (let i = 0; i < 7; i++) {
+            const sn = this.uiNode(root, '清扫星光-' + i, (i - 3) * 10, -4, 24, 24);
+            const g = sn.addComponent(Graphics);
+            const isStar = i % 2 === 0;
+            g.fillColor = this.color(isStar ? '#FFE678' : '#E8F9FF');
+            if (isStar) {
+                g.moveTo(0, 10); g.lineTo(3, 3); g.lineTo(10, 0); g.lineTo(3, -3);
+                g.lineTo(0, -10); g.lineTo(-3, -3); g.lineTo(-10, 0); g.lineTo(-3, 3); g.close(); g.fill();
+            } else {
+                g.circle(0, 0, 6.5); g.fill();
+                g.fillColor = this.color('#FFFFFF'); g.circle(-2, 2, 2); g.fill();
+            }
+            const sop = sn.addComponent(UIOpacity);
+            const ang = (Math.PI * 0.15) + (i / 6) * (Math.PI * 0.7);
+            const spd = 75 + (i % 3) * 28;
+            sparkles.push({ node: sn, vx: Math.cos(ang) * spd * (i % 2 ? 1 : -1), vy: Math.sin(ang) * spd + 25, op: sop });
+        }
+        this.brooms.push({ node: root, broom, op, sparkles, age: 0, duration: 0.82 });
+    }
+
+    private updateBrooms(dt: number) {
+        if (!this.brooms.length) return;
+        this.brooms = this.brooms.filter(b => {
+            if (!isValid(b.node, true)) return false;
+            b.age += dt;
+            if (b.age >= b.duration) {
+                b.node.active = false; b.node.destroy();
+                return false;
+            }
+            const t = b.age / b.duration;
+            // 来回两下轻快清扫摆动（左右位移 + 倾斜扫动）
+            const sweep = Math.sin(t * Math.PI * 4);
+            b.broom.setPosition(18 + sweep * 34, 34 + Math.abs(sweep) * 10, 0);
+            b.broom.setRotationFromEuler(0, 0, -14 + sweep * 26);
+            b.op.opacity = Math.round((t < 0.15 ? t / 0.15 : t > 0.72 ? (1 - t) / 0.28 : 1) * 255);
+            b.sparkles.forEach(s => {
+                const pos = s.node.position;
+                s.node.setPosition(pos.x + s.vx * dt, pos.y + s.vy * dt, 0);
+                s.vy -= 140 * dt;
+                const sc = 0.75 + Math.sin(t * Math.PI) * 0.45;
+                s.node.setScale(sc, sc, 1);
+                s.op.opacity = Math.round((1 - t) * 245);
+            });
             return true;
         });
     }
@@ -5153,6 +5231,7 @@ export class Main extends Component {
         this.updateNeedBubbles();
         this.syncYardPoops(delta);
         this.updateGhosts(delta);
+        this.updateBrooms(delta);
         this.updateProfilePreview(delta);
         if (Date.now() < this.noticeUntil) this.layoutNotice();
     }
@@ -5174,6 +5253,8 @@ export class Main extends Component {
         this.poopLayer = null;
         this.ghosts.forEach(g => { if (isValid(g.node, true)) g.node.destroy(); });
         this.ghosts = [];
+        this.brooms.forEach(b => { if (isValid(b.node, true)) b.node.destroy(); });
+        this.brooms = [];
         if (this.bubbleLayer && isValid(this.bubbleLayer, true)) this.bubbleLayer.destroy();
         this.bubbleLayer = null;
         if (this.selectionRing && isValid(this.selectionRing, true)) this.selectionRing.destroy();

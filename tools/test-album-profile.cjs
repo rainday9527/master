@@ -557,13 +557,16 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
     assert.deepEqual(careHealthCheck, { hasHealthBar: true, hasHealBtn: true, poopCount: 2, poopNodes: 2 });
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-yard-poop-and-heal.png') });
 
-    // Clean a poop & heal the sick pet with bandage
-    const healAndClean = await page.evaluate(() => {
+    // Clean a poop (verify broom sweep animation!) & heal the sick pet with bandage
+    const cleanStep = await page.evaluate(() => {
       const pid = main.data.poops[0].id;
       const c0 = main.data.coins;
       main.cleanYardPoop(pid);
-      const poopsAfter = main.data.poops.length;
-      const coinGain = main.data.coins - c0;
+      return { poopsAfter: main.data.poops.length, coinGain: main.data.coins - c0, broomActive: main.brooms.length };
+    });
+    await page.waitForTimeout(260);
+    await page.screenshot({ path: path.join(OUT_DIR, 'verify-broom-sweep.png') });
+    const healAndClean = await page.evaluate((cs) => {
       main.care('medicine');
       const hasMedTab = !!walk(main.sheet).find(n => n.name === '背包分类-治疗');
       const h0 = main.data.pets.find(p => p.id === 0).health;
@@ -572,10 +575,10 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
       // Check shop guarantees at least 1 medicine item
       main.shopClickTime = 0; main.refreshShop();
       const medInShop = main.data.shop.slots.some(s => ['bandage','pet_vitamins','cough_syrup','herbal_salve','magic_elixir','first_aid_kit'].includes(s.id));
-      return { poopsAfter, coinGain, hasMedTab, healthBefore: h0, healthAfter: h1, medInShop };
-    });
+      return { poopsAfter: cs.poopsAfter, coinGain: cs.coinGain, broomActive: cs.broomActive, hasMedTab, healthBefore: h0, healthAfter: h1, medInShop };
+    }, cleanStep);
     console.log('heal & clean check:', JSON.stringify(healAndClean));
-    assert.deepEqual(healAndClean, { poopsAfter: 1, coinGain: 5, hasMedTab: true, healthBefore: 20, healthAfter: 45, medInShop: true });
+    assert.deepEqual(healAndClean, { poopsAfter: 1, coinGain: 5, broomActive: 1, hasMedTab: true, healthBefore: 20, healthAfter: 45, medInShop: true });
 
     // Trigger pet death in yard -> capture fallen pet + rising ghost screenshot -> verify pet disappears after animation!
     await page.evaluate(() => {
