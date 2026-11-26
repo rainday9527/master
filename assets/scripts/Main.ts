@@ -4272,79 +4272,97 @@ export class Main extends Component {
     private renderShop() {
         const panel = this.sheet!;
         this.shopCards = [];
+        this.tombOwnedLabels.clear();
         // 全新宽敞手绘商店大底板（960×1260，内区奶油展柜宽 789×高 861，顶部空白木牌居中显示「商店」）
         this.shopArt(panel, 'stall', 0, 0, 960, 1260);
         const signTitle = this.headerText(panel, '商  店', 0, 428, 360, 62, 46);
         signTitle.node.name = '商店木牌标题';
 
-        const content = this.uiNode(panel, '商店安全内容', 0, -165, 764, 830);
+        let tabItemsLbl!: Label;
+        let tabTombLbl!: Label;
+        const renderTabBody = () => {
+            this.shopCards = [];
+            this.tombOwnedLabels.clear();
+            this.shopTimerLabel = null;
+            this.shopCostLabel = null;
+            this.shopCostIcon = null;
+            const prevBody = panel.getChildByName('商店页签内容层');
+            if (prevBody && isValid(prevBody, true)) { prevBody.removeFromParent(); prevBody.destroy(); }
+
+            tabItemsLbl.color = this.color(this.shopTab === 'items' ? '#4E2C15' : '#8A6B4F');
+            tabTombLbl.color = this.color(this.shopTab === 'tombstones' ? '#4E2C15' : '#8A6B4F');
+
+            const body = this.uiNode(panel, '商店页签内容层', 0, 0, 960, 1260);
+            const content = this.uiNode(body, '商店安全内容', 0, -165, 764, 830);
+
+            if (this.shopTab === 'tombstones') {
+                this.renderShopTombstones(body, content);
+                return;
+            }
+            const goods = this.data.shop.slots.map(slot => findItem(slot.id)!);
+            for (let i = 0; i < 6; i++) {
+                const col = i % 3, row = Math.floor(i / 3);
+                const card = this.shopArt(content, 'card', (col - 1) * 252, row === 0 ? 186 : -116, 240, 288);
+                if (i >= goods.length) continue;
+                const item = goods[i];
+                const title = this.headerText(card, item.name, 0, 120, 224, 34, 26);
+                title.lineHeight = 34; title.overflow = Label.Overflow.SHRINK; title.enableWrapText = false;
+                const slotBox = this.uiNode(card, '商店道具品质槽', 0, 56, 98, 98);
+                const slotBg = this.itemSlotBg(slotBox, this.itemQualityTheme(item), 98, 98, '商店道具底图').getComponent(Sprite)!;
+                const icon = this.uiNode(slotBox, '道具图标-' + item.id, 0, 0, 86, 86).addComponent(Sprite);
+                icon.sizeMode = Sprite.SizeMode.CUSTOM;
+                const species = this.text(card, this.speciesText(item), 0, -4, 222, 26, 20, C.muted);
+                species.lineHeight = 26; species.overflow = Label.Overflow.CLAMP;
+                const effect = this.text(card, effectText(item), 0, -32, 224, 28, 21, C.ink);
+                effect.isBold = true; effect.lineHeight = 28; effect.overflow = Label.Overflow.SHRINK; effect.enableWrapText = false;
+                const stock = this.text(card, '', -52, -62, 110, 26, 21, '#228B3C');
+                stock.node.name = '限购状态文字';
+                stock.isBold = true; stock.lineHeight = 26; stock.overflow = Label.Overflow.CLAMP;
+                const owned = this.text(card, '', 54, -62, 110, 26, 21, '#6E533C');
+                owned.node.name = '持有数量文字';
+                owned.isBold = true; owned.lineHeight = 26; owned.overflow = Label.Overflow.CLAMP;
+                const buy = this.shopArt(card, 'buy', 0, -108, 172, 172 * 120 / 321);
+                const price = this.headerText(buy, String(item.price), -24, 0, 98, 42, 32);
+                price.lineHeight = 38; price.overflow = Label.Overflow.CLAMP;
+                const currencyAspect = item.currency === 'coins' ? 348 / 341 : 315 / 353;
+                const coin = this.uiNode(buy, '购买货币图标', 48, 0, 38, 38 * currencyAspect);
+                const currency = coin.addComponent(Sprite); currency.sizeMode = Sprite.SizeMode.CUSTOM;
+                const binding = { node: card, id: '', title, slotBg, icon, species, effect, stock, owned, price, currency };
+                this.shopCards.push(binding);
+                this.shopButton(buy, () => this.buyShopItem(binding.id));
+            }
+            const timer = this.shopArt(body, 'timer-panel', -194, -526, 330, 82);
+            this.shopArt(timer, 'clock', -120, 0, 40, 47);
+            this.shopTimerLabel = this.text(timer, '', 20, 0, 220, 46, 32, C.white);
+            this.shopTimerLabel.isBold = true;
+            const refresh = this.shopArt(body, 'buy', 202, -526, 270, 270 * 120 / 321);
+            this.shopCostLabel = this.headerText(refresh, '', 0, 0, 250, 46, 29);
+            this.shopCostIcon = this.uiNode(refresh, '刷新钻石图标', 58, 0, 42, 42 * 315 / 353);
+            this.headerArt(this.shopCostIcon, 'diamond-icon');
+            this.shopButton(refresh, () => this.refreshShop());
+            this.updateShopCards();
+        };
+
         const switchShopTab = (next: 'items' | 'tombstones') => {
             if (this.shopTab === next) return;
             this.shopTab = next;
-            if (this.sheet && isValid(this.sheet, true)) { this.sheet.removeFromParent(); this.sheet.destroy(); this.sheet = null; }
-            this.open('shop');
+            // 原地切换页签内容层，不重建外框面板，彻底消除切页跳动
+            renderTabBody();
         };
         const tabItems = this.shopArt(panel, 'tab', -254, 214, 186, 68);
         tabItems.name = '商店页签-道具';
-        const tabItemsLbl = this.headerText(tabItems, '道具', 0, 0, 150, 42, 28);
-        tabItemsLbl.color = this.color(this.shopTab === 'items' ? '#4E2C15' : '#8A6B4F');
+        tabItemsLbl = this.headerText(tabItems, '道具', 0, 0, 150, 42, 28);
         this.shopButton(tabItems, () => switchShopTab('items'));
 
         const tabTomb = this.shopArt(panel, 'tab', -56, 214, 186, 68);
         tabTomb.name = '商店页签-墓碑';
-        const tabTombLbl = this.headerText(tabTomb, '墓碑', 0, 0, 150, 42, 28);
-        tabTombLbl.color = this.color(this.shopTab === 'tombstones' ? '#4E2C15' : '#8A6B4F');
+        tabTombLbl = this.headerText(tabTomb, '墓碑', 0, 0, 150, 42, 28);
         this.shopButton(tabTomb, () => switchShopTab('tombstones'));
 
         const close = this.shopArt(panel, 'close', 392, 278, 82, 83);
         this.shopButton(close, () => this.open('home'));
 
-        if (this.shopTab === 'tombstones') {
-            this.renderShopTombstones(panel, content);
-            return;
-        }
-        const goods = this.data.shop.slots.map(slot => findItem(slot.id)!);
-        for (let i = 0; i < 6; i++) {
-            const col = i % 3, row = Math.floor(i / 3);
-            const card = this.shopArt(content, 'card', (col - 1) * 252, row === 0 ? 186 : -116, 240, 288);
-            if (i >= goods.length) continue;
-            const item = goods[i];
-            const title = this.headerText(card, item.name, 0, 120, 224, 34, 26);
-            title.lineHeight = 34; title.overflow = Label.Overflow.SHRINK; title.enableWrapText = false;
-            const slotBox = this.uiNode(card, '商店道具品质槽', 0, 56, 98, 98);
-            const slotBg = this.itemSlotBg(slotBox, this.itemQualityTheme(item), 98, 98, '商店道具底图').getComponent(Sprite)!;
-            const icon = this.uiNode(slotBox, '道具图标-' + item.id, 0, 0, 86, 86).addComponent(Sprite);
-            icon.sizeMode = Sprite.SizeMode.CUSTOM;
-            const species = this.text(card, this.speciesText(item), 0, -4, 222, 26, 20, C.muted);
-            species.lineHeight = 26; species.overflow = Label.Overflow.CLAMP;
-            const effect = this.text(card, effectText(item), 0, -32, 224, 28, 21, C.ink);
-            effect.isBold = true; effect.lineHeight = 28; effect.overflow = Label.Overflow.SHRINK; effect.enableWrapText = false;
-            const stock = this.text(card, '', -52, -62, 110, 26, 21, '#228B3C');
-            stock.node.name = '限购状态文字';
-            stock.isBold = true; stock.lineHeight = 26; stock.overflow = Label.Overflow.CLAMP;
-            const owned = this.text(card, '', 54, -62, 110, 26, 21, '#6E533C');
-            owned.node.name = '持有数量文字';
-            owned.isBold = true; owned.lineHeight = 26; owned.overflow = Label.Overflow.CLAMP;
-            const buy = this.shopArt(card, 'buy', 0, -108, 172, 172 * 120 / 321);
-            const price = this.headerText(buy, String(item.price), -24, 0, 98, 42, 32);
-            price.lineHeight = 38; price.overflow = Label.Overflow.CLAMP;
-            const currencyAspect = item.currency === 'coins' ? 348 / 341 : 315 / 353;
-            const coin = this.uiNode(buy, '购买货币图标', 48, 0, 38, 38 * currencyAspect);
-            const currency = coin.addComponent(Sprite); currency.sizeMode = Sprite.SizeMode.CUSTOM;
-            const binding = { node: card, id: '', title, slotBg, icon, species, effect, stock, owned, price, currency };
-            this.shopCards.push(binding);
-            this.shopButton(buy, () => this.buyShopItem(binding.id));
-        }
-        const timer = this.shopArt(panel, 'timer-panel', -194, -526, 330, 82);
-        this.shopArt(timer, 'clock', -120, 0, 40, 47);
-        this.shopTimerLabel = this.text(timer, '', 20, 0, 220, 46, 32, C.white);
-        this.shopTimerLabel.isBold = true;
-        const refresh = this.shopArt(panel, 'buy', 202, -526, 270, 270 * 120 / 321);
-        this.shopCostLabel = this.headerText(refresh, '', 0, 0, 250, 46, 29);
-        this.shopCostIcon = this.uiNode(refresh, '刷新钻石图标', 58, 0, 42, 42 * 315 / 353);
-        this.headerArt(this.shopCostIcon, 'diamond-icon');
-        this.shopButton(refresh, () => this.refreshShop());
-        this.updateShopCards();
+        renderTabBody();
     }
     private speciesText(item: ItemDefinition) {
         return item.appliesTo === 'both' ? '猫狗通用' : item.appliesTo === 'cat' ? '猫咪专用' : '狗狗专用';
@@ -5724,7 +5742,7 @@ export class Main extends Component {
         resources.load('art/memorial/memorial-dialog-bg/spriteFrame', SpriteFrame, (e, f) => {
             if (!e && f && isValid(panelBg, true)) panelBg.spriteFrame = f;
         });
-        this.headerText(panel, '立碑刻字纪念', 0, 446, 420, 48, 36).node.name = '弹窗独立标题';
+        this.headerText(panel, '立碑刻字纪念', 0, 478, 420, 48, 36).node.name = '弹窗独立标题';
         const close = this.shopArt(panel, 'close', 386, 356, 68, 69);
         this.shopButton(close, () => this.closeDialog());
 
@@ -5858,7 +5876,7 @@ export class Main extends Component {
         resources.load('art/memorial/memorial-dialog-bg/spriteFrame', SpriteFrame, (e, f) => {
             if (!e && f && isValid(panelBg, true)) panelBg.spriteFrame = f;
         });
-        this.headerText(panel, `怀念 · ${rec.customName}`, 0, 446, 480, 48, 34).node.name = '弹窗独立标题';
+        this.headerText(panel, `怀念 · ${rec.customName}`, 0, 478, 480, 48, 34).node.name = '弹窗独立标题';
         const close = this.shopArt(panel, 'close', 386, 356, 68, 69);
         this.shopButton(close, () => this.closeDialog());
 
