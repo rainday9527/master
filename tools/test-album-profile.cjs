@@ -106,7 +106,7 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
     assert.deepEqual(gemCheck, { okSSR: true, dupSSR: false, okR: true, okSR: true, dSSR: 120, dR: 50, dSR: 80 });
 
     // 3) Open Rename dialog -> verify title "改名", single-line EditBox input, 确认/取消 buttons, free 1st rename & 100-gem 2nd rename!
-    await page.evaluate(() => main.showRenameDialog(7));
+    await page.evaluate(() => { main.closeDialog(); main.showRenameDialog(7); });
     await page.waitForTimeout(250);
     const renameDlg = await page.evaluate(() => {
       const eb = walk(main.dialog).find(n => n.name === '改名输入框')?.getComponent('cc.EditBox');
@@ -605,20 +605,31 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
     console.log('after-death vanish check:', JSON.stringify(afterDeath));
     assert.deepEqual(afterDeath, { stillInActors: false, ghostCleared: true });
 
-    // 16) Looping Idle Adventure + Glowing Treasure Chest + Diary (Item Cards & Crisis) + Shop Tombstones + Memorial Corner!
+    // 16) Looping Idle Adventure + Adventuring Pet Hidden in Main Yard + Glowing Treasure Chest with Icon+Number Reward Dialog + Diary + Shop Tombstones + Memorial Corner!
     await page.evaluate(() => {
       main.data.gems = 800;
       main.data.adventureIdleStart = Date.now() - 6 * 3600000; // 6 hours idle
       const p0 = main.data.pets.find(p => p.id === 0);
-      // Record a food item find + a lost event so Diary shows both visual item card & action buttons
+      // Send pet #0 out on adventure -> must NOT be visible in Main Yard, MUST be visible on Adventure Road!
+      main.open('home');
+      main.setPetAdventuring(0, true, 120000);
+      // Record a food item find so Diary shows embedded visual item card
       main.triggerAdventureOutcome(p0, {
         type: 'food', title: '捡到美味食物',
         text: '「奶糖猫」在草丛野餐垫旁发现了完好的【去刺熟鱼】，开心叼回仓库！',
         item: { id: 'fish', name: '去刺熟鱼', appliesTo: 'both', currency: 'coins', price: 180, effects: { hunger: 40, joy: 5 }, category: 'food', weight: 3, limit: 2 },
         itemCount: 1, joyDelta: 6,
       });
-      main.open('adventure');
     });
+    await page.waitForTimeout(200);
+    const outCheckHome = await page.evaluate(() => ({
+      p0ActiveOnHome: !!main.actors.find(a => a.pet.id === 0)?.node?.active,
+      p2ActiveOnHome: !!main.actors.find(a => a.pet.id === 2)?.node?.active,
+    }));
+    console.log('adventuring pet hidden on home check:', JSON.stringify(outCheckHome));
+    assert.deepEqual(outCheckHome, { p0ActiveOnHome: false, p2ActiveOnHome: true }, 'adventuring pet must be hidden in Main Yard while non-adventuring pets stay visible');
+
+    await page.evaluate(() => { main.open('adventure'); });
     await page.waitForTimeout(750);
     const advCheck = await page.evaluate(() => ({
       roadTiles: main.advRoadTiles.length,
@@ -627,21 +638,32 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
       hasChest: !!walk(main.sheet).find(n => n.name === '冒险挂机宝箱'),
       hasTimer: !!walk(main.sheet).find(n => n.name === '宝箱挂机时间牌'),
       noLogList: !walk(main.sheet).find(n => n.name === '最新冒险快览'),
+      p0ActiveOnAdv: !!main.actors.find(a => a.pet.id === 0)?.node?.active,
+      p2ActiveOnAdv: !!main.actors.find(a => a.pet.id === 2)?.node?.active,
       hasDiaryEntryOnHome: !!main.ui.getChildByName('冒险日记入口'),
       hasMemorialEntryOnHome: !!main.ui.getChildByName('后院纪念角入口'),
     }));
     console.log('adventure loop check:', JSON.stringify(advCheck));
-    assert.deepEqual(advCheck, { roadTiles: 2, bgActive: true, auraActive: true, hasChest: true, hasTimer: true, noLogList: true, hasDiaryEntryOnHome: true, hasMemorialEntryOnHome: true });
+    assert.deepEqual(advCheck, { roadTiles: 2, bgActive: true, auraActive: true, hasChest: true, hasTimer: true, noLogList: true, p0ActiveOnAdv: true, p2ActiveOnAdv: false, hasDiaryEntryOnHome: true, hasMemorialEntryOnHome: true });
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-adventure-loop.png') });
 
-    // Claim idle treasure chest -> verify coins/gems reward & dialog
+    // Claim idle treasure chest -> verify coins/gems/items granted AND universal Icon+Number reward cards rendered!
     const chestRes = await page.evaluate(() => {
       const c0 = main.data.coins, g0 = main.data.gems;
       const ok = main.claimAdventureChest();
       return { ok, coinGain: main.data.coins - c0, gemGain: main.data.gems - g0, dialogOpen: !!main.dialog };
     });
-    console.log('adventure chest claim check:', JSON.stringify(chestRes));
+    await page.waitForTimeout(450);
+    const rewardCardsCheck = await page.evaluate(() => {
+      const cards = main.dialog ? walk(main.dialog).filter(n => n.name.startsWith('奖励图标卡-')) : [];
+      const iconsLoaded = cards.filter(c => !!c.getChildByName('奖励图标')?.getComponent('cc.Sprite')?.spriteFrame).length;
+      const bodyHidden = !walk(main.dialog).find(n => n.name === '弹窗正文')?.active;
+      return { cardCount: cards.length, iconsLoaded, bodyHidden };
+    });
+    console.log('adventure chest claim check:', JSON.stringify({ ...chestRes, ...rewardCardsCheck }));
     assert.ok(chestRes.ok && chestRes.coinGain > 500 && chestRes.gemGain >= 20 && chestRes.dialogOpen, '6h idle chest must grant rich coins & gems');
+    assert.ok(rewardCardsCheck.cardCount >= 3 && rewardCardsCheck.iconsLoaded === rewardCardsCheck.cardCount && rewardCardsCheck.bodyHidden, 'chest reward dialog must show Icon+Number visual cards instead of plain text');
+    await page.screenshot({ path: path.join(OUT_DIR, 'verify-chest-reward-dialog.png') });
 
     // Open Adventure Diary -> verify item card + death log
     await page.evaluate(() => { main.closeDialog(); main.open('diary'); });

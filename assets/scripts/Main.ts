@@ -43,6 +43,8 @@ interface Pet {
     lost?: boolean;
     deathReason?: string;
     diedAt?: number;
+    adventuring?: boolean;
+    adventureReturnAt?: number;
     star: number;
     nickname: string;
     renameCount?: number;
@@ -52,6 +54,11 @@ interface Pet {
     ownedOutfits: OutfitId[];
     ownedCoats: CoatId[];
 }
+type RewardGrantItem =
+    | { kind: 'coins'; amount: number }
+    | { kind: 'gems'; amount: number }
+    | { kind: 'item'; itemId: string; amount: number }
+    | { kind: 'care'; careType: 'food' | 'soap' | 'toy'; amount: number };
 interface YardPoop {
     id: number;
     petId: number;
@@ -346,8 +353,12 @@ export class Main extends Component {
                 const lost = Boolean((p as any).lost);
                 const deathReason = typeof (p as any).deathReason === 'string' ? (p as any).deathReason : undefined;
                 const diedAt = validInt((p as any).diedAt, 9000000000000000) ? (p as any).diedAt : undefined;
+                const rawReturnAt = validInt((p as any).adventureReturnAt, 9000000000000000) ? (p as any).adventureReturnAt : undefined;
+                const adventuring = Boolean((p as any).adventuring) && !dead && !lost && (!rawReturnAt || rawReturnAt > Date.now());
+                const adventureReturnAt = adventuring ? rawReturnAt : undefined;
                 return {
                     id: p.id, hunger: p.hunger, clean: p.clean, energy: p.energy, joy: p.joy, health, dead, lost, deathReason, diedAt,
+                    adventuring, adventureReturnAt,
                     star, nickname, renameCount, trait, outfit, coat,
                     ownedOutfits: Array.from(petOutfits), ownedCoats: Array.from(petCoats),
                 };
@@ -1133,6 +1144,7 @@ export class Main extends Component {
         };
         root.setRotationFromEuler(0, actor.facing!, 0);
         this.actors.push(actor);
+        this.syncActorVisibility();
         // 卡通可动 3D 模型就绪后替换几何 Fallback，加载失败不影响点击与照顾。
         void this.attachPetModel(actor, n);
     }
@@ -1481,6 +1493,107 @@ export class Main extends Component {
         this.layoutDialog();
     }
 
+    /** 通用图标+数字奖励领取弹窗（金币、钻石、道具统一可视化展示，不以纯文字堆砌） */
+    public showRewardGrantDialog(title: string, rewards: RewardGrantItem[], subtitle?: string, buttonText = '太棒了') {
+        const list = rewards.filter(r => r.amount > 0);
+        if (!list.length) return;
+        if (this.dialog) this.closeDialog();
+        this.showDialog(title, '', [{ title: buttonText, run: () => this.closeDialog() }]);
+        const panel = this.dialog?.getChildByName('通用弹窗面板');
+        const content = panel?.getChildByName('弹窗安全内容');
+        if (!content) return;
+        const bodyNode = content.getChildByName('弹窗正文');
+        if (bodyNode) bodyNode.active = false;
+        const ratio = 900 / 1116;
+
+        if (subtitle) {
+            const sub = this.text(content, subtitle, 0, list.length > 4 ? 132 : 114, 680, 26, 22, '#7C5A3E');
+            sub.node.name = '奖励弹窗副标题';
+        }
+
+        const displayList = list.slice(0, 8);
+        const rows = Math.ceil(displayList.length / 4);
+        const cardW = rows === 1 ? 142 : 134;
+        const cardH = rows === 1 ? 144 : 102;
+        const gapX = rows === 1 ? 18 : 14;
+        const gapY = 10;
+        const startY = rows === 1 ? (subtitle ? 12 : 24) : (subtitle ? 58 : 72);
+
+        const strip = this.uiNode(content, '通用奖励图标网格', 0, 0, 680, 280);
+        displayList.forEach((rw, idx) => {
+            const r = Math.floor(idx / 4);
+            const rowCount = Math.min(4, displayList.length - r * 4);
+            const c = idx % 4;
+            const x = (c - (rowCount - 1) / 2) * (cardW + gapX);
+            const y = startY - r * (cardH + gapY);
+
+            const card = this.uiNode(strip, `奖励图标卡-${idx}`, x, y, cardW, cardH);
+            const cg = card.addComponent(Graphics);
+            cg.fillColor = this.color('#FFF8E7');
+            cg.roundRect(-cardW / 2, -cardH / 2, cardW, cardH, 18); cg.fill();
+            cg.strokeColor = this.color('#D9A55B'); cg.lineWidth = 3;
+            cg.roundRect(-cardW / 2, -cardH / 2, cardW, cardH, 18); cg.stroke();
+
+            // 图标区
+            const iconSize = rows === 1 ? 64 : 44;
+            const iconY = rows === 1 ? 24 : 20;
+            const iconNode = this.uiNode(card, '奖励图标', 0, iconY, iconSize, iconSize);
+            const sp = iconNode.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM;
+            let spritePath = '';
+            let nameText = '';
+            let qtyText = '';
+            if (rw.kind === 'coins') {
+                spritePath = 'art/header/coin-icon/spriteFrame';
+                nameText = '金币';
+                qtyText = `+${rw.amount}`;
+            } else if (rw.kind === 'gems') {
+                spritePath = 'art/header/diamond-icon/spriteFrame';
+                nameText = '钻石';
+                qtyText = `+${rw.amount}`;
+            } else if (rw.kind === 'care') {
+                spritePath = `art/care/${rw.careType === 'food' ? 'feed' : rw.careType === 'soap' ? 'clean' : 'play'}/spriteFrame`;
+                nameText = rw.careType === 'food' ? '通用食物' : rw.careType === 'soap' ? '清洁包' : '陪玩球';
+                qtyText = `×${rw.amount}`;
+            } else {
+                const def = findItem(rw.itemId);
+                spritePath = `art/items/${rw.itemId}/spriteFrame`;
+                nameText = def?.name || rw.itemId;
+                qtyText = `×${rw.amount}`;
+            }
+            resources.load(spritePath, SpriteFrame, (err, frame) => {
+                if (!err && frame && isValid(sp, true) && isValid(iconNode, true)) {
+                    sp.spriteFrame = frame;
+                    const aspect = frame.rect.width / Math.max(1, frame.rect.height);
+                    const w = aspect >= 1 ? iconSize : iconSize * aspect;
+                    const h = aspect >= 1 ? iconSize / aspect : iconSize;
+                    iconNode.getComponent(UITransform)!.setContentSize(w, h);
+                }
+            });
+
+            // 数量高对比胶囊徽章
+            const pillH = rows === 1 ? 30 : 24;
+            const pillY = rows === 1 ? -26 : -16;
+            const pill = this.uiNode(card, '奖励数量牌', 0, pillY, cardW - 22, pillH);
+            const pg = pill.addComponent(Graphics);
+            pg.fillColor = this.color(rw.kind === 'gems' ? '#2F88D8' : rw.kind === 'coins' ? '#D6891B' : '#6F4C2E');
+            pg.roundRect(-(cardW - 22) / 2, -pillH / 2, cardW - 22, pillH, 11); pg.fill();
+            const qLbl = this.text(pill, qtyText, 0, 0, cardW - 26, pillH - 4, rows === 1 ? 22 : 18, C.white);
+            qLbl.isBold = true; qLbl.node.name = '奖励数量';
+
+            // 底部短名称
+            const nLbl = this.text(card, nameText, 0, rows === 1 ? -54 : -39, cardW - 10, 20, rows === 1 ? 17 : 14, '#7A5334');
+            nLbl.overflow = Label.Overflow.SHRINK; nLbl.enableWrapText = false;
+            nLbl.node.name = '奖励名称';
+        });
+
+        // 按钮微调到底部居中，确保双行 8 张奖励卡与按钮之间零重叠
+        const okBtn = content.getChildByName('弹窗按钮-' + buttonText);
+        if (okBtn) {
+            okBtn.setPosition(0, rows === 1 ? -142 * ratio : -174);
+            if (rows > 1) okBtn.setScale(0.84, 0.84, 1);
+        }
+    }
+
     private showGemDialog() {
         this.showDialog('获取钻石', '完整观看广告可获得', [
             { title: '看广告', run: () => this.watchRewardedVideo('gems') },
@@ -1646,7 +1759,7 @@ export class Main extends Component {
                 return;
             }
             this.renderHeader();
-            this.toast('完整观看成功，' + currencyName + ' +' + amount);
+            this.showRewardGrantDialog('获得广告奖励', [{ kind: currency, amount }], '完整观看广告，奖励已到账！');
         };
         // 保留播放锁直到首个终态；关闭弹窗、切页不会开启另一次播放，也不会重复发奖。
         try { provider.show(finish); } catch { finish('failed'); }
@@ -1707,7 +1820,7 @@ export class Main extends Component {
         this.header = { profile, avatar: this.data.avatar, level: levelLabel, xp: xpLabel, fill, gems: gemsLabel, coins: coinsLabel };
     }
     private updateSelectionRing() {
-        const actor = this.petSelected && (this.page === 'pet' || this.page === 'bag') ? this.actors.find(a => a.pet.id === this.selected && isValid(a.node, true)) : null;
+        const actor = this.petSelected && (this.page === 'pet' || this.page === 'bag') ? this.actors.find(a => a.pet.id === this.selected && !a.pet.adventuring && !a.pet.dead && !a.pet.lost && isValid(a.node, true)) : null;
         if (!actor) { if (this.selectionRing) this.selectionRing.active = false; return; }
         if (!this.selectionRing) {
             const ring = new Node('选中宠物光圈'); ring.layer = Layers.Enum.DEFAULT; this.world.addChild(ring);
@@ -1885,6 +1998,7 @@ export class Main extends Component {
         this.clearRecruitBackground();
         if (page !== 'profile') { this.previewViewportNode = null; this.clearProfilePreview(); }
         this.page = page; this.adventureLabel = null;
+        this.syncActorVisibility();
         if (page === 'pet') this.petSelected = true;
         if (page === 'home') { this.petSelected = false; this.careSelected = ''; }
         if (this.sheet) {
@@ -3152,7 +3266,7 @@ export class Main extends Component {
         this.renderHeader();
         if (this.page === 'profile') this.refreshProfileInPlace();
         else if (this.page === 'album') this.renderAlbumGrid();
-        this.toast('领取图鉴解锁奖励：钻石 +' + reward);
+        this.showRewardGrantDialog('图鉴解锁奖励', [{ kind: 'gems', amount: reward }], `解锁「${breed.name}」图鉴专属奖励`);
         return true;
     }
 
@@ -4329,7 +4443,17 @@ export class Main extends Component {
             candidate.daily.claimed[id] = true; candidate[task.currency] += task.amount;
         }
         if (!this.commitShop(candidate)) return;
-        this.renderHeader(); this.updateDailyRows(); this.toast(id === 'pack' ? '已领取：通用食物×2、清洁包×1、陪玩球×1' : '每日任务奖励已领取');
+        this.renderHeader(); this.updateDailyRows();
+        if (id === 'pack') {
+            this.showRewardGrantDialog('每日补给礼包', [
+                { kind: 'care', careType: 'food', amount: DAILY_PACK.food },
+                { kind: 'care', careType: 'soap', amount: DAILY_PACK.soap },
+                { kind: 'care', careType: 'toy', amount: DAILY_PACK.toy },
+            ], '每日免费庭院照顾补给已收下！');
+        } else {
+            const task = DAILY_TASKS.find(t => t.id === id)!;
+            this.showRewardGrantDialog('每日任务奖励', [{ kind: task.currency, amount: task.amount }], `完成任务：${task.title}`);
+        }
     }
 
     private watchDailyRewardedVideo(id: DailyTaskId) {
@@ -4361,7 +4485,8 @@ export class Main extends Component {
             candidate.daily.claimed[id] = true;
             candidate.daily.adClaimed[id] = true;
             if (!this.commitShop(candidate)) return;
-            this.renderHeader(); this.updateDailyRows(); this.toast('每日任务双倍奖励已领取');
+            this.renderHeader(); this.updateDailyRows();
+            this.showRewardGrantDialog('每日双倍奖励', [{ kind: task.currency, amount }], `完成任务「${task.title}」双倍领取！`);
         };
         try { provider.show(finish); } catch { finish('failed'); }
     }
@@ -4744,9 +4869,49 @@ export class Main extends Component {
         });
         this.renderHeader();
         this.updateAdventureLabel();
-        this.showDialog('冒险宝箱已开启！', `金币 +${preview.coins} · 钻石 +${preview.gems}${itemSummary ? '\n额外道具：' + itemSummary : ''}`, [
-            { title: '太棒了', run: () => this.closeDialog() },
-        ]);
+        const grantRewards: RewardGrantItem[] = [];
+        if (preview.coins > 0) grantRewards.push({ kind: 'coins', amount: preview.coins });
+        if (preview.gems > 0) grantRewards.push({ kind: 'gems', amount: preview.gems });
+        bonusItems.forEach(bi => grantRewards.push({ kind: 'item', itemId: bi.id, amount: bi.count }));
+        this.showRewardGrantDialog('冒险宝箱已开启！', grantRewards, `累计挂机 ${preview.minutes} 分钟 · 满载而归！`, '太棒了');
+        return true;
+    }
+
+    /** 同步主城与冒险场景中 3D 宠物的可见性：外出冒险的伙伴不显示在主城庭院，只在冒险道路上奔跑 */
+    public syncActorVisibility() {
+        const hasOut = this.actors.some(a => !a.pet.dead && !a.pet.lost && !!a.pet.adventuring);
+        this.actors.forEach(a => {
+            if (!isValid(a.node, true)) return;
+            if (a.dying) { a.node.active = this.page !== 'adventure'; return; }
+            if (a.pet.dead || a.pet.lost) { a.node.active = false; return; }
+            if (this.page === 'adventure') {
+                // 若有宠物处于外出冒险状态，则冒险页只展示外出冒险的小队；否则全员结队展示
+                a.node.active = hasOut ? !!a.pet.adventuring : true;
+            } else {
+                // 主城及其他页面：外出冒险中的小猫小狗不显示在主城
+                a.node.active = !a.pet.adventuring;
+            }
+        });
+    }
+
+    /** 派出或召回宠物冒险：派出后从主城隐藏、记录冒险出发日记，并在冒险页小路上现身 */
+    public setPetAdventuring(petId: number, out: boolean, durationMs = 120000): boolean {
+        const pet = this.data.pets.find(p => p.id === petId);
+        if (!pet || pet.dead || pet.lost) return false;
+        if (Boolean(pet.adventuring) === out) { this.syncActorVisibility(); return true; }
+        pet.adventuring = out;
+        pet.adventureReturnAt = out ? Date.now() + durationMs : undefined;
+        const actor = this.actors.find(a => a.pet.id === petId);
+        if (actor) actor.pet = pet;
+        if (out) {
+            const dep = makeDepartOutcome(this.petDisplayName(pet.id));
+            this.recordAdventureLog({ petId: pet.id, petName: this.petDisplayName(pet.id), type: dep.type, title: dep.title, text: dep.text });
+            if (this.selected === petId && (this.page === 'pet' || this.page === 'bag')) this.open('home');
+        }
+        this.dirty = true;
+        this.persist();
+        this.syncActorVisibility();
+        this.updateSelectionRing();
         return true;
     }
 
@@ -4774,9 +4939,9 @@ export class Main extends Component {
         if (outcome.cleanDelta) target.clean = Math.max(0, Math.min(100, target.clean + outcome.cleanDelta));
         if (outcome.healthDelta) target.health = Math.max(0, Math.min(100, target.health + outcome.healthDelta));
         if (outcome.joyDelta) target.joy = Math.max(0, Math.min(100, target.joy + outcome.joyDelta));
-        if (outcome.setLost) target.lost = true;
+        if (outcome.setLost) { target.lost = true; target.adventuring = false; target.adventureReturnAt = undefined; }
         if (outcome.setDead) {
-            target.dead = true; target.health = 0;
+            target.dead = true; target.health = 0; target.adventuring = false; target.adventureReturnAt = undefined;
             target.deathReason = outcome.deathReason || '冒险遭遇意外';
             target.diedAt = Date.now();
         }
@@ -5265,6 +5430,7 @@ export class Main extends Component {
         }
         let closest: Actor | null = null, distance = 90;
         this.actors.forEach(actor => {
+            if (!isValid(actor.node, true) || !actor.node.active || actor.pet.adventuring || actor.pet.dead || actor.pet.lost) return;
             const projected = new Vec3(); this.worldCamera.worldToScreen(new Vec3(actor.node.worldPosition.x, actor.node.worldPosition.y + 0.48, actor.node.worldPosition.z), projected);
             const d = Vec2.distance(location, new Vec2(projected.x, projected.y));
             if (projected.z >= 0 && projected.z <= 1 && d < distance) { distance = d; closest = actor; }
@@ -5590,9 +5756,21 @@ export class Main extends Component {
             toDie.forEach(p => this.triggerPetDeath(p));
             this.dirty = true; if (this.page === 'pet') this.open('pet');
         }
-        // 庭院中存活的猫狗每隔 35 秒随机拉一次便便（最多同时存在 5 坨）
+        // 检查外出冒险的伙伴是否到点归来
+        let returnedAny = false;
+        const nowTick = Date.now();
+        this.data.pets.forEach(p => {
+            if (p.adventuring && p.adventureReturnAt && nowTick >= p.adventureReturnAt) {
+                p.adventuring = false;
+                p.adventureReturnAt = undefined;
+                returnedAny = true;
+                if (this.page === 'home') this.toast(`「${this.petDisplayName(p.id)}」冒险归来回到庭院啦！`);
+            }
+        });
+        if (returnedAny) { this.dirty = true; this.syncActorVisibility(); }
+        // 庭院中存活且在场的猫狗每隔 35 秒随机拉一次便便（最多同时存在 5 坨）
         if (this.elapsed > 0 && this.elapsed % 35 === 0 && (this.data.poops || []).length < 5) {
-            const aliveActors = this.actors.filter(a => !a.pet.dead && !a.dying && isValid(a.node, true));
+            const aliveActors = this.actors.filter(a => !a.pet.dead && !a.pet.lost && !a.pet.adventuring && !a.dying && isValid(a.node, true));
             if (aliveActors.length) {
                 const chosen = aliveActors[Math.floor(Math.random() * aliveActors.length)];
                 this.spawnYardPoop(chosen.pet.id, chosen.node.position.x, chosen.node.position.z);
@@ -5600,11 +5778,16 @@ export class Main extends Component {
         }
         // 每隔 45 秒自动触发一次伙伴林间冒险见闻事件，丰富冒险日记并带回食物/玩具/宝藏
         if (this.elapsed > 0 && this.elapsed % 45 === 0) {
-            const candidates = this.data.pets.filter(p => !p.dead && !p.lost);
+            const outPets = this.data.pets.filter(p => !p.dead && !p.lost && p.adventuring);
+            const candidates = outPets.length ? outPets : this.data.pets.filter(p => !p.dead && !p.lost && p.hunger >= 20);
             if (candidates.length) {
                 const chosen = candidates[Math.floor(Math.random() * candidates.length)];
-                const out = rollAdventureEvent(this.petDisplayName(chosen.id), BREEDS[chosen.id].kind, chosen.health, chosen.joy);
-                this.triggerAdventureOutcome(chosen, out);
+                if (!chosen.adventuring && this.data.pets.filter(p => !p.dead && !p.lost).length >= 2) {
+                    this.setPetAdventuring(chosen.id, true, 90000);
+                } else {
+                    const out = rollAdventureEvent(this.petDisplayName(chosen.id), BREEDS[chosen.id].kind, chosen.health, chosen.joy);
+                    this.triggerAdventureOutcome(chosen, out);
+                }
             }
         }
         if (this.elapsed % 10 === 0 && this.dirty) this.persist();
@@ -5624,7 +5807,7 @@ export class Main extends Component {
     };
     public resolvePetCollisions(dt: number) {
         this.socialTime += Math.max(0, Math.min(dt, 0.1));
-        const actors = this.actors.filter(a => isValid(a.node, true));
+        const actors = this.actors.filter(a => isValid(a.node, true) && a.node.active && !a.pet.adventuring);
         const clampX = (x: number) => Math.max(this.yardMinX, Math.min(this.yardMaxX, x));
         const clampZ = (z: number) => Math.max(this.yardMinZ, Math.min(this.yardMaxZ, z));
         const diameter = this.petCollisionRadius * 2;
@@ -5921,9 +6104,11 @@ export class Main extends Component {
                 const socializing = this.page !== 'adventure' && (a.socialUntil || 0) > this.socialTime;
                 const celebrating = this.page !== 'adventure' && a.timer < 0;
                 if (this.page === 'adventure') {
-                    // 全屏冒险模式：我们的 3D 猫狗模型在中间石板小路上排成小队面向前方持续奔跑！
-                    const idx = this.actors.indexOf(a);
-                    const laneX = (idx % 2 === 0 ? -0.45 : 0.45) + Math.sin(this.socialTime * 1.1 + idx * 1.7) * 0.08;
+                    // 全屏冒险模式：仅在路上的 3D 猫狗模型在中间石板小路上排成小队面向前方持续奔跑！
+                    if (!a.node.active) return;
+                    const visibleAdv = this.actors.filter(x => isValid(x.node, true) && x.node.active);
+                    const idx = Math.max(0, visibleAdv.indexOf(a));
+                    const laneX = visibleAdv.length === 1 ? 0 : (idx % 2 === 0 ? -0.45 : 0.45) + Math.sin(this.socialTime * 1.1 + idx * 1.7) * 0.08;
                     const laneZ = -1.6 + Math.floor(idx / 2) * 1.15;
                     const pos = a.node.position;
                     const blend = 1 - Math.exp(-step * 6.0);
