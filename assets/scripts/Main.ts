@@ -32,7 +32,7 @@ type Kind = 'cat' | 'dog';
 type Currency = 'gems' | 'coins';
 // 金币广告奖励暂与钻石一致；后续数值调整只改此处。
 const VIDEO_REWARDS: Record<Currency, number> = { gems: 200, coins: 200 };
-type Page = 'home' | 'recruit' | 'adventure' | 'album' | 'profile' | 'shop' | 'pet' | 'bag' | 'daily' | 'diary' | 'memorial' | 'layout' | 'signin' | 'settings';
+type Page = 'login' | 'home' | 'recruit' | 'adventure' | 'album' | 'profile' | 'shop' | 'pet' | 'bag' | 'daily' | 'diary' | 'memorial' | 'layout' | 'signin' | 'settings';
 export type RewardedVideoResult = 'completed' | 'cancelled' | 'failed';
 export interface RewardedVideoProvider {
     // 可信边界：仅由宿主注入的平台适配器调用终态回调，并在游戏主线程执行。
@@ -248,7 +248,8 @@ export class Main extends Component {
     private petAvatars = new Map<string, Promise<SpriteFrame | null>>();
     private petPortraits = new Map<string, Promise<SpriteFrame | null>>();
     private shadowTexture: Promise<Texture2D | null> | null = null;
-    private page: Page = 'home';
+    private page: Page = 'login';
+    private settingsReturnPage: 'home' | 'login' = 'home';
     private selected = 0;
     private petSelected = false;
     private careSelected = '';
@@ -325,8 +326,8 @@ export class Main extends Component {
         this.makeLighting();
         this.syncYardFurniture();
         this.data.pets.forEach(p => this.spawnPet(p));
-        this.scheduleOnce(() => { if (isValid(this, true)) this.checkMainCityAlerts(); }, 0.35);
         this.makeUI();
+        this.open('login');
         input.on(Input.EventType.TOUCH_START, this.onWorldTouchStart, this);
         input.on(Input.EventType.TOUCH_MOVE, this.onWorldTouchMove, this);
         input.on(Input.EventType.TOUCH_END, this.onWorldTouch, this);
@@ -1977,11 +1978,18 @@ export class Main extends Component {
                     const cover = Math.max(this.width / 1080, this.height / 1920) / scale;
                     bg.getComponent(UITransform)!.setContentSize(1080 * cover, 1920 * cover);
                 }
-            } else if (this.page === 'profile') {
-                this.sheet.setPosition(0, 0, 0);
-                const scale = Math.min(this.width / 1080, this.height / 1920);
-                this.sheet.setScale(scale, scale, 1);
-            } else if (this.page === 'adventure') {
+        } else if (this.page === 'profile' || this.page === 'login') {
+            this.sheet.setPosition(0, 0, 0);
+            const scale = Math.min(this.width / 1080, this.height / 1920);
+            this.sheet.setScale(scale, scale, 1);
+            if (this.page === 'login') {
+                const bg = this.sheet.getChildByName('登录背景图');
+                if (bg) {
+                    const cover = Math.max(this.width / 1080, this.height / 1920) / scale;
+                    bg.getComponent(UITransform)!.setContentSize(1080 * cover, 1920 * cover);
+                }
+            }
+        } else if (this.page === 'adventure') {
                 this.sheet.setPosition(0, 0, 0);
                 this.sheet.setScale(1, 1, 1);
                 const logCard = this.sheet.getChildByName('冒险左上实时日志卡');
@@ -2802,9 +2810,10 @@ export class Main extends Component {
         this.refreshMemorialEntry();
         this.refreshTaskRedDots();
         const gmEntry = this.ui.getChildByName('GM调试入口');
-        if (gmEntry) gmEntry.active = page !== 'album' && page !== 'profile' && page !== 'layout';
-        if (this.top) this.top.active = page !== 'album' && page !== 'profile';
-        if (this.bottom) this.bottom.active = page !== 'profile' && page !== 'layout';
+        const hideChrome = page === 'login' || (page === 'settings' && this.settingsReturnPage === 'login');
+        if (gmEntry) gmEntry.active = !hideChrome && page !== 'album' && page !== 'profile' && page !== 'layout';
+        if (this.top) this.top.active = !hideChrome && page !== 'album' && page !== 'profile';
+        if (this.bottom) this.bottom.active = !hideChrome && page !== 'profile' && page !== 'layout';
         if (page !== 'layout') this.selectedFurnitureUid = null;
         this.syncYardFurniture();
         if (page !== 'adventure') {
@@ -2812,7 +2821,14 @@ export class Main extends Component {
             this.advChestAura = null; this.advChestSprite = null; this.advChestBadge = null;
             this.advTimerLabel = null;
         }
-        if (page === 'home') { this.checkMainCityAlerts(); return; }
+        if (page === 'login') {
+            this.sheet = this.uiNode(this.ui, '登录全屏界面', 0, 0, 1080, 1920);
+            this.intercept(this.sheet);
+            this.renderLogin();
+            this.layout();
+            return;
+        }
+        if (page === 'home') { this.settingsReturnPage = 'home'; this.checkMainCityAlerts(); return; }
         if (page === 'layout') {
             this.sheet = this.uiNode(this.ui, '庭院布置面板', 0, -this.height / 2 + 185, 1020, 350);
             this.intercept(this.sheet);
@@ -6593,7 +6609,7 @@ export class Main extends Component {
         this.dailyText(panel, '游戏设置', 0, 392, 440, 58, 42, false, true);
         const close = this.uiNode(panel, '收起', 422, 398, 128, 128);
         this.dailySprite(close, 'close', 0, 0, 112, 112, false, '关闭图标');
-        this.shopButton(close, () => this.open('home'));
+        this.shopButton(close, () => this.open(this.settingsReturnPage));
 
         // 内衬设置区底板
         const tray = this.uiNode(panel, '设置功能底板', 0, -44, 718, 590);
@@ -6666,6 +6682,188 @@ export class Main extends Component {
         if (rbl) rbl.color = this.color('#9E2D1E');
 
         this.dailyText(panel, '猫狗庭院 v1.0.0 · 绘本治愈版 · 本地自动存档保护中', 0, -504, 680, 34, 21);
+    }
+
+    /** 9:16 (1080×1920) 绘本风登录界面：全屏手绘场景 + 上下浮动「猫狗乐园」标题 + 动态呼吸摇摆猫狗立绘 + 开始/设置/退出 */
+    private renderLogin() {
+        const panel = this.sheet!;
+
+        // 1) 全屏 9:16 绘本登录背景图
+        const bg = this.uiNode(panel, '登录背景图', 0, 0, 1080, 1920);
+        const bgSp = bg.addComponent(Sprite); bgSp.sizeMode = Sprite.SizeMode.CUSTOM;
+        resources.load('art/login/bg/spriteFrame', SpriteFrame, (e, f) => {
+            if (!e && f && isValid(bgSp, true)) bgSp.spriteFrame = f;
+        });
+
+        // 2) 漂浮星光与花瓣点缀（柔和呼吸闪烁）
+        const fxLayer = this.uiNode(panel, '登录氛围特效层', 0, 0, 1080, 1920);
+        const starSpots: [number, number, number, string][] = [
+            [-360, 720, 14, '#FFF6B8'], [340, 740, 16, '#FFF6B8'],
+            [-410, 440, 11, '#FFD4E5'], [390, 470, 12, '#FFD4E5'],
+            [-280, 260, 10, '#FFFFFF'], [300, 230, 11, '#FFF6B8'],
+        ];
+        starSpots.forEach(([sx, sy, sr, col], idx) => {
+            const st = this.uiNode(fxLayer, '氛围光点-' + idx, sx, sy, sr * 2 + 6, sr * 2 + 6);
+            const sg = st.addComponent(Graphics);
+            sg.fillColor = this.color(col);
+            sg.circle(0, 0, sr * 0.55); sg.fill();
+            const op = st.addComponent(UIOpacity); op.opacity = 180;
+            tween(st).repeatForever(
+                tween()
+                    .by(1.6 + idx * 0.25, { position: new Vec3(10 * (idx % 2 === 0 ? 1 : -1), 20, 0) }, { easing: 'sineInOut' })
+                    .by(1.6 + idx * 0.25, { position: new Vec3(-10 * (idx % 2 === 0 ? 1 : -1), -20, 0) }, { easing: 'sineInOut' })
+            ).start();
+            tween(op).repeatForever(
+                tween().to(1.2 + idx * 0.15, { opacity: 255 }).to(1.2 + idx * 0.15, { opacity: 110 })
+            ).start();
+        });
+
+        // 3) 顶部上下浮动标题「猫狗乐园」
+        const titleRoot = this.uiNode(panel, '登录浮动标题组', 0, 565, 860, 260);
+        // 柔和暖金底光晕
+        const glow = this.uiNode(titleRoot, '标题暖光晕', 0, 12, 720, 160);
+        const gg = glow.addComponent(Graphics);
+        gg.fillColor = new Color(255, 245, 204, 120);
+        gg.roundRect(-360, -80, 720, 160, 80); gg.fill();
+
+        // 标题阴影层 + 温暖绘本主标题「猫狗乐园」
+        const shadowLbl = this.text(titleRoot, '猫狗乐园', 6, 12, 780, 148, 116, '#5A2D10');
+        shadowLbl.isBold = true; shadowLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+        shadowLbl.enableOutline = true; shadowLbl.outlineColor = this.color('#5A2D10'); shadowLbl.outlineWidth = 10;
+
+        const mainLbl = this.text(titleRoot, '猫狗乐园', 0, 20, 780, 148, 116, '#FFF7D4');
+        mainLbl.node.name = '登录主标题';
+        mainLbl.isBold = true; mainLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+        mainLbl.enableOutline = true; mainLbl.outlineColor = this.color('#7A3B12'); mainLbl.outlineWidth = 8;
+
+        // 副标题丝带胶囊
+        const subPill = this.uiNode(titleRoot, '登录副标题条', 0, -76, 468, 52);
+        const spg = subPill.addComponent(Graphics);
+        spg.fillColor = new Color(116, 66, 30, 215);
+        spg.strokeColor = this.color('#FFE49C');
+        spg.lineWidth = 3;
+        spg.roundRect(-234, -26, 468, 52, 26); spg.fill(); spg.stroke();
+        const subLbl = this.text(subPill, '温馨治愈 · 猫狗庭院物语', 0, 0, 440, 38, 26, '#FFF8E2');
+        subLbl.isBold = true; subLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+
+        // 丝滑上下浮动循环动画
+        tween(titleRoot).repeatForever(
+            tween()
+                .by(1.75, { position: new Vec3(0, 22, 0) }, { easing: 'sineInOut' })
+                .by(1.75, { position: new Vec3(0, -22, 0) }, { easing: 'sineInOut' })
+        ).start();
+
+        // 4) 中下部动态猫狗主角立绘（独立呼吸缩放 + 轻快摇摆 + 点击互动叫声与跳跃）
+        const spawnHero = (name: string, artKey: string, x: number, y: number, sfx: 'cat_meow' | 'dog_bark', phaseDir: number) => {
+            // 脚下柔和草坪投影
+            const sh = this.uiNode(panel, name + '投影', x, y - 156, 260, 46);
+            const shg = sh.addComponent(Graphics);
+            shg.fillColor = new Color(64, 92, 42, 85);
+            shg.ellipse(0, 0, 125, 22); shg.fill();
+
+            const hero = this.uiNode(panel, name, x, y, 410, 410);
+            hero.getComponent(UITransform)!.setAnchorPoint(0.5, 0.12);
+            hero.setPosition(x, y - 150, 0);
+            const hsp = hero.addComponent(Sprite); hsp.sizeMode = Sprite.SizeMode.CUSTOM;
+            resources.load(`art/login/${artKey}/spriteFrame`, SpriteFrame, (e, f) => {
+                if (!e && f && isValid(hsp, true)) hsp.spriteFrame = f;
+            });
+
+            // 持续呼吸 + 摇摆动图效果
+            tween(hero).repeatForever(
+                tween()
+                    .to(1.35, { scale: new Vec3(1.03, 0.965, 1), angle: 3.2 * phaseDir }, { easing: 'sineInOut' })
+                    .to(1.35, { scale: new Vec3(0.985, 1.045, 1), angle: -3.2 * phaseDir }, { easing: 'sineInOut' })
+            ).start();
+
+            this.intercept(hero);
+            hero.on(Node.EventType.TOUCH_END, () => {
+                SoundManager.playSfx(sfx);
+                tween(hero).by(0.14, { position: new Vec3(0, 36, 0) }, { easing: 'quadOut' })
+                    .by(0.18, { position: new Vec3(0, -36, 0) }, { easing: 'quadIn' }).start();
+            }, this);
+        };
+        spawnHero('登录小猫立绘', 'cat_hero', -230, -108, 'cat_meow', 1);
+        spawnHero('登录小狗立绘', 'dog_hero', 230, -108, 'dog_bark', -1);
+
+        // 5) 底部三大功能按钮：开始游戏 / 设置 / 退出游戏
+        const makeLoginBtn = (
+            btnName: string,
+            label: string,
+            y: number,
+            w: number,
+            h: number,
+            fillHex: string,
+            borderHex: string,
+            textHex: string,
+            fontSize: number,
+            action: () => void,
+            pulse = false
+        ) => {
+            const btn = this.uiNode(panel, btnName, 0, y, w, h);
+            const g = btn.addComponent(Graphics);
+            // 立体底边阴影
+            g.fillColor = new Color(76, 42, 16, 130);
+            g.roundRect(-w / 2, -h / 2 - 7, w, h, h / 2); g.fill();
+            g.fillColor = this.color(fillHex);
+            g.strokeColor = this.color(borderHex);
+            g.lineWidth = 5;
+            g.roundRect(-w / 2, -h / 2, w, h, h / 2); g.fill(); g.stroke();
+            // 顶部高光条
+            g.fillColor = new Color(255, 255, 255, 72);
+            g.roundRect(-w / 2 + 24, 6, w - 48, h / 2 - 14, (h / 2 - 14) / 2); g.fill();
+
+            const lbl = this.text(btn, label, 0, 2, w - 40, h - 16, fontSize, textHex);
+            lbl.isBold = true; lbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+            lbl.enableOutline = true; lbl.outlineColor = this.color('#5B2D0E'); lbl.outlineWidth = 3;
+
+            this.intercept(btn); this.pressVisualFeedback(btn);
+            btn.on(Node.EventType.TOUCH_END, () => {
+                SoundManager.playSfx('click');
+                action();
+            }, this);
+
+            if (pulse) {
+                tween(btn).repeatForever(
+                    tween()
+                        .to(1.1, { scale: new Vec3(1.035, 1.035, 1) }, { easing: 'sineInOut' })
+                        .to(1.1, { scale: new Vec3(1, 1, 1) }, { easing: 'sineInOut' })
+                ).start();
+            }
+            return btn;
+        };
+
+        makeLoginBtn('登录开始游戏按钮', '开始游戏', -468, 456, 104, '#F5B53A', '#7A3E12', '#FFFDF5', 42, () => {
+            SoundManager.playSfx('reward');
+            this.settingsReturnPage = 'home';
+            this.open('home');
+        }, true);
+
+        makeLoginBtn('登录设置按钮', '设  置', -598, 368, 84, '#FFF3D4', '#8B5426', '#FFFDF5', 34, () => {
+            this.settingsReturnPage = 'login';
+            this.open('settings');
+        });
+
+        makeLoginBtn('登录退出游戏按钮', '退出游戏', -708, 368, 84, '#E8C4A8', '#7D4B28', '#FFFDF5', 34, () => {
+            this.persist();
+            this.showDialog('退出游戏', '进度已自动保存，确定要退出《猫狗乐园》吗？', [
+                {
+                    title: '确认退出',
+                    run: () => {
+                        this.persist();
+                        if (typeof window !== 'undefined') {
+                            try { window.close(); } catch {}
+                        }
+                        this.toast('游戏进度已自动保存，可直接关闭页面，欢迎下次再来！');
+                    },
+                },
+                { title: '继续游玩', run: () => {} },
+            ]);
+        });
+
+        const verLbl = this.text(panel, 'v1.0.0 · 绘本治愈版 · 游戏进度全程自动保存', 0, -834, 720, 36, 22, '#FFFDF5');
+        verLbl.isBold = true; verLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+        verLbl.enableOutline = true; verLbl.outlineColor = this.color('#4E2B10'); verLbl.outlineWidth = 2.5;
     }
 
     public claimAchievement(id: AchievementId): boolean {
