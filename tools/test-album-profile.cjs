@@ -918,11 +918,11 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
     });
     await page.waitForTimeout(1300);
     const sleepCheck = await page.evaluate(() => ({
-      energyAfter: Math.round(main.data.pets.find(p => p.id === 0)?.energy || 0),
+      energyAfter: +(main.data.pets.find(p => p.id === 0)?.energy || 0).toFixed(2),
       zzzCount: main.zzzBubbles.length,
     }));
     console.log('pet sleep Zzz check:', JSON.stringify(sleepCheck));
-    assert.ok(sleepCheck.energyAfter > 15 && sleepCheck.zzzCount >= 1, 'sleeping pet in bed must recover energy and emit Zzz VFX');
+    assert.ok(sleepCheck.energyAfter > 15 && sleepCheck.energyAfter < 16 && sleepCheck.zzzCount >= 1, 'sleeping pet in bed must recover energy at 5-10 min rate and emit Zzz VFX');
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-yard-clean-sleep-zzz.png') });
 
     // Open Memorial Corner -> erect tombstone for dead pet #1 with custom epitaph -> verify!

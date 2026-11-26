@@ -5398,11 +5398,22 @@ export class Main extends Component {
 
     public movePlacedFurniture(uid: number, x: number, z: number, saveNow = true): boolean {
         const list = this.data.placedFurniture || [];
-        const idx = list.findIndex(f => f.uid === uid);
-        if (idx < 0) return false;
+        const target = list.find(f => f.uid === uid);
+        if (!target) return false;
         const next = list.map(f => f.uid === uid ? { ...f, x, z } : f);
         this.data.placedFurniture = next;
         this.dirty = true;
+        // 同步更新正在前往或正在该家具中睡觉/吃饭/玩耍的伙伴目标与位置，彻底杜绝停在旧坐标！
+        const def = findFurniture(target.id);
+        const off = def?.entryOffset || [0, 0.32];
+        const nx = x + off[0], nz = z + off[1];
+        this.actors.forEach(a => {
+            if (a.activity?.furnitureUid !== uid) return;
+            a.target.set(nx, 0, nz);
+            if (a.activity.arrived && isValid(a.node, true)) {
+                a.node.setPosition(nx, 0, nz);
+            }
+        });
         if (saveNow) this.persist();
         this.syncYardFurniture();
         return true;
@@ -8528,6 +8539,20 @@ export class Main extends Component {
                         a.walkAge = 0;
                         dx = bestX - pos.x; dz = bestZ - pos.z; distance = Math.hypot(dx, dz);
                     };
+                    // 实时追踪目标家具最新坐标（防止移动家具后仍走向旧坐标）
+                    if (a.activity) {
+                        const livePf = (this.data.placedFurniture || []).find(f => f.uid === a.activity!.furnitureUid);
+                        if (!livePf) {
+                            a.activity = undefined;
+                            if (isValid(a.visual, true)) a.visual.active = true;
+                        } else {
+                            const loff = findFurniture(livePf.id)?.entryOffset || [0, 0.32];
+                            const tx = livePf.x + loff[0], tz = livePf.z + loff[1];
+                            a.target.set(tx, 0, tz);
+                            if (a.activity.arrived) a.node.setPosition(tx, 0, tz);
+                            dx = tx - a.node.position.x; dz = tz - a.node.position.z; distance = Math.hypot(dx, dz);
+                        }
+                    }
                     if (distance <= 0.16) {
                         a.walkAge = 0;
                         if (a.activity && !a.activity.arrived) {
@@ -8570,7 +8595,7 @@ export class Main extends Component {
                                 a.activity.tickAcc += step;
                                 if (a.activity.tickAcc >= 1.0) {
                                     a.activity.tickAcc -= 1.0;
-                                    a.pet.energy = Math.min(100, a.pet.energy + (fdef?.sleepRate || 6));
+                                    a.pet.energy = Math.min(100, a.pet.energy + (fdef?.sleepRate || 0.17));
                                     this.dirty = true;
                                 }
                                 a.activity.zzzTimer -= step;
