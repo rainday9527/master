@@ -2912,14 +2912,15 @@ export class Main extends Component {
         const tip = this.text(content, '请输入新的宠物名称（最多8个字）', 0, 102, 640, 34, 24, '#6E4627');
         tip.isBold = true; tip.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
 
-        // 原生 EditBox 输入框（圆角奶油底框 + 棕边，支持手机键盘与桌面直接输入）
+        // 原生 EditBox 单行输入框：先将节点置为 inactive 再挂载组件并配置 inputMode=SINGLE_LINE，
+        // 避免 addComponent 立即触发 onLoad 按默认 InputMode.ANY 创建多行 <textarea> 且强行设为顶对齐。
         const boxNode = this.uiNode(content, '改名输入框', 0, 32, 540, 70);
+        boxNode.active = false;
         const bg = boxNode.addComponent(Graphics);
         bg.fillColor = this.color('#FFFDF7'); bg.strokeColor = this.color('#B88652'); bg.lineWidth = 3.5;
         bg.roundRect(-270, -35, 540, 70, 18); bg.fill(); bg.stroke();
 
-        // Cocos 3.8 EditBox 单行输入模式（SINGLE_LINE 使用 <input>，禁止上下滚动并支持单行垂直居中）
-        const txtNode = this.uiNode(boxNode, 'TEXT_LABEL', -255, 35, 510, 70);
+        const txtNode = this.uiNode(boxNode, 'TEXT_LABEL', -268, 35, 536, 70);
         txtNode.getComponent(UITransform)!.setAnchorPoint(0, 1);
         const txtLbl = txtNode.addComponent(Label);
         txtLbl.fontSize = 28; txtLbl.lineHeight = 36; txtLbl.color = this.color('#4E2F1A');
@@ -2929,7 +2930,7 @@ export class Main extends Component {
         txtLbl.enableWrapText = false;
         txtLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
 
-        const phNode = this.uiNode(boxNode, 'PLACEHOLDER_LABEL', -255, 35, 510, 70);
+        const phNode = this.uiNode(boxNode, 'PLACEHOLDER_LABEL', -268, 35, 536, 70);
         phNode.getComponent(UITransform)!.setAnchorPoint(0, 1);
         const phLbl = phNode.addComponent(Label);
         phLbl.fontSize = 26; phLbl.lineHeight = 36; phLbl.color = this.color('#A99278');
@@ -2947,6 +2948,7 @@ export class Main extends Component {
         editBox.maxLength = 8;
         editBox.placeholder = '点击输入新名字（1~8字）';
         editBox.string = this.petDisplayName(petId);
+        boxNode.active = true;
 
         // 费用说明行：未改过名显示「首次改名免费」，已改过名仅显示「本次改名消耗 [💎] 100」（拆分为独立节点避免图标与文字重叠）
         if (isFree) {

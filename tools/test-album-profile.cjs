@@ -114,12 +114,14 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
         title: walk(main.dialog).find(n => n.name === '弹窗独立标题')?.getComponent('cc.Label')?.string,
         hasInput: !!eb,
         singleLine: eb?.inputMode === 6,
+        vAlignCenter: eb?.textLabel?.verticalAlign === 1,
+        domTag: eb?._impl?._edTxt?.tagName || 'NONE',
         hasOk: !!walk(main.dialog).find(n => n.name === '弹窗按钮-确认'),
         hasCancel: !!walk(main.dialog).find(n => n.name === '弹窗按钮-取消'),
       };
     });
     console.log('rename dialog check:', JSON.stringify(renameDlg));
-    assert.deepEqual(renameDlg, { title: '改名', hasInput: true, singleLine: true, hasOk: true, hasCancel: true });
+    assert.deepEqual(renameDlg, { title: '改名', hasInput: true, singleLine: true, vAlignCenter: true, domTag: 'INPUT', hasOk: true, hasCancel: true });
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-rename-dialog.png') });
     const renamedFree = await page.evaluate(() => {
       main.closeDialog();
