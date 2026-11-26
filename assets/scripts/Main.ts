@@ -1587,8 +1587,8 @@ export class Main extends Component {
     }
 
     private rewardSlotTheme(rw: RewardGrantItem): SlotBgTheme {
-        if (rw.kind === 'coins') return 'coin';
-        if (rw.kind === 'gems') return 'gem';
+        if (rw.kind === 'gems') return 'coin';
+        if (rw.kind === 'coins') return 'general';
         if (rw.kind === 'care') return rw.careType === 'soap' ? 'heal' : 'general';
         const def = findItem(rw.itemId);
         if (!def) return 'general';
@@ -1596,7 +1596,7 @@ export class Main extends Component {
         return (def.category === 'medicine' || def.category === 'soap') ? 'heal' : 'general';
     }
 
-    /** 通用图标+数字奖励领取弹窗（金币、钻石、道具统一可视化展示，配通用道具槽位底图） */
+    /** 通用图标+数字奖励领取弹窗（金币、钻石、道具统一可视化展示，配通用道具槽位底图与大号清晰字样） */
     public showRewardGrantDialog(title: string, rewards: RewardGrantItem[], subtitle?: string, buttonText = '太棒了') {
         const list = rewards.filter(r => r.amount > 0);
         if (!list.length) return;
@@ -1607,35 +1607,34 @@ export class Main extends Component {
         if (!content) return;
         const bodyNode = content.getChildByName('弹窗正文');
         if (bodyNode) bodyNode.active = false;
-        const ratio = 900 / 1116;
 
         if (subtitle) {
-            const sub = this.text(content, subtitle, 0, list.length > 4 ? 132 : 114, 680, 26, 22, '#7C5A3E');
+            const sub = this.text(content, subtitle, 0, list.length > 4 ? 136 : 120, 680, 30, 24, '#6E4A2C');
+            sub.isBold = true;
             sub.node.name = '奖励弹窗副标题';
         }
 
         const displayList = list.slice(0, 8);
         const rows = Math.ceil(displayList.length / 4);
-        const cardW = rows === 1 ? 142 : 134;
-        const cardH = rows === 1 ? 144 : 104;
-        const gapX = rows === 1 ? 18 : 14;
-        const gapY = 10;
-        const startY = rows === 1 ? (subtitle ? 12 : 24) : (subtitle ? 58 : 72);
+        const slotSize = rows === 1 ? 134 : 94;
+        const gapX = rows === 1 ? 26 : 52;
+        const rowPitch = 128;
+        const startY = rows === 1 ? (subtitle ? 26 : 38) : (subtitle ? 68 : 80);
 
-        const strip = this.uiNode(content, '通用奖励图标网格', 0, 0, 680, 280);
+        const strip = this.uiNode(content, '通用奖励图标网格', 0, 0, 680, 300);
         displayList.forEach((rw, idx) => {
             const r = Math.floor(idx / 4);
             const rowCount = Math.min(4, displayList.length - r * 4);
             const c = idx % 4;
-            const x = (c - (rowCount - 1) / 2) * (cardW + gapX);
-            const y = startY - r * (cardH + gapY);
+            const x = (c - (rowCount - 1) / 2) * (slotSize + gapX);
+            const y = startY - r * rowPitch;
 
-            const card = this.uiNode(strip, `奖励图标卡-${idx}`, x, y, cardW, cardH);
-            this.itemSlotBg(card, this.rewardSlotTheme(rw), cardW, cardH, '奖励卡底图');
+            const card = this.uiNode(strip, `奖励图标卡-${idx}`, x, y, slotSize, slotSize);
+            this.itemSlotBg(card, this.rewardSlotTheme(rw), slotSize, slotSize, '奖励卡底图');
 
             // 图标区
-            const iconSize = rows === 1 ? 64 : 44;
-            const iconY = rows === 1 ? 24 : 20;
+            const iconSize = rows === 1 ? 74 : 54;
+            const iconY = rows === 1 ? 10 : 8;
             const iconNode = this.uiNode(card, '奖励图标', 0, iconY, iconSize, iconSize);
             const sp = iconNode.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM;
             let spritePath = '';
@@ -1669,27 +1668,22 @@ export class Main extends Component {
                 }
             });
 
-            // 数量高对比胶囊徽章
-            const pillH = rows === 1 ? 30 : 24;
-            const pillY = rows === 1 ? -26 : -16;
-            const pill = this.uiNode(card, '奖励数量牌', 0, pillY, cardW - 22, pillH);
-            const pg = pill.addComponent(Graphics);
-            pg.fillColor = this.color(rw.kind === 'gems' ? '#2F88D8' : rw.kind === 'coins' ? '#D6891B' : '#6F4C2E');
-            pg.roundRect(-(cardW - 22) / 2, -pillH / 2, cardW - 22, pillH, 11); pg.fill();
-            const qLbl = this.text(pill, qtyText, 0, 0, cardW - 26, pillH - 4, rows === 1 ? 22 : 18, C.white);
-            qLbl.isBold = true; qLbl.node.name = '奖励数量';
+            // 槽位底部醒目大号描边数字（清晰不遮挡图标）
+            const qLbl = this.text(card, qtyText, 0, rows === 1 ? -40 : -28, slotSize - 12, rows === 1 ? 34 : 28, rows === 1 ? 28 : 23, C.white);
+            qLbl.isBold = true; qLbl.enableOutline = true; qLbl.outlineColor = this.color('#4A2B12'); qLbl.outlineWidth = 3.5;
+            qLbl.node.name = '奖励数量';
 
-            // 底部短名称
-            const nLbl = this.text(card, nameText, 0, rows === 1 ? -54 : -39, cardW - 10, 20, rows === 1 ? 17 : 14, '#7A5334');
-            nLbl.overflow = Label.Overflow.SHRINK; nLbl.enableWrapText = false;
+            // 物品名称置于槽位外下方干净米底上，大号加粗清晰易读
+            const nLbl = this.text(card, nameText, 0, rows === 1 ? -86 : -62, slotSize + 36, rows === 1 ? 30 : 26, rows === 1 ? 24 : 20, '#4E2F1A');
+            nLbl.isBold = true; nLbl.overflow = Label.Overflow.SHRINK; nLbl.enableWrapText = false;
             nLbl.node.name = '奖励名称';
         });
 
-        // 按钮微调到底部居中，确保双行 8 张奖励卡与按钮之间零重叠
+        // 按钮微调到底部居中，确保名称与按钮之间零重叠
         const okBtn = content.getChildByName('弹窗按钮-' + buttonText);
         if (okBtn) {
-            okBtn.setPosition(0, rows === 1 ? -142 * ratio : -174);
-            if (rows > 1) okBtn.setScale(0.84, 0.84, 1);
+            okBtn.setPosition(0, rows === 1 ? -150 : -184);
+            if (rows > 1) okBtn.setScale(0.80, 0.80, 1);
         }
     }
 
@@ -5070,7 +5064,7 @@ export class Main extends Component {
         showcase.slice(0, 3).forEach((entry, idx) => {
             const sx = (idx - 1) * 106;
             const slot = this.uiNode(tray, `实时日志实物格-${idx}`, sx, 0, 96, 98);
-            const slotTheme = entry.spritePath.indexOf('coin-icon') >= 0 ? 'coin' : entry.spritePath.indexOf('diamond-icon') >= 0 ? 'gem' : 'general';
+            const slotTheme = entry.spritePath.indexOf('diamond-icon') >= 0 ? 'coin' : entry.spritePath.indexOf('coin-icon') >= 0 ? 'general' : 'general';
             this.itemSlotBg(slot, slotTheme, 96, 98, '实物格底图');
 
             const iconNode = this.uiNode(slot, '实物图标', 0, 12, 54, 54);
