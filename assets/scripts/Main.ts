@@ -103,6 +103,7 @@ interface ActorRig {
     tail: Node;
     shadow: Node | null;
     outfitNode: Node | null;
+    coatVfxNode: Node | null;
     renderers: MeshRenderer[];
     pivots: Record<string, [number, number, number]>;
 }
@@ -1194,6 +1195,76 @@ export class Main extends Component {
         }
     }
 
+    private buildCoatVfxNode(coat: CoatId, rig: ActorRig): Node | null {
+        if (coat !== 'prince_suit' && coat !== 'fairy_dress') return null;
+        if (!isValid(rig.modelNode, true)) return null;
+        const root = new Node('服装限定特效-' + coat);
+        root.layer = Layers.Enum.DEFAULT;
+        rig.modelNode.addChild(root);
+
+        const isPrince = coat === 'prince_suit';
+        // 脚底地面魔法流光圈（紧贴地面 y=0.04，不遮挡四肢，自带星耀/花仙光环仪式感）
+        const baseRing = new Node('服装底光环');
+        baseRing.layer = Layers.Enum.DEFAULT;
+        root.addChild(baseRing);
+        baseRing.setPosition(0, 0.04, 0);
+        this.shape(baseRing, 'torus', isPrince ? '#FFE278' : '#FFB8DA', [0, 0, 0], [1.34, 0.028, 1.38]);
+        this.shape(baseRing, 'torus', isPrince ? '#94CEFF' : '#E2C2FF', [0, 0.015, 0], [1.18, 0.022, 1.22]);
+
+        // 环绕全身的闪耀星光/花灵粒子环（12颗逆向公转 + 闪烁缩放 + 上下漂浮，可与限定头饰特效叠放不重叠）
+        const ring = new Node('服装星光环');
+        ring.layer = Layers.Enum.DEFAULT;
+        root.addChild(ring);
+        ring.setPosition(0, 0.66, 0);
+        const colors = isPrince
+            ? ['#FFF6B0', '#FFE066', '#94CEFF', '#FFFFFF', '#FFD24D']
+            : ['#FFB8D9', '#E0B8FF', '#FFF2A6', '#FFFFFF', '#A8E8FF'];
+        const count = 12;
+        for (let i = 0; i < count; i++) {
+            const rad = (i / count) * Math.PI * 2;
+            const r = 0.96 + (i % 2) * 0.18;
+            const px = Math.cos(rad) * r;
+            const pz = Math.sin(rad) * r;
+            const py = ((i % 3) - 1) * 0.28;
+            const col = colors[i % colors.length];
+            const spark = new Node('服装星粒-' + i);
+            spark.layer = Layers.Enum.DEFAULT;
+            ring.addChild(spark);
+            spark.setPosition(px, py, pz);
+            if (isPrince || i % 2 === 0) {
+                // 闪闪的立体十字星芒
+                this.shape(spark, 'box', col, [0, 0, 0], [0.19, 0.044, 0.044]);
+                this.shape(spark, 'box', col, [0, 0, 0], [0.044, 0.19, 0.044]);
+                this.shape(spark, 'box', col, [0, 0, 0], [0.044, 0.044, 0.19]);
+            } else {
+                // 梦幻花仙子飘浮花瓣光点
+                this.shape(spark, 'sphere', col, [0, 0, 0], [0.14, 0.11, 0.05], [20, i * 36, 28]);
+            }
+        }
+        return root;
+    }
+
+    private animateCoatVfx(coatVfxNode: Node | null | undefined, t: number) {
+        if (!coatVfxNode || !isValid(coatVfxNode, true)) return;
+        const baseRing = coatVfxNode.getChildByName('服装底光环');
+        if (baseRing && isValid(baseRing, true)) {
+            const pulse = 1 + Math.sin(t * 3.1) * 0.05;
+            baseRing.setScale(pulse, 1, pulse);
+            baseRing.setRotationFromEuler(0, (t * 28) % 360, 0);
+        }
+        const ring = coatVfxNode.getChildByName('服装星光环');
+        if (ring && isValid(ring, true)) {
+            ring.setRotationFromEuler(Math.sin(t * 1.5) * 5, (-t * 54) % 360, Math.cos(t * 1.3) * 5);
+            ring.children.forEach((ch, idx) => {
+                const s = 0.72 + Math.sin(t * 5.8 + idx * 1.35) * 0.38;
+                ch.setScale(s, s, s);
+                const p = ch.position;
+                const baseY = ((idx % 3) - 1) * 0.22;
+                ch.setPosition(p.x, baseY + Math.sin(t * 2.8 + idx * 0.9) * 0.08, p.z);
+            });
+        }
+    }
+
     private setLayerRecursive(node: Node, layer: number) {
         node.layer = layer;
         node.children.forEach(child => this.setLayerRecursive(child, layer));
@@ -1227,6 +1298,13 @@ export class Main extends Component {
             }
             pRig.outfitNode = this.buildOutfitNode(pet.outfit, pRig);
             if (pRig.outfitNode) this.setLayerRecursive(pRig.outfitNode, this.previewLayer);
+            if (pRig.coatVfxNode && isValid(pRig.coatVfxNode, true)) {
+                pRig.coatVfxNode.active = false;
+                pRig.coatVfxNode.removeFromParent();
+                pRig.coatVfxNode.destroy();
+            }
+            pRig.coatVfxNode = this.buildCoatVfxNode(pet.coat, pRig);
+            if (pRig.coatVfxNode) this.setLayerRecursive(pRig.coatVfxNode, this.previewLayer);
             this.previewLoadedKey = key;
             const skinTex = await this.loadPetSkin(BREEDS[pet.id].skin);
             if (skinTex && isValid(this, true) && this.previewRig === pRig && isValid(pRig.modelNode, true)) {
@@ -1303,9 +1381,10 @@ export class Main extends Component {
         }
         const actorRig: ActorRig = {
             kind: breed.kind, uprightEars: rigKey !== 'dog', modelNode, head, earL, earR, legFL, legFR, legBL, legBR, tail,
-            shadow, outfitNode: null, renderers, pivots: rig.pivots,
+            shadow, outfitNode: null, coatVfxNode: null, renderers, pivots: rig.pivots,
         };
         actorRig.outfitNode = this.buildOutfitNode(pet.outfit, actorRig);
+        actorRig.coatVfxNode = this.buildCoatVfxNode(pet.coat, actorRig);
         this.setLayerRecursive(stage, this.previewLayer);
         this.previewStage = stage;
         this.previewVisual = visual;
@@ -1366,6 +1445,7 @@ export class Main extends Component {
                 rig.shadow.setScale(sc, 1, sc);
             }
             this.animateOutfitVfx(rig.outfitNode, t);
+            this.animateCoatVfx(rig.coatVfxNode, t);
         }
     }
 
@@ -1387,6 +1467,12 @@ export class Main extends Component {
                     rig.outfitNode.destroy();
                 }
                 rig.outfitNode = this.buildOutfitNode(pet.outfit, rig);
+                if (rig.coatVfxNode && isValid(rig.coatVfxNode, true)) {
+                    rig.coatVfxNode.active = false;
+                    rig.coatVfxNode.removeFromParent();
+                    rig.coatVfxNode.destroy();
+                }
+                rig.coatVfxNode = this.buildCoatVfxNode(pet.coat, rig);
                 if (mat) rig.renderers.forEach(r => { if (isValid(r, true)) r.setSharedMaterial(mat, 0); });
             }
         }
@@ -1401,6 +1487,13 @@ export class Main extends Component {
                 }
                 pRig.outfitNode = this.buildOutfitNode(pet.outfit, pRig);
                 if (pRig.outfitNode) this.setLayerRecursive(pRig.outfitNode, this.previewLayer);
+                if (pRig.coatVfxNode && isValid(pRig.coatVfxNode, true)) {
+                    pRig.coatVfxNode.active = false;
+                    pRig.coatVfxNode.removeFromParent();
+                    pRig.coatVfxNode.destroy();
+                }
+                pRig.coatVfxNode = this.buildCoatVfxNode(pet.coat, pRig);
+                if (pRig.coatVfxNode) this.setLayerRecursive(pRig.coatVfxNode, this.previewLayer);
                 if (mat) pRig.renderers.forEach(r => { if (isValid(r, true)) r.setSharedMaterial(mat, 0); });
                 this.previewLoadedKey = pet.id + ':' + pet.outfit + ':' + pet.coat;
             } else {
@@ -1449,9 +1542,10 @@ export class Main extends Component {
             const shadow = this.attachPetShadow(actor, shadowTex);
             const actorRig: ActorRig = {
                 kind: b.kind, uprightEars: rigKey !== 'dog', modelNode, head, earL, earR, legFL, legFR, legBL, legBR, tail,
-                shadow, outfitNode: null, renderers, pivots: rig.pivots,
+                shadow, outfitNode: null, coatVfxNode: null, renderers, pivots: rig.pivots,
             };
             actorRig.outfitNode = this.buildOutfitNode(actor.pet.outfit, actorRig);
+            actorRig.coatVfxNode = this.buildCoatVfxNode(actor.pet.coat, actorRig);
             actor.rig = actorRig;
             fallback.active = false;
             fallback.destroy();
@@ -7590,6 +7684,7 @@ export class Main extends Component {
                         rig.shadow.setScale(shadowScale, 1, shadowScale);
                     }
                     this.animateOutfitVfx(rig.outfitNode, this.socialTime);
+                    this.animateCoatVfx(rig.coatVfxNode, this.socialTime);
                 }
             });
             if (this.page === 'adventure') {

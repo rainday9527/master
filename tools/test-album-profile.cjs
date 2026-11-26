@@ -306,11 +306,18 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
       main.selectPetCoat(14, 'fairy_dress');
     });
     await page.waitForTimeout(250);
-    const vfxY0 = await page.evaluate(() => main.previewRig?.outfitNode?.getChildByName('限定特效环')?.eulerAngles?.y ?? null);
+    const vfxY0 = await page.evaluate(() => ({
+      outfitY: main.previewRig?.outfitNode?.getChildByName('限定特效环')?.eulerAngles?.y ?? null,
+      coatY: main.previewRig?.coatVfxNode?.getChildByName('服装星光环')?.eulerAngles?.y ?? null,
+    }));
     await page.waitForTimeout(300);
-    const vfxY1 = await page.evaluate(() => main.previewRig?.outfitNode?.getChildByName('限定特效环')?.eulerAngles?.y ?? null);
-    console.log('limited outfit 3D VFX rotation check:', JSON.stringify({ vfxY0, vfxY1 }));
-    assert.ok(vfxY0 !== null && vfxY1 !== null && Math.abs(vfxY1 - vfxY0) > 1, 'limited outfit must have animated 3D VFX ring');
+    const vfxY1 = await page.evaluate(() => ({
+      outfitY: main.previewRig?.outfitNode?.getChildByName('限定特效环')?.eulerAngles?.y ?? null,
+      coatY: main.previewRig?.coatVfxNode?.getChildByName('服装星光环')?.eulerAngles?.y ?? null,
+    }));
+    console.log('limited outfit & coat 3D VFX rotation check:', JSON.stringify({ vfxY0, vfxY1 }));
+    assert.ok(vfxY0.outfitY !== null && vfxY1.outfitY !== null && Math.abs(vfxY1.outfitY - vfxY0.outfitY) > 1, 'limited outfit must have animated 3D VFX ring');
+    assert.ok(vfxY0.coatY !== null && vfxY1.coatY !== null && Math.abs(vfxY1.coatY - vfxY0.coatY) > 1, 'limited coat skin must have animated 3D sparkle VFX ring');
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-new-limited-sakura-fairy.png') });
     await page.evaluate(() => { main.openProfile(17, 'outfit'); const p17 = main.data.pets.find(p => p.id === 17); p17.ownedOutfits = [...new Set([...p17.ownedOutfits, 'star_wings', 'rainbow_cloud'])]; p17.ownedCoats = [...new Set([...p17.ownedCoats, 'prince_suit'])]; main.selectPetOutfit(17, 'star_wings'); main.selectPetCoat(17, 'prince_suit'); });
     await page.waitForTimeout(300);
