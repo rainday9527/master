@@ -216,7 +216,7 @@ export class Main extends Component {
     private advLogNextId = 1;
     private shopTab: 'items' | 'outfits' | 'furniture' | 'tombstones' = 'items';
     private furnitureLayer: Node | null = null;
-    private furnitureVisuals = new Map<number, { node: Node; id: FurnitureId; ring: Node }>();
+    private furnitureVisuals = new Map<number, { node: Node; id: FurnitureId; ring: Node; vfx: Node | null }>();
     private furnitureNextUid = 10;
     private selectedFurnitureUid: number | null = null;
     private draggingFurnitureUid: number | null = null;
@@ -5414,11 +5414,89 @@ export class Main extends Component {
                 ring.name = '家具选中圈';
                 ring.active = false;
 
-                vis = { node: root, id: pf.id, ring };
+                // 限定家具专属 3D 动态特效（云朵梦境星光 / 摩天轮七彩星环 / 樱花凉亭落樱流光）
+                const vfx = def.limited ? this.buildFurnitureVfxNode(def, root, sz) : null;
+
+                vis = { node: root, id: pf.id, ring, vfx };
                 this.furnitureVisuals.set(pf.uid, vis);
             }
             vis.node.setPosition(pf.x, 0, pf.z);
             vis.ring.active = this.page === 'layout' && this.selectedFurnitureUid === pf.uid;
+        });
+    }
+
+    /** 为限定家具构建专属 3D 实时动态特效（脚底魔法流光圈 + 环绕闪烁星芒/飘落樱花瓣） */
+    private buildFurnitureVfxNode(def: FurnitureDef, parent: Node, sz: number): Node {
+        const root = new Node('限定家具特效-' + def.id);
+        root.layer = Layers.Enum.DEFAULT;
+        parent.addChild(root);
+
+        const isSakura = def.id === 'deco_swing_tree';
+        const isFerris = def.id === 'play_park_ferris';
+
+        // 1) 贴地双层魔法流光圈
+        const base = new Node('家具底光环');
+        base.layer = Layers.Enum.DEFAULT;
+        root.addChild(base);
+        base.setPosition(0, 0.04, 0.04);
+        const outerCol = isSakura ? '#FFB4D6' : isFerris ? '#FFA6D4' : '#FFE278';
+        const innerCol = isSakura ? '#FFE8A6' : isFerris ? '#8EE4FF' : '#9ED8FF';
+        this.shape(base, 'torus', outerCol, [0, 0, 0], [sz * 0.92, 0.032, sz * 0.92]);
+        this.shape(base, 'torus', innerCol, [0, 0.02, 0], [sz * 0.78, 0.024, sz * 0.78]);
+
+        // 2) 环绕闪烁星芒 / 飘浮樱花瓣粒子环
+        const ring = new Node('家具特效环');
+        ring.layer = Layers.Enum.DEFAULT;
+        root.addChild(ring);
+        ring.setPosition(0, sz * 0.44, 0);
+        const colors = isSakura
+            ? ['#FFB0CE', '#FFD4E6', '#FFE680', '#FFFFFF', '#FF9EC2']
+            : isFerris
+                ? ['#FF8DA8', '#FFE066', '#7CE09B', '#7CC6FF', '#D6A8FF', '#FFFFFF']
+                : ['#FFF4A8', '#FFE066', '#9CD6FF', '#FFFFFF', '#FFD24D'];
+        const count = isSakura || isFerris ? 12 : 10;
+        for (let i = 0; i < count; i++) {
+            const rad = (i / count) * Math.PI * 2;
+            const r = sz * (0.48 + (i % 2) * 0.12);
+            const py = ((i % 3) - 1) * (sz * 0.16);
+            const col = colors[i % colors.length];
+            const sp = new Node('家具粒子-' + i);
+            sp.layer = Layers.Enum.DEFAULT;
+            ring.addChild(sp);
+            sp.setPosition(Math.cos(rad) * r, py, Math.sin(rad) * r);
+            if (isSakura && i % 2 === 1) {
+                // 樱花飘落花瓣
+                this.shape(sp, 'sphere', col, [0, 0, 0], [0.18, 0.13, 0.055], [24, i * 36, 30]);
+            } else {
+                // 闪耀立体十字星芒
+                this.shape(sp, 'box', col, [0, 0, 0], [0.22, 0.05, 0.05]);
+                this.shape(sp, 'box', col, [0, 0, 0], [0.05, 0.22, 0.05]);
+                this.shape(sp, 'box', col, [0, 0, 0], [0.05, 0.05, 0.22]);
+            }
+        }
+        return root;
+    }
+
+    private updateLimitedFurnitureVfx(t: number) {
+        if (!this.furnitureLayer || !this.furnitureLayer.active) return;
+        this.furnitureVisuals.forEach((vis, uid) => {
+            const vfx = vis.vfx;
+            if (!vfx || !isValid(vfx, true)) return;
+            const base = vfx.getChildByName('家具底光环');
+            if (base && isValid(base, true)) {
+                const pulse = 1 + Math.sin(t * 2.8 + uid) * 0.045;
+                base.setScale(pulse, 1, pulse);
+                base.setRotationFromEuler(0, (t * 24 + uid * 30) % 360, 0);
+            }
+            const ring = vfx.getChildByName('家具特效环');
+            if (ring && isValid(ring, true)) {
+                const isSakura = vis.id === 'deco_swing_tree';
+                ring.setRotationFromEuler(Math.sin(t * 1.4 + uid) * 5, (t * (isSakura ? 38 : 52) + uid * 40) % 360, Math.cos(t * 1.2) * 5);
+                ring.children.forEach((ch, idx) => {
+                    const s = 0.72 + Math.sin(t * 5.2 + idx * 1.25 + uid) * 0.36;
+                    ch.setScale(s, s, s);
+                });
+            }
         });
     }
 
@@ -8855,6 +8933,7 @@ export class Main extends Component {
         this.updateBrooms(delta);
         this.updateFightClouds(delta);
         this.updateZzzBubbles(delta);
+        this.updateLimitedFurnitureVfx(this.socialTime);
         this.updateAdventureScene(delta);
         this.updateProfilePreview(delta);
         if (Date.now() < this.noticeUntil) this.layoutNotice();
