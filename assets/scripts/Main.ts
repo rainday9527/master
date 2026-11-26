@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Camera, Canvas, UITransform, Graphics, Label, Color, Vec3, Vec2, RenderTexture, MeshRenderer, Material, primitives, utils, view, ResolutionPolicy, Layers, input, Input, EventTouch, sys, BlockInputEvents, Sprite, SpriteFrame, resources, DirectionalLight, Vec4, JsonAsset, Texture2D, ImageAsset, isValid, tween, Tween, ScrollView, Mask, UIOpacity, profiler, EditBox } from 'cc';
+import { _decorator, Component, Node, Camera, Canvas, UITransform, Graphics, Label, Color, Vec3, Vec2, RenderTexture, MeshRenderer, Material, primitives, utils, view, ResolutionPolicy, Layers, input, Input, EventTouch, sys, BlockInputEvents, Sprite, SpriteFrame, resources, DirectionalLight, Vec4, JsonAsset, Texture2D, ImageAsset, isValid, tween, Tween, ScrollView, Mask, UIOpacity, profiler, EditBox, game } from 'cc';
 
 import { ITEM_CATALOG, ItemDefinition, ItemCategory, PetStat, ShopSlot, findItem, itemApplies, effectText, drawShopSlots } from './ItemCatalog';
 
@@ -31,7 +31,7 @@ type Kind = 'cat' | 'dog';
 type Currency = 'gems' | 'coins';
 // 金币广告奖励暂与钻石一致；后续数值调整只改此处。
 const VIDEO_REWARDS: Record<Currency, number> = { gems: 200, coins: 200 };
-type Page = 'home' | 'recruit' | 'adventure' | 'album' | 'profile' | 'shop' | 'pet' | 'bag' | 'daily' | 'diary' | 'memorial' | 'layout' | 'signin';
+type Page = 'home' | 'recruit' | 'adventure' | 'album' | 'profile' | 'shop' | 'pet' | 'bag' | 'daily' | 'diary' | 'memorial' | 'layout' | 'signin' | 'settings';
 export type RewardedVideoResult = 'completed' | 'cancelled' | 'failed';
 export interface RewardedVideoProvider {
     // 可信边界：仅由宿主注入的平台适配器调用终态回调，并在游戏主线程执行。
@@ -95,6 +95,7 @@ interface Save {
     furnitureInventory?: Record<string, number>;
     achievements?: AchievementState;
     signIn?: SignInState;
+    settings?: { bgm: boolean; sfx: boolean; floatToast: boolean; highFps: boolean };
 }
 type RigPartName = 'body' | 'head' | 'face' | 'earL' | 'earR' | 'legFL' | 'legFR' | 'legBL' | 'legBR' | 'tail';
 interface PetRigAsset {
@@ -375,7 +376,8 @@ export class Main extends Component {
                 text: `「${BREEDS[0].name}」摇着尾巴悄悄钻过庭院木门，踏上了阳光花径的冒险之旅！`,
             }],
             tombstoneInventory: {}, outfitInventory: {}, coatInventory: {}, memorials: [],
-            placedFurniture: defaultPlacedFurniture(), furnitureInventory: {}, achievements: newAchievements(), signIn: newSignIn() };
+            placedFurniture: defaultPlacedFurniture(), furnitureInventory: {}, achievements: newAchievements(), signIn: newSignIn(),
+            settings: { bgm: true, sfx: true, floatToast: true, highFps: true } };
     }
 
     private load(): Save {
@@ -508,6 +510,14 @@ export class Main extends Component {
             s.daily = restoreDaily(s.daily, s.shop.day, Object.prototype.hasOwnProperty.call(s, 'daily'));
             s.achievements = restoreAchievements((s as any).achievements);
             s.signIn = restoreSignIn((s as any).signIn, s.shop.day);
+            const rawSet = (s as any).settings;
+            s.settings = {
+                bgm: rawSet && typeof rawSet.bgm === 'boolean' ? rawSet.bgm : true,
+                sfx: rawSet && typeof rawSet.sfx === 'boolean' ? rawSet.sfx : true,
+                floatToast: rawSet && typeof rawSet.floatToast === 'boolean' ? rawSet.floatToast : true,
+                highFps: rawSet && typeof rawSet.highFps === 'boolean' ? rawSet.highFps : true,
+            };
+            game.frameRate = s.settings.highFps ? 60 : 30;
             s.recruit = restoreRecruit(s.recruit, s.pets.map(p => p.id), BREEDS.map((_, id) => id), Object.prototype.hasOwnProperty.call(s, 'recruit'));
             const albumClaimed: Record<string, boolean> = {};
             if (s.albumClaimed && typeof s.albumClaimed === 'object') {
@@ -1817,7 +1827,16 @@ export class Main extends Component {
         this.drawRedDot(signInBtn, '签到入口红点', 44, 62, 13);
         signInBtn.on(Node.EventType.TOUCH_END, () => this.open('signin'), this);
 
-        // GM 预览调试悬浮入口（位于左侧「签到」下方，不遮挡顶栏/底栏与主操作区）
+        // 游戏设置入口：位于左侧「签到」正下方，与右侧「纪念角」水平对齐
+        const settingsBtn = this.uiNode(this.ui, '游戏设置入口', -390, 330, 190, 174);
+        this.intercept(settingsBtn); this.pressFeedback(settingsBtn);
+        const settingsIcon = this.uiNode(settingsBtn, '设置入口图标', 0, 26, 100, 100).addComponent(Sprite);
+        settingsIcon.sizeMode = Sprite.SizeMode.CUSTOM;
+        resources.load('art/settings/icon/spriteFrame', SpriteFrame, (e, f) => { if (!e && f && isValid(settingsIcon, true)) settingsIcon.spriteFrame = f; });
+        this.navCaption(settingsBtn, '设置', 0);
+        settingsBtn.on(Node.EventType.TOUCH_END, () => this.open('settings'), this);
+
+        // GM 预览调试悬浮入口（位于左侧「设置」下方，不遮挡顶栏/底栏与主操作区）
         const gm = this.uiNode(this.ui, 'GM调试入口', -440, 730, 104, 46);
         const gmg = gm.addComponent(Graphics);
         gmg.fillColor = new Color(92, 58, 36, 215); gmg.strokeColor = this.color('#F5C86B'); gmg.lineWidth = 3;
@@ -1920,10 +1939,11 @@ export class Main extends Component {
         this.ui.getChildByName('每日任务入口')?.setPosition(this.width / 2 - 4 - 190 / 2, this.height / 2 - 295, 0);
         this.ui.getChildByName('冒险日记入口')?.setPosition(this.width / 2 - 4 - 190 / 2, this.height / 2 - 458, 0);
         this.ui.getChildByName('后院纪念角入口')?.setPosition(this.width / 2 - 4 - 190 / 2, this.height / 2 - 620, 0);
-        // 庭院布置入口移至左侧，与右侧「任务」入口完全水平对齐；「签到」在其正下方，GM 调试顺移至其下方
+        // 庭院布置入口移至左侧，与右侧「任务」入口完全水平对齐；「签到」「设置」依次排在正下方，GM 调试顺移至其下方
         this.ui.getChildByName('庭院布置入口')?.setPosition(-this.width / 2 + 4 + 190 / 2, this.height / 2 - 295, 0);
         this.ui.getChildByName('每日签到入口')?.setPosition(-this.width / 2 + 4 + 190 / 2, this.height / 2 - 458, 0);
-        this.ui.getChildByName('GM调试入口')?.setPosition(-Math.min(this.width / 2 - 72, 416), this.height / 2 - 584, 0);
+        this.ui.getChildByName('游戏设置入口')?.setPosition(-this.width / 2 + 4 + 190 / 2, this.height / 2 - 620, 0);
+        this.ui.getChildByName('GM调试入口')?.setPosition(-Math.min(this.width / 2 - 72, 416), this.height / 2 - 744, 0);
         this.bottom.setPosition(0, -this.height / 2 + 90, 0);
         this.layoutGmPanel();
         if (this.page !== 'home' && Date.now() > this.noticeUntil && this.notice) {
@@ -1966,12 +1986,12 @@ export class Main extends Component {
                 if (logCard) logCard.setPosition(-this.width / 2 + 24 + 185, this.height / 2 - 266 - 196, 0);
                 const chestBox = this.sheet.getChildByName('冒险右侧宝箱区');
                 if (chestBox) chestBox.setPosition(Math.min(this.width / 2 - 122, 386), -this.height / 2 + 520, 0);
-            } else if (this.page === 'shop' || this.page === 'daily' || this.page === 'signin' || this.page === 'bag' || this.page === 'diary' || this.page === 'memorial') {
+            } else if (this.page === 'shop' || this.page === 'daily' || this.page === 'signin' || this.page === 'settings' || this.page === 'bag' || this.page === 'diary' || this.page === 'memorial') {
                 this.sheet.setPosition(0, this.page === 'shop' ? -6 : -10, 0);
             }
-            if (this.page === 'shop' || this.page === 'daily' || this.page === 'signin' || this.page === 'bag' || this.page === 'diary' || this.page === 'memorial') {
-                const pw = (this.page === 'daily' || this.page === 'signin') ? 1024 : this.page === 'shop' ? 960 : 921;
-                const ph = (this.page === 'daily' || this.page === 'signin') ? 1400 : this.page === 'shop' ? 1260 : 1390;
+            if (this.page === 'shop' || this.page === 'daily' || this.page === 'signin' || this.page === 'settings' || this.page === 'bag' || this.page === 'diary' || this.page === 'memorial') {
+                const pw = (this.page === 'daily' || this.page === 'signin' || this.page === 'settings') ? 1024 : this.page === 'shop' ? 960 : 921;
+                const ph = (this.page === 'daily' || this.page === 'signin' || this.page === 'settings') ? 1400 : this.page === 'shop' ? 1260 : 1390;
                 const maxScale = this.page === 'shop' ? 1.06 : 1;
                 const padW = this.page === 'shop' ? 24 : 40;
                 const padH = this.page === 'shop' ? 370 : 420;
@@ -2140,9 +2160,9 @@ export class Main extends Component {
     }
 
     /** 通用「货币图标 + 数字」价格标签：所有涉及金币/钻石消耗或获得的按钮与面板统一使用 */
-    private addPriceTag(parent: Node, currency: Currency, amount: number, x: number, y: number, size = 28, textColor: string = '#FFFFFF') {
-        const tag = this.uiNode(parent, '价格标签-' + currency, x, y, size * 3.2, size);
-        const icon = this.uiNode(tag, '价格图标', -size * 0.9, 0, size, size);
+    private addPriceTag(parent: Node, currency: Currency, amount: number, x: number, y: number, size = 30, textColor: string = '#FFFFFF') {
+        const tag = this.uiNode(parent, '价格标签-' + currency, x, y, size * 3.8, size + 6);
+        const icon = this.uiNode(tag, '价格图标', -size * 1.0, 0, size, size);
         const sp = icon.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM;
         resources.load('art/header/' + (currency === 'coins' ? 'coin-icon' : 'diamond-icon') + '/spriteFrame', SpriteFrame, (e, f) => {
             if (!e && f && isValid(sp, true) && isValid(icon, true)) {
@@ -2151,41 +2171,47 @@ export class Main extends Component {
                 icon.getComponent(UITransform)!.setContentSize(asp >= 1 ? size : size * asp, asp >= 1 ? size / asp : size);
             }
         });
-        const lbl = this.text(tag, String(amount), size * 0.55, 0, size * 1.9, size + 4, Math.round(size * 0.9), textColor);
+        const lbl = this.text(tag, String(amount), size * 0.72, 0, size * 2.5, size + 8, Math.round(size * 1.06), textColor);
         lbl.isBold = true; lbl.horizontalAlign = Label.HorizontalAlign.LEFT; lbl.node.name = '价格数字';
-        lbl.enableOutline = true; lbl.outlineColor = this.color('#6A3E16'); lbl.outlineWidth = 2;
+        lbl.enableOutline = true; lbl.outlineColor = this.color('#5B3412'); lbl.outlineWidth = 2.5;
         return tag;
     }
 
-    /** 浮动图标+数字获得提示（替代纯文字 toast），自动上浮淡出 */
+    /** 浮动图标+数字获得/消耗提示（大字号动态加宽，杜绝缩小看不清），自动上浮淡出 */
     public showRewardToast(rewards: RewardGrantItem[], label = '获得') {
+        if (label.includes('自动使用') && this.data?.settings?.floatToast === false) return;
         const list = rewards.filter(r => r.amount !== 0).slice(0, 4);
         if (!list.length || !this.ui || !isValid(this.ui, true)) return;
         const old = this.ui.getChildByName('浮动奖励提示');
         if (old && isValid(old, true)) { old.active = false; old.removeFromParent(); old.destroy(); }
-        const cellW = 150, w = 130 + list.length * cellW, h = 74;
+        const labelW = Math.max(116, Math.min(340, label.length * 36 + 28));
+        const cellW = 180, w = Math.min(980, labelW + 26 + list.length * cellW), h = 92;
         const pill = this.uiNode(this.ui, '浮动奖励提示', 0, this.height / 2 - 380, w, h);
         const g = pill.addComponent(Graphics);
-        g.fillColor = new Color(76, 47, 26, 238); g.roundRect(-w / 2, -h / 2, w, h, 26); g.fill();
-        g.strokeColor = this.color('#F5CC6C'); g.lineWidth = 3; g.roundRect(-w / 2, -h / 2, w, h, 26); g.stroke();
-        const l = this.text(pill, label, -w / 2 + 56, 0, 90, 40, 26, '#FFE896'); l.isBold = true;
+        g.fillColor = new Color(68, 40, 20, 244); g.roundRect(-w / 2, -h / 2, w, h, 30); g.fill();
+        g.strokeColor = this.color('#F5CC6C'); g.lineWidth = 3.5; g.roundRect(-w / 2, -h / 2, w, h, 30); g.stroke();
+        const l = this.text(pill, label, -w / 2 + 16 + labelW / 2, 0, labelW, 52, 34, '#FFE896');
+        l.isBold = true; l.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+        l.enableOutline = true; l.outlineColor = this.color('#3B200B'); l.outlineWidth = 3;
         list.forEach((rw, i) => {
-            const x = -w / 2 + 120 + i * cellW + cellW / 2 - 10;
+            const x = -w / 2 + 20 + labelW + i * cellW + cellW / 2 - 8;
             if (rw.kind === 'coins' || rw.kind === 'gems') {
-                this.addPriceTag(pill, rw.kind, rw.amount, x, 0, 34, '#FFF6DC');
+                this.addPriceTag(pill, rw.kind, rw.amount, x, 0, 40, '#FFF8E2');
             } else {
                 const path = rw.kind === 'item' ? `art/items/${rw.itemId}` : `art/care/${rw.careType === 'food' ? 'feed' : rw.careType === 'soap' ? 'clean' : 'play'}`;
-                const ic = this.uiNode(pill, '获得图标', x - 40, 0, 44, 44);
+                const ic = this.uiNode(pill, '获得图标', x - 44, 0, 54, 54);
                 const sp = ic.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM;
                 resources.load(path + '/spriteFrame', SpriteFrame, (e, f) => { if (!e && f && isValid(sp, true)) sp.spriteFrame = f; });
                 const numTxt = rw.amount < 0 ? `${rw.amount}` : `×${rw.amount}`;
-                const n = this.text(pill, numTxt, x + 22, 0, 76, 40, 30, '#FFF6DC'); n.isBold = true;
+                const n = this.text(pill, numTxt, x + 28, 0, 92, 50, 38, rw.amount < 0 ? '#FFD4A8' : '#FFF8E2');
+                n.isBold = true; n.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+                n.enableOutline = true; n.outlineColor = this.color('#3B200B'); n.outlineWidth = 3;
             }
         });
         const op = pill.addComponent(UIOpacity); op.opacity = 0;
         pill.setSiblingIndex(this.ui.children.length - 1);
-        tween(op).to(0.18, { opacity: 255 }).delay(1.5).to(0.4, { opacity: 0 }).call(() => { if (isValid(pill, true)) pill.destroy(); }).start();
-        tween(pill).by(2.1, { position: new Vec3(0, 46, 0) }).start();
+        tween(op).to(0.18, { opacity: 255 }).delay(1.6).to(0.4, { opacity: 0 }).call(() => { if (isValid(pill, true)) pill.destroy(); }).start();
+        tween(pill).by(2.2, { position: new Vec3(0, 48, 0) }).start();
     }
 
     /** 统一激励视频入口：未接入 SDK 时仅提示，不发放任何奖励；接入后完整观看才回调 */
@@ -2765,6 +2791,8 @@ export class Main extends Component {
         if (layoutEntry) layoutEntry.active = page === 'home';
         const signInEntry = this.ui.getChildByName('每日签到入口');
         if (signInEntry) signInEntry.active = page === 'home';
+        const settingsEntry = this.ui.getChildByName('游戏设置入口');
+        if (settingsEntry) settingsEntry.active = page === 'home';
         this.refreshMemorialEntry();
         this.refreshTaskRedDots();
         const gmEntry = this.ui.getChildByName('GM调试入口');
@@ -2815,6 +2843,10 @@ export class Main extends Component {
         if (page === 'signin') {
             this.sheet = this.uiNode(this.ui, '每日签到面板', 0, -10, 1024, 1400);
             this.intercept(this.sheet); this.renderSignIn(); this.layout(); this.animatePanelOpen(); return;
+        }
+        if (page === 'settings') {
+            this.sheet = this.uiNode(this.ui, '游戏设置面板', 0, -10, 1024, 1400);
+            this.intercept(this.sheet); this.renderSettings(); this.layout(); this.animatePanelOpen(); return;
         }
         if (page === 'shop') {
             this.sheet = this.uiNode(this.ui, '商店摊位', 0, -this.height / 2 + 850, 900, 1300);
@@ -6424,6 +6456,123 @@ export class Main extends Component {
         if (adbg) adbg.active = info.canClaimAd;
 
         this.dailyText(panel, '每日 00:00 (UTC+8) 刷新 · 每满 7 天全额 +20 钻石（第 4 轮起封顶）', 0, -534, 700, 34, 19);
+    }
+
+    private toggleSetting(key: 'bgm' | 'sfx' | 'floatToast' | 'highFps') {
+        const c = this.dailyCandidate();
+        const cur = c.settings || { bgm: true, sfx: true, floatToast: true, highFps: true };
+        const next = { ...cur, [key]: !cur[key] };
+        c.settings = next;
+        if (!this.commitShop(c)) return;
+        if (key === 'highFps') game.frameRate = next.highFps ? 60 : 30;
+        const names: Record<typeof key, string> = {
+            bgm: '背景音乐',
+            sfx: '交互音效',
+            floatToast: '庭院消耗飘字提示',
+            highFps: '60帧高帧率模式',
+        };
+        this.toast(`已${next[key] ? '开启' : '关闭'}${names[key]}`);
+        if (this.page === 'settings' && this.sheet && isValid(this.sheet, true)) {
+            this.sheet.removeAllChildren();
+            this.renderSettings();
+        }
+    }
+
+    private renderSettings() {
+        const panel = this.sheet!;
+        const s = this.data.settings || { bgm: true, sfx: true, floatToast: true, highFps: true };
+
+        // 全屏暖色半透明弹窗背景遮罩
+        const backdrop = this.uiNode(panel, '设置弹窗遮罩', 0, 0, 3200, 3200);
+        const bdg = backdrop.addComponent(Graphics);
+        bdg.fillColor = new Color(34, 22, 12, 148);
+        bdg.rect(-1600, -1600, 3200, 3200);
+        bdg.fill();
+        this.intercept(backdrop);
+
+        // 专属生图绘本风设置弹窗底板
+        const bgNode = this.uiNode(panel, '设置面板底图', 0, 0, 1024, 1400);
+        const bgSp = bgNode.addComponent(Sprite); bgSp.sizeMode = Sprite.SizeMode.CUSTOM;
+        resources.load('art/settings/panel/spriteFrame', SpriteFrame, (e, f) => {
+            if (!e && f && isValid(bgSp, true)) bgSp.spriteFrame = f;
+        });
+
+        this.dailyText(panel, '游戏设置', 0, 392, 440, 58, 42, false, true);
+        const close = this.uiNode(panel, '收起', 422, 398, 128, 128);
+        this.dailySprite(close, 'close', 0, 0, 112, 112, false, '关闭图标');
+        this.shopButton(close, () => this.open('home'));
+
+        // 内衬设置区底板
+        const tray = this.uiNode(panel, '设置功能底板', 0, -44, 718, 590);
+        const tg = tray.addComponent(Graphics);
+        tg.fillColor = this.color('#F4E5C8');
+        tg.strokeColor = this.color('#D8B886');
+        tg.lineWidth = 3;
+        tg.roundRect(-359, -295, 718, 590, 28); tg.fill(); tg.stroke();
+
+        const rows: { key: 'bgm' | 'sfx' | 'floatToast' | 'highFps'; title: string; desc: string; on: boolean }[] = [
+            { key: 'bgm', title: '背景音乐', desc: '庭院与冒险场景的轻快绘本背景音乐', on: s.bgm },
+            { key: 'sfx', title: '交互音效', desc: '点击按钮、喂食抚摸与领取奖励提示音', on: s.sfx },
+            { key: 'floatToast', title: '消耗飘字提示', desc: '宠物自动使用食物/清洁/玩具时的飘字提醒', on: s.floatToast },
+            { key: 'highFps', title: '高帧率模式', desc: '开启 60 帧流畅画面，关闭则 30 帧省电', on: s.highFps },
+        ];
+
+        rows.forEach((item, idx) => {
+            const ry = 178 - idx * 140;
+            const row = this.uiNode(panel, '设置行-' + item.key, 0, ry, 676, 120);
+            const rg = row.addComponent(Graphics);
+            rg.fillColor = new Color(138, 96, 48, 36);
+            rg.roundRect(-338, -64, 676, 120, 22); rg.fill();
+            rg.fillColor = this.color('#FFFDF6');
+            rg.strokeColor = this.color('#D4B282');
+            rg.lineWidth = 2.5;
+            rg.roundRect(-338, -60, 676, 120, 22); rg.fill(); rg.stroke();
+
+            const tl = this.text(row, item.title, -124, 20, 380, 38, 28, '#4E2912');
+            tl.isBold = true; tl.horizontalAlign = Label.HorizontalAlign.LEFT; tl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+            const dl = this.text(row, item.desc, -124, -22, 390, 32, 20, '#8C6B4E');
+            dl.horizontalAlign = Label.HorizontalAlign.LEFT; dl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+
+            // 开关胶囊按钮
+            const sw = this.uiNode(row, '开关-' + item.key, 228, 0, 152, 62);
+            const swg = sw.addComponent(Graphics);
+            swg.fillColor = this.color(item.on ? '#66B85C' : '#C8B59B');
+            swg.strokeColor = this.color(item.on ? '#3D7D36' : '#968166');
+            swg.lineWidth = 3;
+            swg.roundRect(-76, -31, 152, 62, 31); swg.fill(); swg.stroke();
+            // 滑块圆钮
+            swg.fillColor = this.color('#FFFDF8');
+            swg.circle(item.on ? 44 : -44, 0, 23); swg.fill();
+            const sl = this.text(sw, item.on ? '开启' : '关闭', item.on ? -18 : 18, 0, 76, 36, 23, '#FFFFFF');
+            sl.isBold = true; sl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+            this.intercept(sw); this.pressVisualFeedback(sw);
+            sw.on(Node.EventType.TOUCH_END, () => this.toggleSetting(item.key), this);
+        });
+
+        // 底部存档操作按钮
+        const saveBtn = this.dailyButton(panel, '立即保存存档', -168, -422, 312, 80, () => {
+            const c = this.dailyCandidate();
+            if (this.commitShop(c)) this.toast('存档已成功保存至本地！');
+        }, 25);
+        saveBtn.name = '设置保存按钮';
+
+        const resetBtn = this.dailyButton(panel, '重置游戏存档', 168, -422, 312, 80, () => {
+            this.showDialog('确认重置存档', '重置后将清空全部伙伴、家具、钻石与签到进度，确定要重新开始吗？', [
+                {
+                    title: '确认重置',
+                    run: () => {
+                        sys.localStorage.removeItem(this.key);
+                        if (typeof window !== 'undefined' && window.location) window.location.reload();
+                    },
+                },
+                { title: '再想想', run: () => {} },
+            ]);
+        }, 25);
+        resetBtn.name = '设置重置按钮';
+        const rbl = resetBtn.getChildByName('文字')?.getComponent(Label);
+        if (rbl) rbl.color = this.color('#9E2D1E');
+
+        this.dailyText(panel, '猫狗庭院 v1.0.0 · 绘本治愈版 · 本地自动存档保护中', 0, -504, 680, 34, 21);
     }
 
     public claimAchievement(id: AchievementId): boolean {
