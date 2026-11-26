@@ -670,12 +670,13 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
     const rewardCardsCheck = await page.evaluate(() => {
       const cards = main.dialog ? walk(main.dialog).filter(n => n.name.startsWith('奖励图标卡-')) : [];
       const iconsLoaded = cards.filter(c => !!c.getChildByName('奖励图标')?.getComponent('cc.Sprite')?.spriteFrame).length;
+      const bgsLoaded = cards.filter(c => !!c.getChildByName('奖励卡底图')?.getComponent('cc.Sprite')?.spriteFrame).length;
       const bodyHidden = !walk(main.dialog).find(n => n.name === '弹窗正文')?.active;
-      return { cardCount: cards.length, iconsLoaded, bodyHidden };
+      return { cardCount: cards.length, iconsLoaded, bgsLoaded, bodyHidden };
     });
     console.log('adventure chest claim check:', JSON.stringify({ ...chestRes, ...rewardCardsCheck }));
     assert.ok(chestRes.ok && chestRes.coinGain > 500 && chestRes.gemGain >= 20 && chestRes.dialogOpen, '6h idle chest must grant rich coins & gems');
-    assert.ok(rewardCardsCheck.cardCount >= 3 && rewardCardsCheck.iconsLoaded === rewardCardsCheck.cardCount && rewardCardsCheck.bodyHidden, 'chest reward dialog must show Icon+Number visual cards instead of plain text');
+    assert.ok(rewardCardsCheck.cardCount >= 3 && rewardCardsCheck.iconsLoaded === rewardCardsCheck.cardCount && rewardCardsCheck.bgsLoaded === rewardCardsCheck.cardCount && rewardCardsCheck.bodyHidden, 'chest reward dialog must show themed universal slot background + Icon+Number visual cards');
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-chest-reward-dialog.png') });
 
     // Crisis dialogs: no SDK -> ad buttons only toast; lost pet recovers with gems (icon+number), never coins
@@ -710,9 +711,10 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
     const diaryCheck = await page.evaluate(() => ({
       logCount: (main.data.adventureLogs || []).length,
       hasItemCard: !!walk(main.sheet).find(n => n.name.startsWith('日志实物卡-')),
+      sheetY: main.sheet?.position?.y,
     }));
     console.log('adventure diary check:', JSON.stringify(diaryCheck));
-    assert.ok(diaryCheck.logCount >= 3 && diaryCheck.hasItemCard, 'diary must show logs and embedded visual item card');
+    assert.ok(diaryCheck.logCount >= 3 && diaryCheck.hasItemCard && diaryCheck.sheetY === -10, 'diary must be centered at y=-10 and show logs with embedded visual item card');
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-adventure-diary.png') });
 
     // Open Shop -> switch to Tombstones tab -> buy tomb_angel -> verify
@@ -740,10 +742,11 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
         memorials: (main.data.memorials || []).length,
         tombId: main.data.memorials?.[0]?.tombstoneId,
         epitaph: main.data.memorials?.[0]?.epitaph,
+        sheetY: main.sheet?.position?.y,
       };
     });
     console.log('memorial erect check:', JSON.stringify(memRes));
-    assert.deepEqual(memRes, { memorials: 1, tombId: 'tomb_angel', epitaph: '永远记得陪我度过的每一个晴天' });
+    assert.deepEqual(memRes, { memorials: 1, tombId: 'tomb_angel', epitaph: '永远记得陪我度过的每一个晴天', sheetY: -10 });
     await page.waitForTimeout(400);
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-memorial-corner.png') });
 

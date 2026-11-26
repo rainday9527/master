@@ -1334,12 +1334,12 @@ export class Main extends Component {
                 if (logCard) logCard.setPosition(-this.width / 2 + 24 + 185, this.height / 2 - 266 - 196, 0);
                 const chestBox = this.sheet.getChildByName('冒险右侧宝箱区');
                 if (chestBox) chestBox.setPosition(Math.min(this.width / 2 - 122, 386), -this.height / 2 + 520, 0);
-            } else if (this.page === 'daily' || this.page === 'bag') {
+            } else if (this.page === 'daily' || this.page === 'bag' || this.page === 'diary' || this.page === 'memorial') {
                 this.sheet.setPosition(0, -10, 0);
             }
-            if (this.page === 'shop' || this.page === 'daily' || this.page === 'bag') {
-                const pw = this.page === 'daily' ? 1024 : this.page === 'bag' ? 921 : 900;
-                const ph = this.page === 'daily' ? 1400 : this.page === 'bag' ? 1390 : 1300;
+            if (this.page === 'shop' || this.page === 'daily' || this.page === 'bag' || this.page === 'diary' || this.page === 'memorial') {
+                const pw = this.page === 'daily' ? 1024 : (this.page === 'bag' || this.page === 'diary' || this.page === 'memorial') ? 921 : 900;
+                const ph = this.page === 'daily' ? 1400 : (this.page === 'bag' || this.page === 'diary' || this.page === 'memorial') ? 1390 : 1300;
                 const maxScale = this.page === 'shop' ? 1.08 : 1;
                 const padW = this.page === 'shop' ? 28 : 40;
                 const padH = this.page === 'shop' ? 370 : 420;
@@ -1576,7 +1576,25 @@ export class Main extends Component {
         try { provider.show(finish); } catch { finish('failed'); }
     }
 
-    /** 通用图标+数字奖励领取弹窗（金币、钻石、道具统一可视化展示，不以纯文字堆砌） */
+    /** 通用道具/货币槽位背景图（不再使用单调白底）：自动按金币/钻石/医疗清洁/普通道具选配对应底框 */
+    private itemSlotBg(parent: Node, theme: 'general' | 'coin' | 'gem' | 'heal', w: number, h: number, name = '奖励卡底图') {
+        const bg = this.uiNode(parent, name, 0, 0, w, h);
+        const sp = bg.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM;
+        resources.load(`art/ui/item-bg-${theme}/spriteFrame`, SpriteFrame, (e, f) => {
+            if (!e && f && isValid(sp, true)) sp.spriteFrame = f;
+        });
+        return bg;
+    }
+
+    private rewardSlotTheme(rw: RewardGrantItem): 'general' | 'coin' | 'gem' | 'heal' {
+        if (rw.kind === 'coins') return 'coin';
+        if (rw.kind === 'gems') return 'gem';
+        if (rw.kind === 'care') return rw.careType === 'soap' ? 'heal' : 'general';
+        const def = findItem(rw.itemId);
+        return def && (def.category === 'medicine' || def.category === 'soap') ? 'heal' : 'general';
+    }
+
+    /** 通用图标+数字奖励领取弹窗（金币、钻石、道具统一可视化展示，配通用道具槽位底图） */
     public showRewardGrantDialog(title: string, rewards: RewardGrantItem[], subtitle?: string, buttonText = '太棒了') {
         const list = rewards.filter(r => r.amount > 0);
         if (!list.length) return;
@@ -1597,7 +1615,7 @@ export class Main extends Component {
         const displayList = list.slice(0, 8);
         const rows = Math.ceil(displayList.length / 4);
         const cardW = rows === 1 ? 142 : 134;
-        const cardH = rows === 1 ? 144 : 102;
+        const cardH = rows === 1 ? 144 : 104;
         const gapX = rows === 1 ? 18 : 14;
         const gapY = 10;
         const startY = rows === 1 ? (subtitle ? 12 : 24) : (subtitle ? 58 : 72);
@@ -1611,11 +1629,7 @@ export class Main extends Component {
             const y = startY - r * (cardH + gapY);
 
             const card = this.uiNode(strip, `奖励图标卡-${idx}`, x, y, cardW, cardH);
-            const cg = card.addComponent(Graphics);
-            cg.fillColor = this.color('#FFF8E7');
-            cg.roundRect(-cardW / 2, -cardH / 2, cardW, cardH, 18); cg.fill();
-            cg.strokeColor = this.color('#D9A55B'); cg.lineWidth = 3;
-            cg.roundRect(-cardW / 2, -cardH / 2, cardW, cardH, 18); cg.stroke();
+            this.itemSlotBg(card, this.rewardSlotTheme(rw), cardW, cardH, '奖励卡底图');
 
             // 图标区
             const iconSize = rows === 1 ? 64 : 44;
@@ -5007,11 +5021,8 @@ export class Main extends Component {
         showcase.slice(0, 3).forEach((entry, idx) => {
             const sx = (idx - 1) * 106;
             const slot = this.uiNode(tray, `实时日志实物格-${idx}`, sx, 0, 96, 98);
-            const sg = slot.addComponent(Graphics);
-            sg.fillColor = this.color('#FCF5E3');
-            sg.roundRect(-48, -49, 96, 98, 14); sg.fill();
-            sg.strokeColor = this.color('#B89668'); sg.lineWidth = 2;
-            sg.roundRect(-48, -49, 96, 98, 14); sg.stroke();
+            const slotTheme = entry.spritePath.indexOf('coin-icon') >= 0 ? 'coin' : entry.spritePath.indexOf('diamond-icon') >= 0 ? 'gem' : 'general';
+            this.itemSlotBg(slot, slotTheme, 96, 98, '实物格底图');
 
             const iconNode = this.uiNode(slot, '实物图标', 0, 12, 54, 54);
             const sp = iconNode.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM;
@@ -5137,13 +5148,8 @@ export class Main extends Component {
         recordDaily(c.daily, 'adventure');
         if (!this.commitShop(c)) return false;
 
-        // 切换为开启发光宝箱 + 记录到冒险日记
-        this.advChestOpenUntil = Date.now() + 2600;
-        if (this.advChestSprite && isValid(this.advChestSprite, true)) {
-            resources.load('art/adventure/chest-open/spriteFrame', SpriteFrame, (e, f) => {
-                if (!e && f && isValid(this.advChestSprite, true)) this.advChestSprite!.spriteFrame = f;
-            });
-        }
+        // 切换为开启发光宝箱（在开箱弹跳瞬间翻盖）+ 记录到冒险日记
+        this.advChestOpenUntil = Date.now() + 2800;
         const firstItem = bonusItems[0];
         const itemSummary = bonusItems.map(bi => `${findItem(bi.id)?.name || bi.id}×${bi.count}`).join('、');
         this.recordAdventureLog({
@@ -5165,79 +5171,115 @@ export class Main extends Component {
         bonusItems.forEach(bi => grantRewards.push({ kind: 'item', itemId: bi.id, amount: bi.count }));
         this.playChestOpenEffect();
         const dialogTitle = `累计挂机 ${preview.minutes} 分钟 · 满载而归！`;
-        // 先完整播放开箱特效，再弹出图标+数字奖励面板，避免弹窗遮住特效
+        // 先完整播放分段开箱特效，再弹出带通用底图的图标+数字奖励面板
         this.scheduleOnce(() => {
             if (isValid(this, true)) this.showRewardGrantDialog('冒险宝箱已开启！', grantRewards, dialogTitle, '太棒了');
-        }, 1.5);
+        }, 1.35);
         return true;
     }
 
-    /** 宝箱开启特效：冲天光柱 + 放射金光 + 白闪 + 星光四散 + 宝箱弹跳摇晃，播放完毕后再弹出奖励 */
+    /** 宝箱开启特效：蓄力摇晃 → 翻盖弹跳 → 背后柔光扩散 + 真实金币/钻石/星光从箱口喷涌而出（绝不遮挡宝箱主体） */
     private playChestOpenEffect() {
         const layer = this.sheet;
         if (!layer || !isValid(layer, true) || this.page !== 'adventure') return;
         const box = layer.getChildByName('冒险右侧宝箱区');
         if (!box) return;
-        const cx = box.position.x, cy = box.position.y + 26;
-        const fx = this.uiNode(layer, '宝箱开启特效', cx, cy, 10, 10);
-
-        // 1) 冲天光柱
-        const pillar = this.uiNode(fx, '光柱', 0, 260, 150, 560);
-        const pg = pillar.addComponent(Graphics);
-        pg.fillColor = new Color(255, 232, 120, 120); pg.roundRect(-75, -280, 150, 560, 70); pg.fill();
-        pg.fillColor = new Color(255, 250, 200, 190); pg.roundRect(-38, -280, 76, 560, 38); pg.fill();
-        const pop = pillar.addComponent(UIOpacity); pop.opacity = 0;
-        tween(pop).to(0.18, { opacity: 255 }).delay(0.9).to(0.5, { opacity: 0 }).start();
-        pillar.setScale(0.4, 0.2, 1);
-        tween(pillar).to(0.28, { scale: new Vec3(1.15, 1, 1) }).start();
-
-        // 2) 放射金光爆发
-        const burst = this.uiNode(fx, '放射金光', 0, 0, 10, 10);
-        const bg = burst.addComponent(Graphics);
-        for (let r = 0; r < 16; r++) {
-            const a0 = (r * Math.PI * 2) / 16, a1 = a0 + 0.14;
-            bg.fillColor = new Color(255, 218, 80, r % 2 === 0 ? 235 : 150);
-            bg.moveTo(0, 0); bg.lineTo(Math.cos(a0) * 300, Math.sin(a0) * 300); bg.lineTo(Math.cos(a1) * 300, Math.sin(a1) * 300); bg.close(); bg.fill();
-        }
-        const bop = burst.addComponent(UIOpacity); bop.opacity = 255;
-        burst.setScale(0.25, 0.25, 1);
-        tween(burst).to(1.3, { scale: new Vec3(2.1, 2.1, 1), angle: 50 }).start();
-        tween(bop).delay(0.35).to(0.95, { opacity: 0 }).start();
-
-        // 3) 白色闪光
-        const flash = this.uiNode(fx, '闪光', 0, 0, 10, 10);
-        const fg = flash.addComponent(Graphics);
-        fg.fillColor = new Color(255, 250, 215, 150); fg.circle(0, 0, 96); fg.fill();
-        const fop = flash.addComponent(UIOpacity); fop.opacity = 255;
-        flash.setScale(0.4, 0.4, 1);
-        tween(flash).to(0.28, { scale: new Vec3(1.3, 1.3, 1) }).start();
-        tween(fop).to(0.28, { opacity: 0 }).start();
-
-        // 4) 星光四散
-        for (let i = 0; i < 22; i++) {
-            const star = this.uiNode(fx, '星光', 0, 0, 10, 10);
-            const sg = star.addComponent(Graphics);
-            const s = 13 + Math.random() * 12;
-            sg.fillColor = i % 3 === 0 ? new Color(255, 255, 255, 255) : new Color(255, 222, 84, 255);
-            sg.moveTo(0, s); sg.lineTo(s * 0.26, s * 0.26); sg.lineTo(s, 0); sg.lineTo(s * 0.26, -s * 0.26);
-            sg.lineTo(0, -s); sg.lineTo(-s * 0.26, -s * 0.26); sg.lineTo(-s, 0); sg.lineTo(-s * 0.26, s * 0.26); sg.close(); sg.fill();
-            const op = star.addComponent(UIOpacity); op.opacity = 255;
-            const ang = Math.random() * Math.PI * 2, dist = 150 + Math.random() * 190;
-            const dx = Math.cos(ang) * dist, dy = Math.sin(ang) * dist + 60;
-            tween(star).delay(Math.random() * 0.25).to(0.9 + Math.random() * 0.4, { position: new Vec3(dx, dy, 0), angle: 180 }, { easing: 'quadOut' }).start();
-            tween(op).delay(0.6 + Math.random() * 0.3).to(0.5, { opacity: 0 }).start();
-        }
-
-        // 5) 宝箱弹跳摇晃
         const chest = box.getChildByName('冒险挂机宝箱');
+
+        // 清理上一次残留特效
+        box.getChildByName('宝箱背光特效')?.destroy();
+        box.getChildByName('宝箱开启特效')?.destroy();
+
+        // 1) 背后柔和金光环（插在宝箱最底层，绝不遮盖宝箱与时间牌）
+        const fxBack = this.uiNode(box, '宝箱背光特效', 0, 26, 10, 10);
+        fxBack.setSiblingIndex(0);
+        const ring = this.uiNode(fxBack, '扩散光环', 0, 0, 10, 10);
+        const rg = ring.addComponent(Graphics);
+        rg.strokeColor = new Color(255, 224, 96, 210); rg.lineWidth = 10; rg.circle(0, 0, 74); rg.stroke();
+        rg.fillColor = new Color(255, 236, 138, 92); rg.circle(0, 0, 88); rg.fill();
+        const rop = ring.addComponent(UIOpacity); rop.opacity = 0;
+        ring.setScale(0.55, 0.55, 1);
+
+        // 2) 前景粒子层（从箱口上方喷涌，不盖住宝箱正面）
+        const fx = this.uiNode(box, '宝箱开启特效', 0, 44, 10, 10);
+
+        // 阶段一（0~0.30s）：闭合宝箱蓄力晃动挤压
         if (chest && isValid(chest, true)) {
             Tween.stopAllByTarget(chest);
             chest.setScale(1, 1, 1); chest.angle = 0;
-            tween(chest).to(0.12, { scale: new Vec3(1.28, 0.82, 1) }).to(0.16, { scale: new Vec3(0.92, 1.24, 1) })
-                .to(0.14, { scale: new Vec3(1.1, 1.1, 1) }).to(0.12, { scale: new Vec3(1, 1, 1) }).start();
-            tween(chest).to(0.06, { angle: 7 }).to(0.08, { angle: -7 }).to(0.08, { angle: 5 }).to(0.08, { angle: -4 }).to(0.06, { angle: 0 }).start();
+            tween(chest)
+                .to(0.07, { angle: 8, scale: new Vec3(1.06, 0.94, 1) })
+                .to(0.07, { angle: -8, scale: new Vec3(1.10, 0.90, 1) })
+                .to(0.07, { angle: 6, scale: new Vec3(1.14, 0.86, 1) })
+                .to(0.08, { angle: 0, scale: new Vec3(1.22, 0.78, 1) })
+                // 阶段二（0.30s）：翻盖弹起爆发！
+                .call(() => {
+                    if (this.advChestSprite && isValid(this.advChestSprite, true)) {
+                        resources.load('art/adventure/chest-open/spriteFrame', SpriteFrame, (e, f) => {
+                            if (!e && f && isValid(this.advChestSprite, true)) this.advChestSprite!.spriteFrame = f;
+                        });
+                    }
+                    // 背后光环绽放
+                    if (isValid(ring, true)) {
+                        tween(rop).to(0.14, { opacity: 255 }).delay(0.45).to(0.55, { opacity: 0 }).start();
+                        tween(ring).to(0.85, { scale: new Vec3(2.15, 2.15, 1) }, { easing: 'quadOut' }).start();
+                    }
+                })
+                .to(0.15, { scale: new Vec3(0.92, 1.24, 1) }, { easing: 'backOut' })
+                .to(0.14, { scale: new Vec3(1.06, 0.97, 1) })
+                .to(0.12, { scale: new Vec3(1, 1, 1) })
+                .start();
         }
-        this.scheduleOnce(() => { if (isValid(fx, true)) fx.destroy(); }, 2.0);
+
+        // 3) 0.30s 瞬间：金币图标、钻石图标与四角星光从箱口向上弧线喷涌！
+        this.scheduleOnce(() => {
+            if (!isValid(fx, true)) return;
+            // 喷出 6 枚真实金币 + 4 颗真实钻石图标
+            const burstIcons = [
+                'art/header/coin-icon/spriteFrame', 'art/header/diamond-icon/spriteFrame',
+                'art/header/coin-icon/spriteFrame', 'art/header/coin-icon/spriteFrame',
+                'art/header/diamond-icon/spriteFrame', 'art/header/coin-icon/spriteFrame',
+                'art/header/diamond-icon/spriteFrame', 'art/header/coin-icon/spriteFrame',
+            ];
+            burstIcons.forEach((path, i) => {
+                const ic = this.uiNode(fx, '喷涌宝物', (Math.random() - 0.5) * 32, 10, 42, 42);
+                const sp = ic.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM;
+                resources.load(path, SpriteFrame, (e, f) => {
+                    if (!e && f && isValid(sp, true)) sp.spriteFrame = f;
+                });
+                const op = ic.addComponent(UIOpacity); op.opacity = 255;
+                ic.setScale(0.35, 0.35, 1);
+                const spreadX = -155 + (i / (burstIcons.length - 1)) * 240 + (Math.random() - 0.5) * 24;
+                const peakY = 140 + Math.random() * 115;
+                const endY = peakY - 48 - Math.random() * 40;
+                tween(ic)
+                    .delay(i * 0.03)
+                    .to(0.36, { position: new Vec3(spreadX * 0.65, peakY, 0), scale: new Vec3(1.08, 1.08, 1), angle: (Math.random() - 0.5) * 40 }, { easing: 'quadOut' })
+                    .to(0.45, { position: new Vec3(spreadX, endY, 0), scale: new Vec3(0.85, 0.85, 1) }, { easing: 'quadIn' })
+                    .start();
+                tween(op).delay(0.55 + i * 0.02).to(0.35, { opacity: 0 }).start();
+            });
+
+            // 16 颗清晰柔和的四芒星光向上散开
+            for (let i = 0; i < 16; i++) {
+                const star = this.uiNode(fx, '星光', (Math.random() - 0.5) * 40, 12, 10, 10);
+                const sg = star.addComponent(Graphics);
+                const s = 10 + Math.random() * 10;
+                sg.fillColor = i % 2 === 0 ? new Color(255, 255, 240, 255) : new Color(255, 218, 72, 255);
+                sg.moveTo(0, s); sg.lineTo(s * 0.28, s * 0.28); sg.lineTo(s, 0); sg.lineTo(s * 0.28, -s * 0.28);
+                sg.lineTo(0, -s); sg.lineTo(-s * 0.28, -s * 0.28); sg.lineTo(-s, 0); sg.lineTo(-s * 0.28, s * 0.28); sg.close(); sg.fill();
+                const op = star.addComponent(UIOpacity); op.opacity = 255;
+                const dx = -170 + Math.random() * 270;
+                const dy = 70 + Math.random() * 210;
+                tween(star).delay(Math.random() * 0.14).to(0.75 + Math.random() * 0.25, { position: new Vec3(dx, dy, 0), angle: 160 }, { easing: 'quadOut' }).start();
+                tween(op).delay(0.48 + Math.random() * 0.2).to(0.42, { opacity: 0 }).start();
+            }
+        }, 0.29);
+
+        this.scheduleOnce(() => {
+            if (isValid(fxBack, true)) fxBack.destroy();
+            if (isValid(fx, true)) fx.destroy();
+        }, 1.85);
     }
 
     /** 同步主城与冒险场景中 3D 宠物的可见性：外出冒险的伙伴不显示在主城庭院，只在冒险道路上奔跑 */
@@ -5501,7 +5543,9 @@ export class Main extends Component {
                 const ig = itemCard.addComponent(Graphics);
                 ig.fillColor = this.color('#FFF4D6'); ig.strokeColor = this.color('#D8A85A'); ig.lineWidth = 2.5;
                 ig.roundRect(-348, -34, 696, 68, 16); ig.fill(); ig.stroke();
-                this.itemIcon(itemCard, item.id, -306, 0, 54);
+                const slotBox = this.uiNode(itemCard, '日记道具槽', -306, 0, 58, 58);
+                this.itemSlotBg(slotBox, (item.category === 'medicine' || item.category === 'soap') ? 'heal' : 'general', 58, 58, '日记道具底图');
+                this.itemIcon(slotBox, item.id, 0, 0, 44);
                 const il = this.text(itemCard, `${item.name} ×${log.itemCount || 1}`, -110, 10, 310, 28, 21, '#58351D');
                 il.isBold = true; il.horizontalAlign = Label.HorizontalAlign.LEFT;
                 const ef = this.text(itemCard, effectText(item), -110, -16, 310, 24, 17, '#7A5B3E');
