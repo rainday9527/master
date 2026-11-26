@@ -6685,7 +6685,7 @@ export class Main extends Component {
                         if (typeof window !== 'undefined' && window.location) window.location.reload();
                     },
                 },
-                { title: '再想想', run: () => {} },
+                { title: '再想想', run: () => this.closeDialog() },
             ]);
         }, 25);
         resetBtn.name = '设置重置按钮';
@@ -6862,13 +6862,14 @@ export class Main extends Component {
                     title: '确认退出',
                     run: () => {
                         this.persist();
+                        this.closeDialog();
                         if (typeof window !== 'undefined') {
                             try { window.close(); } catch {}
                         }
-                        this.toast('游戏进度已自动保存，可直接关闭页面，欢迎下次再来！');
+                        this.toast('欢迎下次再来《猫狗乐园》！');
                     },
                 },
-                { title: '继续游玩', run: () => {} },
+                { title: '继续游玩', run: () => this.closeDialog() },
             ]);
         });
 
