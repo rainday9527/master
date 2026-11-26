@@ -176,6 +176,7 @@ export class Main extends Component {
     private albumFilter: 'all' | Kind = 'all';
     private profilePetId = 0;
     private profileTab: 'overview' | 'star' | 'outfit' = 'overview';
+    private profileWardrobeTab: 'outfit' | 'coat' = 'outfit';
     private recruitPreviewPage = 0;
     private readonly previewLayer = 1 << 21;
     private previewCamera: Camera | null = null;
@@ -1173,13 +1174,25 @@ export class Main extends Component {
                 const scale = Math.min(1, (this.width - 40) / 1000, (this.height - 430) / 1560);
                 this.sheet.setScale(scale, scale, 1);
             }
-            if (this.page === 'daily' || this.page === 'bag' || this.page === 'album' || this.page === 'profile') this.sheet.setPosition(0, -10, 0);
-            if (this.page === 'shop' || this.page === 'daily' || this.page === 'bag' || this.page === 'album' || this.page === 'profile') {
-                const pw = this.page === 'daily' || this.page === 'album' || this.page === 'profile' ? 1024 : this.page === 'bag' ? 921 : 900;
-                const ph = this.page === 'album' ? 1440 : this.page === 'daily' ? 1400 : this.page === 'bag' ? 1390 : this.page === 'profile' ? 1372 : 1300;
+            if (this.page === 'album') {
+                const navH = 180;
+                const availH = Math.max(1200, this.height - navH);
+                this.sheet.setPosition(0, navH / 2, 0);
+                const scale = Math.min(this.width / 1080, availH / 1740);
+                this.sheet.setScale(scale, scale, 1);
+            } else if (this.page === 'profile') {
+                this.sheet.setPosition(0, 0, 0);
+                const scale = Math.min(this.width / 1080, this.height / 1920);
+                this.sheet.setScale(scale, scale, 1);
+            } else if (this.page === 'daily' || this.page === 'bag') {
+                this.sheet.setPosition(0, -10, 0);
+            }
+            if (this.page === 'shop' || this.page === 'daily' || this.page === 'bag') {
+                const pw = this.page === 'daily' ? 1024 : this.page === 'bag' ? 921 : 900;
+                const ph = this.page === 'daily' ? 1400 : this.page === 'bag' ? 1390 : 1300;
                 const maxScale = this.page === 'shop' ? 1.08 : 1;
-                const padW = this.page === 'shop' ? 28 : this.page === 'album' ? 28 : 40;
-                const padH = this.page === 'shop' ? 370 : this.page === 'album' ? 380 : 420;
+                const padW = this.page === 'shop' ? 28 : 40;
+                const padH = this.page === 'shop' ? 370 : 420;
                 const scale = Math.min(maxScale, (this.width - padW) / pw, (this.height - padH) / ph);
                 this.sheet.setScale(scale, scale, 1);
             }
@@ -1627,6 +1640,10 @@ export class Main extends Component {
         this.layoutNotice();
         const dailyEntry = this.ui.getChildByName('每日任务入口');
         if (dailyEntry) dailyEntry.active = page === 'home';
+        const gmEntry = this.ui.getChildByName('GM调试入口');
+        if (gmEntry) gmEntry.active = page !== 'album' && page !== 'profile';
+        if (this.top) this.top.active = page !== 'album' && page !== 'profile';
+        if (this.bottom) this.bottom.active = page !== 'profile';
         if (page === 'home') return;
         if (page === 'recruit') {
             this.sheet = this.uiNode(this.ui, '招募面板', 0, 0, 1000, 1560);
@@ -1645,11 +1662,13 @@ export class Main extends Component {
             this.intercept(this.sheet); this.renderShop(); this.layout(); this.animatePanelOpen(); return;
         }
         if (page === 'album') {
-            this.sheet = this.uiNode(this.ui, '伙伴图鉴面板', 0, -10, 1024, 1372);
-            this.intercept(this.sheet); this.renderAlbum(); this.layout(); this.animatePanelOpen(); return;
+            this.sheet = this.uiNode(this.ui, '伙伴图鉴面板', 0, 90, 1080, 1740);
+            this.intercept(this.sheet); this.renderAlbum(); this.layout();
+            if (this.bottom) this.bottom.setSiblingIndex(this.ui.children.length - 1);
+            this.animatePanelOpen(); return;
         }
         if (page === 'profile') {
-            this.sheet = this.uiNode(this.ui, '宠物主页面板', 0, -10, 1024, 1372);
+            this.sheet = this.uiNode(this.ui, '宠物主页面板', 0, 0, 1080, 1920);
             this.intercept(this.sheet); this.renderProfile(); this.layout(); this.animatePanelOpen(); return;
         }
         if (page === 'pet') {
@@ -2876,32 +2895,33 @@ export class Main extends Component {
 
     private renderAlbum() {
         const panel = this.sheet!;
-        this.albumArt(panel, 'panel', 0, 0, 1024, 1440, '图鉴正式大底板');
-        // 标题居中落在顶部猫耳黄色标题牌内（1024×1440 源图标题牌中心 y_px=132 -> +588）
-        this.dailyText(panel, '宠物图鉴', 0, 588, 420, 66, 46, false, true);
-        const close = this.uiNode(panel, '收起图鉴', 436, 610, 104, 104);
+        // 全屏无裁剪图鉴底板（1080×1740，从屏幕最顶端延伸至底部主城导航栏上方，完整保留猫耳标题与底部猫砂盆装饰）
+        this.albumArt(panel, 'panel', 0, 0, 1080, 1740, '图鉴正式大底板');
+        // 标题居中落在顶部猫耳黄色标题牌内（1536×2752 -> 1080×1740，标题牌中心 y=+746）
+        this.dailyText(panel, '宠物图鉴', 0, 746, 440, 70, 48, false, true);
+        const close = this.uiNode(panel, '收起图鉴', 462, 756, 104, 104);
         this.dailySprite(close, 'close', 0, 0, 92, 92, false, '关闭图标');
         this.shopButton(close, () => this.open('home'));
 
-        // 顶部奶油条内展示收集进度 + 待领解锁钻汇总（避开左侧手绘小猫爪印与右侧逗猫棒）
-        const summaryRow = this.uiNode(panel, '图鉴收集统计行', 64, 434, 660, 42);
-        const summary = this.dailyText(summaryRow, '', 0, 0, 660, 38, 24);
+        // 顶部奶油横条内展示收集进度 + 待领解锁钻汇总（避开左侧手绘小猫爪印与右侧逗猫棒）
+        const summaryRow = this.uiNode(panel, '图鉴收集统计行', 66, 598, 680, 44);
+        const summary = this.dailyText(summaryRow, '', 0, 0, 680, 40, 25);
         summary.node.name = '图鉴收集统计';
-        const summaryGem = this.currencyIcon(summaryRow, 'gems', 116, 0, 28);
+        const summaryGem = this.currencyIcon(summaryRow, 'gems', 120, 0, 28);
         summaryGem.name = '图鉴汇总钻石图标';
         summaryGem.active = false;
 
-        // 分类筛选页签：全部 / 猫咪 / 狗狗（位于内框顶部 y=+334）
+        // 分类筛选页签：全部 / 猫咪 / 狗狗（位于内层奶油框顶部 y=+502）
         const tabs: [string, 'all' | Kind, string][] = [
             ['全部(' + BREEDS.length + ')', 'all', 'icon-all'],
             ['猫咪(' + BREEDS.filter(b => b.kind === 'cat').length + ')', 'cat', 'icon-cat'],
             ['狗狗(' + BREEDS.filter(b => b.kind === 'dog').length + ')', 'dog', 'icon-dog'],
         ];
         tabs.forEach(([title, filter, iconKey], i) => {
-            const tab = this.uiNode(panel, '图鉴筛选-' + filter, -248 + i * 248, 334, 224, 58);
-            this.albumArt(tab, this.albumFilter === filter ? 'tab-active' : 'tab-normal', 0, 0, 224, 58, '页签底图', false);
-            this.albumArt(tab, iconKey, -68, 0, 34, 30, '页签图标-' + filter);
-            const label = this.dailyText(tab, title, 18, 0, 144, 38, 23);
+            const tab = this.uiNode(panel, '图鉴筛选-' + filter, -264 + i * 264, 502, 238, 60);
+            this.albumArt(tab, this.albumFilter === filter ? 'tab-active' : 'tab-normal', 0, 0, 238, 60, '页签底图', false);
+            this.albumArt(tab, iconKey, -72, 0, 36, 32, '页签图标-' + filter);
+            const label = this.dailyText(tab, title, 18, 0, 150, 40, 24);
             label.node.name = '页签文字';
             this.intercept(tab); this.pressVisualFeedback(tab, tab.children.slice());
             tab.on(Node.EventType.TOUCH_END, () => {
@@ -2911,10 +2931,10 @@ export class Main extends Component {
             }, this);
         });
 
-        // 内层圆角奶油区滚动网格（严格位于 y=-335..+295，完整保留底部小猫简笔画与猫砂盆装饰）
-        const viewport = this.uiNode(panel, '图鉴可视窗口', 0, -20, 836, 630);
+        // 内层圆角奶油区滚动网格（y=-490..+454，单屏可展示 3.5+ 行，完整保留底部小猫简笔画与猫砂盆）
+        const viewport = this.uiNode(panel, '图鉴可视窗口', 0, -18, 880, 944);
         viewport.addComponent(Mask).type = Mask.Type.GRAPHICS_RECT;
-        const content = this.uiNode(viewport, '图鉴滚动内容', 0, 315, 836, 630);
+        const content = this.uiNode(viewport, '图鉴滚动内容', 0, 472, 880, 944);
         content.getComponent(UITransform)!.setAnchorPoint(0.5, 1);
         const scroll = viewport.addComponent(ScrollView);
         scroll.content = content; scroll.horizontal = false; scroll.vertical = true;
@@ -2938,7 +2958,7 @@ export class Main extends Component {
         }
         if (summaryGem) {
             summaryGem.active = unclaimedGems > 0;
-            summaryGem.setPosition(116, 0, 0);
+            summaryGem.setPosition(120, 0, 0);
         }
         (['all', 'cat', 'dog'] as const).forEach(filter => {
             const tabNode = panel.getChildByName('图鉴筛选-' + filter);
@@ -2953,16 +2973,16 @@ export class Main extends Component {
         content.children.slice().forEach(child => { child.active = false; child.removeFromParent(); child.destroy(); });
 
         const list = BREEDS.filter(b => this.albumFilter === 'all' || b.kind === this.albumFilter);
-        const cols = 3, cardW = 248, cardH = 240, gapX = 20, gapY = 16;
+        const cols = 3, cardW = 264, cardH = 256, gapX = 20, gapY = 18;
         const rows = Math.max(1, Math.ceil(list.length / cols));
-        const totalH = Math.max(630, rows * (cardH + gapY) + 12);
-        content.getComponent(UITransform)!.setContentSize(836, totalH);
+        const totalH = Math.max(944, rows * (cardH + gapY) + 14);
+        content.getComponent(UITransform)!.setContentSize(880, totalH);
         viewport!.getComponent(ScrollView)!.scrollToTop(0);
 
         list.forEach((b, idx) => {
             const col = idx % cols, row = Math.floor(idx / cols);
             const x = (col - 1) * (cardW + gapX);
-            const y = -(cardH / 2 + 6 + row * (cardH + gapY));
+            const y = -(cardH / 2 + 8 + row * (cardH + gapY));
             const pet = this.data.pets.find(p => p.id === b.id);
             const owned = !!pet;
             const rarity = RARITY_INFO[b.rarity];
@@ -2974,22 +2994,22 @@ export class Main extends Component {
             const cardSprite = cardFrame.getComponent(Sprite)!;
             if (!owned) cardSprite.color = new Color(216, 220, 226, 255);
 
-            // 左上角：手绘立体稀有度徽章（按真实比例：普通/稀有 172:182、传说 172:206）
-            const badgeH = b.rarity === 'SSR' ? 60 : 54;
-            this.albumArt(card, 'rarity-' + b.rarity.toLowerCase(), -84, 84, 52, badgeH, '稀有度徽章-' + b.rarity);
-            // 右上方（紧贴右上星星左侧）：未领显示通用钻石奖励，已领显示分级星级图标
+            // 左上角：手绘立体稀有度徽章
+            const badgeH = b.rarity === 'SSR' ? 64 : 58;
+            this.albumArt(card, 'rarity-' + b.rarity.toLowerCase(), -89, 89, 55, badgeH, '稀有度徽章-' + b.rarity);
+            // 右上方：未领显示通用钻石奖励，已领显示分级星级图标
             if (canClaim) {
-                this.diamondBadge(card, b.unlockGems, 20, 88, 94, 27, '#E05744', '#FFFDF5', 15);
+                this.diamondBadge(card, b.unlockGems, 20, 93, 98, 28, '#E05744', '#FFFDF5', 16);
             } else if (owned) {
-                this.starTierBadge(card, pet!.star, 38, 88, 36);
+                this.starTierBadge(card, pet!.star, 40, 93, 38);
             } else {
-                this.diamondBadge(card, b.unlockGems, 20, 88, 94, 27, '#8E8B86', '#FFF8EC', 14);
+                this.diamondBadge(card, b.unlockGems, 20, 93, 98, 28, '#8E8B86', '#FFF8EC', 15);
             }
 
             // 中央头像（未解锁采用清晰可见的柔和灰雾+小锁）
-            this.petAvatar(card, b.id, 0, 11, 112, !owned);
-            // 底部骨头框正中仅显示伙伴名称（不堆叠性格或跳转字样）
-            const nameLabel = this.dailyText(card, owned ? this.petDisplayName(b.id) : b.name, 0, -84, 146, 32, 22);
+            this.petAvatar(card, b.id, 0, 12, 120, !owned);
+            // 底部骨头框正中仅显示伙伴名称
+            const nameLabel = this.dailyText(card, owned ? this.petDisplayName(b.id) : b.name, 0, -90, 154, 34, 24);
             nameLabel.color = this.color(owned ? '#49301E' : '#6A6762');
 
             this.pressVisualFeedback(card, card.children.slice());
@@ -3004,57 +3024,12 @@ export class Main extends Component {
         const panel = this.sheet!;
         const pet = this.data.pets.find(p => p.id === this.profilePetId);
         if (!pet) { this.open('album'); return; }
-        this.albumArt(panel, 'profile-panel', 0, 0, 1024, 1372, '宠物主页底板');
-        this.dailyText(panel, '宠物主页', 0, 406, 420, 62, 42, false, true);
-        const back = this.bagButton(panel, '‹ 图鉴', -312, 232, 136, 46, () => this.open('album'));
-        back.name = '返回图鉴按钮';
-        const close = this.uiNode(panel, '关闭宠物主页', 386, 364, 128, 128);
-        this.dailySprite(close, 'close', 0, 0, 112, 112, false, '关闭图标');
-        this.shopButton(close, () => this.open('home'));
+        // 全屏温馨宠物房间背景（1080×1920，猫爬架、木柜、发光爪印地毯、食盆、橙色背包）
+        this.albumArt(panel, 'profile-bg', 0, 0, 1080, 1920, '宠物主页底板');
 
-        // 顶部总览英雄卡片 + 三页签容器（支持原位刷新不重建整面板）
-        this.uiNode(panel, '主页英雄区', 2, 92, 744, 240);
-        const tabs: [string, 'overview' | 'star' | 'outfit'][] = [['状态与词条', 'overview'], ['升星强化', 'star'], ['装扮换肤', 'outfit']];
-        tabs.forEach(([title, key], i) => {
-            const tab = this.uiNode(panel, '主页页签-' + key, -242 + i * 242, -56, 224, 58);
-            this.albumArt(tab, this.profileTab === key ? 'tab-active' : 'tab-normal', 0, 0, 224, 58, '页签底图', false);
-            const label = this.dailyText(tab, title, 0, 0, 200, 36, 23);
-            label.node.name = '页签文字';
-            this.intercept(tab); this.pressVisualFeedback(tab, tab.children.slice());
-            tab.on(Node.EventType.TOUCH_END, () => {
-                if (this.profileTab === key) return;
-                this.profileTab = key;
-                this.refreshProfileInPlace();
-            }, this);
-        });
-        this.uiNode(panel, '主页内容区', 2, -346, 744, 500);
-        this.previewDragYaw = -16;
-        this.refreshProfileInPlace();
-    }
-
-    private refreshProfileInPlace() {
-        if (this.page !== 'profile' || !this.sheet || !isValid(this.sheet, true)) return;
-        const pet = this.data.pets.find(p => p.id === this.profilePetId);
-        if (!pet) { this.open('album'); return; }
-        const breed = BREEDS[pet.id];
-        const rarity = RARITY_INFO[breed.rarity];
-        const trait = PET_TRAITS[pet.trait];
-        const claimed = !!this.data.albumClaimed[pet.id];
-
-        // 刷新顶部英雄区（使用同系列手绘横向稀有度底框 hero-r/sr/ssr + 左侧实时 3D 模型展示舞台）
-        const hero = this.sheet.getChildByName('主页英雄区')!;
-        hero.children.slice().forEach(c => { c.active = false; c.removeFromParent(); c.destroy(); });
-        hero.getComponent(Graphics)?.clear();
-        this.albumArt(hero, 'hero-' + breed.rarity.toLowerCase(), 0, 0, 744, 240, '主页英雄底框', true);
-
-        // 左侧 3D 模型待机展示舞台（1:1 RenderTexture 承载，支持滑动旋转 & 点击互动弹跳）
-        const stageBox = this.uiNode(hero, '宠物3D预览舞台', -252, 16, 212, 186);
-        const sg = stageBox.addComponent(Graphics);
-        sg.fillColor = this.color('#FFFBF0'); sg.strokeColor = this.color(rarity.border); sg.lineWidth = 3;
-        sg.roundRect(-106, -93, 212, 186, 22); sg.fill(); sg.stroke();
-        // 底部柔和草地小圆台衬托 3D 宠物
-        sg.fillColor = this.color('#D8E8BF'); sg.ellipse(0, -54, 78, 22); sg.fill();
-        const stageView = this.uiNode(stageBox, '宠物3D预览画面', 0, 2, 184, 184);
+        // 中央发光地毯上的实时 3D 宠物展示舞台（持久保留，换装/升星/切换页签时不闪烁不重建）
+        const stageBox = this.uiNode(panel, '宠物3D预览舞台', 0, 262, 470, 440);
+        const stageView = this.uiNode(stageBox, '宠物3D预览画面', 0, 0, 450, 450);
         const stageSprite = stageView.addComponent(Sprite);
         stageSprite.sizeMode = Sprite.SizeMode.CUSTOM;
         if (this.previewFrame) stageSprite.spriteFrame = this.previewFrame;
@@ -3075,210 +3050,289 @@ export class Main extends Component {
         }, this);
         stageBox.on(Node.EventType.TOUCH_CANCEL, () => { dragLastX = null; }, this);
         this.previewViewportNode = stageBox;
+
+        // 动态 UI 层（顶栏、名称星级、右侧性格词条、宠物切换箭头、中间升星区、底部装扮衣帽间、底栏状态条）
+        this.uiNode(panel, '主页动态层', 0, 0, 1080, 1920);
+        this.previewDragYaw = -16;
+        this.refreshProfileInPlace();
+    }
+
+    private refreshProfileInPlace() {
+        if (this.page !== 'profile' || !this.sheet || !isValid(this.sheet, true)) return;
+        const pet = this.data.pets.find(p => p.id === this.profilePetId);
+        if (!pet) { this.open('album'); return; }
+        const breed = BREEDS[pet.id];
+        const rarity = RARITY_INFO[breed.rarity];
+        const trait = PET_TRAITS[pet.trait];
+        const claimed = !!this.data.albumClaimed[pet.id];
         void this.syncProfilePreview(pet.id);
 
-        const avatarBtnTitle = this.data.avatar === pet.id ? '当前头像 ✓' : '设为头像';
-        const setAv = this.bagButton(hero, avatarBtnTitle, -252, -96, 152, 36, () => {
+        const layer = this.sheet.getChildByName('主页动态层')!;
+        layer.children.slice().forEach(c => { c.active = false; c.removeFromParent(); c.destroy(); });
+
+        const drawCard = (parent: Node, name: string, x: number, y: number, w: number, h: number, fill: string, stroke = '#6E4226', line = 4, r = 26) => {
+            const n = this.uiNode(parent, name, x, y, w, h);
+            const g = n.addComponent(Graphics);
+            g.fillColor = this.color(fill); g.strokeColor = this.color(stroke); g.lineWidth = line;
+            g.roundRect(-w / 2, -h / 2, w, h, r); g.fill();
+            if (line > 0) g.stroke();
+            return n;
+        };
+
+        // 1) 顶部栏：左上圆角黄底返回按钮 + 右上金币/钻石暗棕胶囊（对齐参考图顶部）
+        const back = drawCard(layer, '返回图鉴按钮', -442, 862, 92, 92, '#FFD768', '#6E4226', 4, 24);
+        const backLbl = this.dailyText(back, '‹', -2, 4, 60, 66, 56);
+        backLbl.color = this.color('#5B3418');
+        this.intercept(back); this.pressVisualFeedback(back);
+        back.on(Node.EventType.TOUCH_END, () => this.open('album'), this);
+
+        for (const [currency, px, val, openDlg] of [
+            ['coins', 136, this.data.coins, () => this.showCoinDialog()],
+            ['gems', 386, this.data.gems, () => this.showGemDialog()],
+        ] as const) {
+            const pill = drawCard(layer, '主页货币-' + currency, px, 862, 224, 64, '#6A462B', '#4D2E18', 3, 32);
+            this.currencyIcon(pill, currency, -72, 0, 44);
+            const num = this.text(pill, String(val), 22, 0, 146, 44, 30, '#FFF8E8');
+            num.isBold = true; num.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+            this.intercept(pill); this.pressVisualFeedback(pill);
+            pill.on(Node.EventType.TOUCH_END, openDlg, this);
+        }
+
+        // 2) 中上方：稀有度徽章 + 宠物名称胶囊 + 红色改名按钮 + 五星展示行（去掉原参考图左侧升星角标）
+        const badgeH = breed.rarity === 'SSR' ? 68 : 60;
+        this.albumArt(layer, 'rarity-' + breed.rarity.toLowerCase(), -224, 766, 58, badgeH, '主页稀有度徽章-' + breed.rarity);
+        const namePill = drawCard(layer, '宠物名称胶囊', -6, 766, 336, 74, '#FFF6DC', '#B98C5A', 3, 37);
+        const nameLbl = this.dailyText(namePill, this.petDisplayName(pet.id), 0, 0, 310, 52, 40);
+        nameLbl.color = this.color('#4E2F1A');
+        const renameBtn = drawCard(layer, '宠物改名按钮', 234, 766, 114, 54, '#E05744', '#7C2B1E', 3, 27);
+        const renLbl = this.text(renameBtn, '改名', 0, 0, 96, 36, 26, '#FFFDF5');
+        renLbl.isBold = true; renLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+        this.intercept(renameBtn); this.pressVisualFeedback(renameBtn);
+        renameBtn.on(Node.EventType.TOUCH_END, () => this.showRenameDialog(pet.id), this);
+
+        // 五星行（按当前星级点亮金星，未达星级为柔和灰星）
+        const starsRow = this.uiNode(layer, '宠物星级展示行', 0, 684, 360, 58);
+        for (let s = 1; s <= MAX_PET_STAR; s++) {
+            const sx = (s - 3) * 64;
+            const starTxt = this.text(starsRow, '★', sx, 2, 58, 58, 50, s <= pet.star ? '#FFCA3A' : '#A9A29A');
+            starTxt.outlineColor = this.color('#6E4226'); starTxt.outlineWidth = 3;
+        }
+
+        // 左侧紧凑实用胶囊：设为头像 + 领解锁钻（不占中央地毯、无左侧升星大标）
+        const avTitle = this.data.avatar === pet.id ? '当前头像 ✓' : '设为头像';
+        const setAv = drawCard(layer, '设为头像按钮', -404, 650, 168, 46, this.data.avatar === pet.id ? '#E6F5E3' : '#FFF7E4', '#8B5E38', 2.5, 23);
+        const avLbl = this.text(setAv, avTitle, 0, 0, 156, 30, 21, this.data.avatar === pet.id ? '#228B3C' : '#5E3A1E');
+        avLbl.isBold = true; avLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+        this.intercept(setAv); this.pressVisualFeedback(setAv);
+        setAv.on(Node.EventType.TOUCH_END, () => {
             if (this.data.avatar === pet.id) return;
             this.data.avatar = pet.id;
             if (this.persist()) { this.renderHeader(); this.refreshProfileInPlace(); this.toast('已换上' + this.petDisplayName(pet.id) + '的头像'); }
-        });
-        setAv.name = '设为头像按钮';
+        }, this);
 
-        // 右侧信息区：名称 + 手绘立体稀有度徽章（按真实比例） + 改名
-        this.dailyText(hero, this.petDisplayName(pet.id), -44, 78, 176, 40, 31, true);
-        const heroBadgeH = breed.rarity === 'SSR' ? 62 : 56;
-        this.albumArt(hero, 'rarity-' + breed.rarity.toLowerCase(), 134, 80, 52, heroBadgeH, '主页稀有度徽章-' + breed.rarity);
-        const renameBtn = this.bagButton(hero, '改名', 274, 78, 112, 40, () => this.showRenameDialog(pet.id));
-        renameBtn.name = '宠物改名按钮';
-
-        // 品种名 + 分级手绘星级图标（错开稀有度徽章，留足间距不重叠）
-        const sub = this.dailyText(hero, breed.speciesTitle, -44, 28, 176, 34, 22, true);
-        sub.color = this.color('#7F5328'); sub.outlineWidth = 1;
-        this.starTierBadge(hero, pet.star, 66, 28, 36);
-
-        // 性格词条
-        this.pillBadge(hero, '性格·' + trait.name, -58, -14, 146, 32, trait.tagColor, C.white, 18);
-        const trSummary = this.dailyText(hero, trait.summary, 184, -14, 310, 32, 20, true);
-        trSummary.outlineWidth = 1;
-
-        // 解锁钻石奖励领取按钮（使用通用钻石图标）
         if (!claimed) {
-            const claimBtn = this.bagButton(hero, '领取解锁奖励       +' + breed.unlockGems, 104, -74, 412, 50, () => this.claimAlbumReward(pet.id));
-            claimBtn.name = '领取图鉴解锁钻';
-            this.currencyIcon(claimBtn, 'gems', 48, 0, 28);
-            const lbl = claimBtn.getChildByName('文字')?.getComponent(Label);
-            if (lbl) lbl.color = this.statusColor(true);
+            const claimBtn = drawCard(layer, '领取图鉴解锁钻', -404, 586, 168, 48, '#E05744', '#7C2B1E', 2.5, 24);
+            this.currencyIcon(claimBtn, 'gems', -50, 0, 26);
+            const cLbl = this.text(claimBtn, '领 +' + breed.unlockGems, 20, 0, 108, 30, 20, '#FFFDF5');
+            cLbl.isBold = true; cLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+            this.intercept(claimBtn); this.pressVisualFeedback(claimBtn);
+            claimBtn.on(Node.EventType.TOUCH_END, () => this.claimAlbumReward(pet.id), this);
+        }
+
+        // 3) 右侧独立「性格词条」浮卡（严格保留参考图右侧性格卡，去掉右侧装扮卡）
+        const traitCard = drawCard(layer, '性格词条浮卡', 392, 542, 206, 224, '#FFF9EA', '#6E4226', 4, 24);
+        const traitHead = drawCard(traitCard, '性格词条卡头', 0, 82, 198, 52, '#F7CC6B', '#6E4226', 0, 20);
+        const thLbl = this.dailyText(traitHead, '性格词条', 0, 0, 180, 36, 25);
+        thLbl.color = this.color('#573218');
+        this.pillBadge(traitCard, trait.name, 0, 22, 166, 40, trait.tagColor, '#FFFDF5', 22);
+        const trSum = this.text(traitCard, trait.summary, 0, -48, 176, 86, 20, '#6A4426');
+        trSum.enableWrapText = true; trSum.lineHeight = 27; trSum.isBold = true;
+        trSum.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+
+        // 4) 地毯下方宠物快捷切换条（◀ 宠物名 ▶，支持直接左右切已解锁伙伴）
+        const ownedPets = this.data.pets;
+        const curIdx = ownedPets.findIndex(p => p.id === pet.id);
+        const switchRow = this.uiNode(layer, '宠物切换行', 0, 24, 440, 58);
+        const switchName = this.dailyText(switchRow, this.petDisplayName(pet.id), 0, 0, 260, 46, 36);
+        switchName.color = this.color('#4E2F1A');
+        if (ownedPets.length > 1) {
+            for (const [sym, dir, ax] of [['◀', -1, -168], ['▶', 1, 168]] as const) {
+                const arr = drawCard(switchRow, dir < 0 ? '切换上一只' : '切换下一只', ax, 0, 54, 54, '#FFD15C', '#6E4226', 3, 16);
+                const aLbl = this.text(arr, sym, 0, 2, 44, 42, 28, '#5B3418');
+                aLbl.isBold = true;
+                this.intercept(arr); this.pressVisualFeedback(arr);
+                arr.on(Node.EventType.TOUCH_END, () => {
+                    const nextPet = ownedPets[(curIdx + dir + ownedPets.length) % ownedPets.length];
+                    this.profilePetId = nextPet.id;
+                    this.refreshProfileInPlace();
+                }, this);
+            }
+        }
+
+        // 5) 中间大卡片：升星/升级区（按第一张参考图横向三栏布局：星级进化 | 消耗材料 | 大号橙色升星按钮）
+        const starCard = drawCard(layer, '升星升级区卡片', 0, -166, 984, 276, '#FFF9EA', '#6E4226', 5, 28);
+        const starTag = drawCard(starCard, '升星区标题条', -308, 102, 276, 52, '#E99B48', '#6E4226', 3, 18);
+        const stTitle = this.text(starTag, '升星 / 升级区', 0, 0, 250, 36, 26, '#FFFDF5');
+        stTitle.isBold = true; stTitle.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+
+        const req = STAR_REQUIREMENTS[pet.star];
+        const totalCopies = this.data.recruit.copies[pet.id] || 1;
+        const extraCopies = Math.max(0, totalCopies - 1);
+        const curXp = Math.round(starXpBonus(pet.star) * 100);
+        const curAdv = Math.round(starAdventureBonus(pet.star) * 100);
+
+        // 左栏：当前星级 -> 下一星级 + 星级加成
+        const lvPill = drawCard(starCard, '星级跃升条', -296, 20, 316, 62, '#FDECC2', '#DFB66E', 2, 18);
+        const lvText = req ? (pet.star + '星  ➔  ' + req.nextStar + '星') : ('已满星 ★' + pet.star);
+        const lvLbl = this.dailyText(lvPill, lvText, 0, 0, 296, 42, 30);
+        lvLbl.color = this.color('#5B3418');
+
+        const bonusPill = drawCard(starCard, '星级加成条', -296, -62, 316, 64, '#FDECC2', '#DFB66E', 2, 18);
+        const bonusStr = req
+            ? '经验 +' + curXp + '%→+' + Math.round(starXpBonus(req.nextStar) * 100) + '%  寻宝 +' + Math.round(starAdventureBonus(req.nextStar) * 100) + '%'
+            : '照顾经验 +' + curXp + '% · 寻宝 +' + curAdv + '%';
+        const bLbl = this.text(bonusPill, bonusStr, 0, 0, 298, 48, 19, '#5B3418');
+        bLbl.isBold = true; bLbl.enableWrapText = true; bLbl.lineHeight = 23;
+        bLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+
+        // 中栏 + 右栏：消耗材料与大号橙色升星按钮
+        const matBox = drawCard(starCard, '升星材料底框', 174, -14, 566, 206, '#FCECC8', '#E5C384', 2, 22);
+        const matHead = this.text(matBox, req ? '消耗材料' : '伙伴已达最高星级', -154, 72, 240, 34, 24, '#5B3418');
+        matHead.isBold = true; matHead.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+        if (req) {
+            const copyOk = extraCopies >= req.extraCopies;
+            const coinOk = this.data.coins >= req.coins;
+            this.albumArt(matBox, 'icon-all', -222, 14, 42, 38, '本体爪印图标');
+            const c1 = this.text(matBox, '本体 ' + extraCopies + ' / ' + req.extraCopies, -96, 14, 196, 36, 26, copyOk ? '#228B3C' : '#C93832');
+            c1.isBold = true; c1.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+            this.currencyIcon(matBox, 'coins', -222, -48, 40);
+            const c2 = this.text(matBox, '× ' + req.coins, -108, -48, 176, 36, 26, coinOk ? '#228B3C' : '#C93832');
+            c2.isBold = true; c2.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+
+            const tip = this.text(matBox, req.nextStar === 3 ? '3★免费送星光皇冠' : '属性全面提升', 152, 62, 230, 30, 20, '#7B4F28');
+            tip.isBold = true; tip.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+
+            const upBtn = drawCard(matBox, '立即升星按钮', 152, -22, 212, 92, (copyOk && coinOk) ? '#F37A2D' : '#C99E76', '#6E3212', 4, 24);
+            const upLbl = this.text(upBtn, '升星', 0, 0, 180, 48, 36, '#FFFDF5');
+            upLbl.isBold = true; upLbl.outlineColor = this.color('#6E3212'); upLbl.outlineWidth = 2;
+            upLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+            this.intercept(upBtn); this.pressVisualFeedback(upBtn);
+            upBtn.on(Node.EventType.TOUCH_END, () => this.upgradePetStar(pet.id), this);
         } else {
-            const doneRow = this.uiNode(hero, '图鉴已领奖励行', 104, -74, 450, 38);
-            const done = this.dailyText(doneRow, '图鉴解锁奖励（      +' + breed.unlockGems + '）已领取 ✓', 0, 0, 450, 36, 21, true);
-            done.color = this.statusColor(true); done.outlineWidth = 1;
-            this.currencyIcon(doneRow, 'gems', -56, 0, 26);
+            const maxNote = this.text(matBox, '★5 实力已拉满，快去换上帅气装扮吧！', 0, -18, 520, 42, 25, '#228B3C');
+            maxNote.isBold = true; maxNote.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
         }
 
-        // 更新三页签高亮与底图切换
-        (['overview', 'star', 'outfit'] as const).forEach(key => {
-            const tabNode = this.sheet!.getChildByName('主页页签-' + key);
-            const bgSprite = tabNode?.getChildByName('页签底图')?.getComponent(Sprite);
-            if (bgSprite) this.updateShopSprite(bgSprite, 'art/album/' + (this.profileTab === key ? 'tab-active' : 'tab-normal'));
-            const label = tabNode?.getChildByName('页签文字')?.getComponent(Label);
-            if (label) label.color = this.color(this.profileTab === key ? '#49301E' : '#856547');
-        });
+        // 6) 下方大卡片：原第一张参考图的「互动区」按要求改为「装扮衣帽间」（横向滑动卡片 + 3D装扮 / 服装换肤双切）
+        const wardCard = drawCard(layer, '装扮衣帽间卡片', 0, -504, 984, 344, '#FFF9EA', '#6E4226', 5, 28);
+        const wardTag = drawCard(wardCard, '装扮区标题条', -308, 134, 276, 52, '#E99B48', '#6E4226', 3, 18);
+        const wTitle = this.text(wardTag, '装扮衣帽间', 0, 0, 250, 36, 26, '#FFFDF5');
+        wTitle.isBold = true; wTitle.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
 
-        // 刷新下方内容区
-        const body = this.sheet.getChildByName('主页内容区')!;
-        body.children.slice().forEach(c => { c.active = false; c.removeFromParent(); c.destroy(); });
-        const bg = body.getComponent(Graphics) || body.addComponent(Graphics);
-        bg.clear(); bg.fillColor = this.color('#FFFDF5'); bg.strokeColor = this.color('#DFC7A0'); bg.lineWidth = 3;
-        bg.roundRect(-372, -250, 744, 500, 24); bg.fill(); bg.stroke();
+        // 装扮卡片右上双切页签：3D 装扮 | 服装换肤
+        for (const [label, key, tx] of [['3D 装扮', 'outfit', 164], ['服装换肤', 'coat', 356]] as const) {
+            const active = this.profileWardrobeTab === key;
+            const subTab = drawCard(wardCard, '衣帽间切页-' + key, tx, 134, 174, 48, active ? '#FFD25A' : '#F3E3C2', '#6E4226', 3, 24);
+            const tLbl = this.text(subTab, label, 0, 0, 158, 32, 22, active ? '#4E2F1A' : '#856547');
+            tLbl.isBold = true; tLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+            this.intercept(subTab); this.pressVisualFeedback(subTab);
+            subTab.on(Node.EventType.TOUCH_END, () => {
+                if (this.profileWardrobeTab === key) return;
+                this.profileWardrobeTab = key;
+                this.refreshProfileInPlace();
+            }, this);
+        }
 
-        if (this.profileTab === 'overview') {
-            this.dailyText(body, '实时状态', -260, 212, 180, 34, 25, true);
-            const careBtn = this.bagButton(body, '前往照顾 ›', 260, 212, 166, 44, () => { this.selected = pet.id; this.open('pet'); });
-            careBtn.name = '主页前往照顾';
-            const stats: [string, number, string][] = [
-                ['饱腹', pet.hunger, '#E99B4E'], ['洁净', pet.clean, '#6BB4D8'],
-                ['体力', pet.energy, '#73B46F'], ['心情', pet.joy, '#EB8BA1'],
-            ];
-            stats.forEach(([label, val, col], i) => {
-                const x = -175 + (i % 2) * 350, y = 150 - Math.floor(i / 2) * 56;
-                this.dailyText(body, label, x - 134, y, 64, 32, 22, true);
-                const track = this.uiNode(body, '状态槽-' + label, x + 2, y, 186, 26);
-                const tg = track.addComponent(Graphics);
-                tg.fillColor = this.color('#EADCC2'); tg.roundRect(-93, -13, 186, 26, 13); tg.fill();
-                const fillW = Math.max(12, Math.round(182 * Math.max(0, Math.min(100, val)) / 100));
-                if (val > 0) {
-                    tg.fillColor = this.color(val <= 30 ? '#D96B52' : col);
-                    tg.roundRect(-91, -11, fillW, 22, 11); tg.fill();
+        // 横向可滑动装扮/皮肤卡片区
+        const viewW = 928, viewH = 236;
+        const viewport = this.uiNode(wardCard, '衣帽间可视窗口', 0, -24, viewW, viewH);
+        viewport.addComponent(Mask).type = Mask.Type.GRAPHICS_RECT;
+        const strip = this.uiNode(viewport, '衣帽间滚动内容', -viewW / 2, 0, viewW, viewH);
+        strip.getComponent(UITransform)!.setAnchorPoint(0, 0.5);
+        const wScroll = viewport.addComponent(ScrollView);
+        wScroll.content = strip; wScroll.horizontal = true; wScroll.vertical = false;
+        wScroll.cancelInnerEvents = true; wScroll.elastic = true; wScroll.inertia = true;
+
+        const cardW = 212, cardH = 220, gap = 16, pad = 10;
+        if (this.profileWardrobeTab === 'outfit') {
+            const totalW = Math.max(viewW, pad * 2 + PET_OUTFITS.length * cardW + (PET_OUTFITS.length - 1) * gap);
+            strip.getComponent(UITransform)!.setContentSize(totalW, viewH);
+            PET_OUTFITS.forEach((o, i) => {
+                const x = pad + cardW / 2 + i * (cardW + gap);
+                const equipped = pet.outfit === o.id;
+                const owned = pet.ownedOutfits.includes(o.id) || (o.freeAtStar !== undefined && pet.star >= o.freeAtStar);
+                const tile = drawCard(strip, '装扮项-' + o.id, x, 0, cardW, cardH, equipped ? '#EAF7E6' : '#FFFDF6', equipped ? '#469A50' : '#7D5132', equipped ? 4 : 3, 22);
+                const iconBg = drawCard(tile, '装扮图标底', 0, 32, 178, 120, '#FBEFD7', '#E8D0A8', 1.5, 16);
+                const iconNode = this.uiNode(iconBg, '装扮图标-' + o.id, 0, 0, 96, 96);
+                const iconSprite = iconNode.addComponent(Sprite); iconSprite.sizeMode = Sprite.SizeMode.CUSTOM;
+                this.loadOutfitIcon(iconSprite, o.id);
+                if (equipped) {
+                    const chk = drawCard(tile, '已穿戴勾', 76, 82, 40, 40, '#469A50', '#FFFDF5', 3, 20);
+                    const cTxt = this.text(chk, '✓', 0, 0, 34, 34, 24, '#FFFDF5');
+                    cTxt.isBold = true;
                 }
-                const num = this.dailyText(body, String(Math.round(val)), x + 124, y, 56, 32, 21);
-                num.color = val <= 30 ? this.statusColor(false) : this.color('#49301E');
+                const nm = this.text(tile, o.name, 0, -48, 196, 30, 22, '#4E2F1A');
+                nm.isBold = true; nm.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+                if (equipped || owned) {
+                    const stPill = drawCard(tile, '装扮状态条', 0, -84, 156, 34, equipped ? '#469A50' : '#85C47B', '#FFFFFF', 0, 17);
+                    const st = this.text(stPill, equipped ? '穿戴中 ✓' : '已拥有', 0, 0, 146, 28, 19, '#FFFDF5');
+                    st.isBold = true; st.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+                } else {
+                    const affordable = (o.currency === 'coins' ? this.data.coins : this.data.gems) >= o.price;
+                    const stPill = drawCard(tile, '装扮价格条', 0, -84, 156, 34, '#F7DE9C', '#D1A452', 1.5, 17);
+                    this.currencyIcon(stPill, o.currency, -36, 0, 24);
+                    const st = this.text(stPill, String(o.price), 22, 0, 96, 28, 21, affordable ? '#228B3C' : '#C93832');
+                    st.isBold = true; st.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+                }
+                this.pressVisualFeedback(tile, tile.children.slice());
+                this.scrollTap(tile, () => this.selectPetOutfit(pet.id, o.id));
             });
-
-            // 性格词条详解框
-            const tBox = this.uiNode(body, '性格词条卡片', 0, -26, 696, 144);
-            const tbg = tBox.addComponent(Graphics);
-            tbg.fillColor = this.color('#FFF6E3'); tbg.strokeColor = this.color('#E7CCA0'); tbg.lineWidth = 2;
-            tbg.roundRect(-348, -72, 696, 144, 20); tbg.fill(); tbg.stroke();
-            this.pillBadge(tBox, '性格词条 · ' + trait.name, -206, 38, 236, 36, trait.tagColor, C.white, 20);
-            const tDesc = this.dailyText(tBox, trait.detail, 0, -18, 648, 72, 22, true);
-            tDesc.enableWrapText = true; tDesc.lineHeight = 32; tDesc.outlineWidth = 1;
-
-            // 品种档案 & 星级加成
-            const bioBox = this.uiNode(body, '伙伴档案卡片', 0, -172, 696, 122);
-            const bbg = bioBox.addComponent(Graphics);
-            bbg.fillColor = this.color('#FBF4E6'); bbg.roundRect(-348, -61, 696, 122, 18); bbg.fill();
-            const bio = this.dailyText(bioBox, '【伙伴小传】' + breed.bio, 0, 20, 650, 58, 20, true);
-            bio.enableWrapText = true; bio.lineHeight = 28; bio.outlineWidth = 1;
-            const bonus = this.dailyText(bioBox, '当前星级加成（★' + pet.star + '）：照顾经验 +' + Math.round(starXpBonus(pet.star) * 100) + '% · 寻宝收益 +' + Math.round(starAdventureBonus(pet.star) * 100) + '%', 0, -32, 650, 32, 19, true);
-            bonus.color = this.statusColor(true); bonus.outlineWidth = 1;
-            return;
+        } else {
+            const totalW = Math.max(viewW, pad * 2 + PET_COATS.length * cardW + (PET_COATS.length - 1) * gap);
+            strip.getComponent(UITransform)!.setContentSize(totalW, viewH);
+            PET_COATS.forEach((c, i) => {
+                const x = pad + cardW / 2 + i * (cardW + gap);
+                const equipped = pet.coat === c.id;
+                const owned = pet.ownedCoats.includes(c.id);
+                const tile = drawCard(strip, '毛色项-' + c.id, x, 0, cardW, cardH, equipped ? '#EAF7E6' : '#FFFDF6', equipped ? '#469A50' : '#7D5132', equipped ? 4 : 3, 22);
+                const iconBg = drawCard(tile, '皮肤图标底', 0, 32, 178, 120, '#FBEFD7', '#E8D0A8', 1.5, 16);
+                const skinIcon = this.uiNode(iconBg, '皮肤图标-' + c.id, 0, 0, 92, 92).addComponent(Sprite);
+                skinIcon.sizeMode = Sprite.SizeMode.CUSTOM;
+                this.loadOutfitIcon(skinIcon, c.icon);
+                if (equipped) {
+                    const chk = drawCard(tile, '已穿戴勾', 76, 82, 40, 40, '#469A50', '#FFFDF5', 3, 20);
+                    const cTxt = this.text(chk, '✓', 0, 0, 34, 34, 24, '#FFFDF5');
+                    cTxt.isBold = true;
+                }
+                const nm = this.text(tile, c.name, 0, -48, 196, 30, 22, '#4E2F1A');
+                nm.isBold = true; nm.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+                if (equipped || owned) {
+                    const stPill = drawCard(tile, '皮肤状态条', 0, -84, 156, 34, equipped ? '#469A50' : '#85C47B', '#FFFFFF', 0, 17);
+                    const st = this.text(stPill, equipped ? '穿戴中 ✓' : '已拥有', 0, 0, 146, 28, 19, '#FFFDF5');
+                    st.isBold = true; st.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+                } else {
+                    const affordable = (c.currency === 'coins' ? this.data.coins : this.data.gems) >= c.price;
+                    const stPill = drawCard(tile, '皮肤价格条', 0, -84, 156, 34, '#F7DE9C', '#D1A452', 1.5, 17);
+                    this.currencyIcon(stPill, c.currency, -36, 0, 24);
+                    const st = this.text(stPill, String(c.price), 22, 0, 96, 28, 21, affordable ? '#228B3C' : '#C93832');
+                    st.isBold = true; st.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+                }
+                this.pressVisualFeedback(tile, tile.children.slice());
+                this.scrollTap(tile, () => this.selectPetCoat(pet.id, c.id));
+            });
         }
+        wScroll.scrollToLeft(0);
 
-        if (this.profileTab === 'star') {
-            const req = STAR_REQUIREMENTS[pet.star];
-            const totalCopies = this.data.recruit.copies[pet.id] || 1;
-            const extraCopies = Math.max(0, totalCopies - 1);
-            this.dailyText(body, '伙伴升星强化', 0, 206, 420, 42, 30);
-            const starRow = this.uiNode(body, '升星星阶图标展示', 0, 144, 520, 74);
-            if (req) {
-                this.starTierBadge(starRow, pet.star, -86, 0, 62);
-                const arrow = this.dailyText(starRow, '→', 0, 0, 64, 46, 36);
-                arrow.color = this.color('#D9781E');
-                this.starTierBadge(starRow, req.nextStar, 86, 0, 62);
-            } else {
-                this.starTierBadge(starRow, pet.star, -48, 0, 68);
-                const maxTag = this.dailyText(starRow, '已满星', 52, 0, 140, 42, 30);
-                maxTag.color = this.color('#E09124');
-            }
-
-            const bonusBox = this.uiNode(body, '升星加成说明', 0, 40, 680, 122);
-            const bbg = bonusBox.addComponent(Graphics);
-            bbg.fillColor = this.color('#FFF6E3'); bbg.roundRect(-340, -61, 680, 122, 20); bbg.fill();
-            const curXp = Math.round(starXpBonus(pet.star) * 100), curAdv = Math.round(starAdventureBonus(pet.star) * 100);
-            const nextXp = req ? Math.round(starXpBonus(req.nextStar) * 100) : curXp;
-            const nextAdv = req ? Math.round(starAdventureBonus(req.nextStar) * 100) : curAdv;
-            const line1 = this.dailyText(bonusBox, '照顾经验加成：+' + curXp + '%' + (req ? '  →  +' + nextXp + '%' : '（已满星）'), 0, 22, 640, 36, 24);
-            line1.color = this.statusColor(true);
-            const line2 = this.dailyText(bonusBox, '林间寻宝加成：+' + curAdv + '%' + (req ? '  →  +' + nextAdv + '%' : '（已满星）') + '   ·   3★免费解锁星光皇冠', 0, -22, 640, 36, 21);
-            line2.outlineWidth = 1;
-
-            if (!req) {
-                const maxLbl = this.dailyText(body, '已达成最高星级 ★5，伙伴实力拉满！', 0, -96, 640, 48, 28);
-                maxLbl.color = this.statusColor(true);
-            } else {
-                const copyOk = extraCopies >= req.extraCopies;
-                const coinOk = this.data.coins >= req.coins;
-                const c1 = this.dailyText(body, '消耗多余本体：拥有 ' + extraCopies + ' / 需要 ' + req.extraCopies + '（招募重复伙伴获得）', 0, -60, 680, 36, 23);
-                c1.color = this.statusColor(copyOk);
-                const coinRow = this.uiNode(body, '升星金币行', 0, -108, 680, 38);
-                this.currencyIcon(coinRow, 'coins', -144, 0, 28);
-                const c2 = this.dailyText(coinRow, '       消耗：拥有 ' + this.data.coins + ' / 需要 ' + req.coins, 0, 0, 640, 36, 23);
-                c2.color = this.statusColor(coinOk);
-                const upBtn = this.bagButton(body, '升至 ★' + req.nextStar, -130, -186, 240, 62, () => this.upgradePetStar(pet.id));
-                upBtn.name = '立即升星按钮';
-                const upLbl = upBtn.getChildByName('文字')?.getComponent(Label);
-                if (upLbl) upLbl.color = this.statusColor(copyOk && coinOk);
-                const goRec = this.bagButton(body, '去招募本体', 150, -186, 220, 62, () => this.open('recruit'));
-                goRec.name = '升星去招募';
-            }
-            return;
-        }
-
-        // Tab 3: 装扮换肤（真实装扮图标 + 通用货币图标 + 实时 3D 预览）
-        this.dailyText(body, '3D 可穿戴装扮（上方模型实时预览）', -130, 214, 460, 34, 23, true);
-        PET_OUTFITS.forEach((o, i) => {
-            const x = -232 + (i % 3) * 232, y = 130 - Math.floor(i / 3) * 110;
-            const equipped = pet.outfit === o.id;
-            const owned = pet.ownedOutfits.includes(o.id) || (o.freeAtStar !== undefined && pet.star >= o.freeAtStar);
-            const tile = this.uiNode(body, '装扮项-' + o.id, x, y, 214, 96);
-            const g = tile.addComponent(Graphics);
-            g.fillColor = this.color(equipped ? '#E6F5E3' : '#FFF8EA');
-            g.strokeColor = this.color(equipped ? '#539C5A' : '#DFC59A'); g.lineWidth = equipped ? 4 : 2;
-            g.roundRect(-107, -48, 214, 96, 18); g.fill(); g.stroke();
-            const iconNode = this.uiNode(tile, '装扮图标-' + o.id, -68, 0, 64, 64);
-            const iconSprite = iconNode.addComponent(Sprite); iconSprite.sizeMode = Sprite.SizeMode.CUSTOM;
-            this.loadOutfitIcon(iconSprite, o.id);
-            this.dailyText(tile, o.name, 30, 18, 134, 30, 20, true);
-            if (equipped || owned) {
-                const st = this.dailyText(tile, equipped ? '穿戴中 ✓' : '点击穿戴', 30, -18, 134, 28, 18, true);
-                st.color = this.statusColor(true); st.outlineWidth = 1;
-            } else {
-                this.currencyIcon(tile, o.currency, -20, -18, 22);
-                const st = this.dailyText(tile, String(o.price), 46, -18, 100, 28, 19, true);
-                const affordable = (o.currency === 'coins' ? this.data.coins : this.data.gems) >= o.price;
-                st.color = this.statusColor(affordable); st.outlineWidth = 1;
-            }
-            this.intercept(tile); this.pressVisualFeedback(tile, tile.children.slice());
-            tile.on(Node.EventType.TOUCH_END, () => this.selectPetOutfit(pet.id, o.id), this);
-        });
-
-        this.dailyText(body, '主题服装皮肤（保留原毛色 · 穿衣换肤）', -130, -82, 480, 34, 23, true);
-        PET_COATS.forEach((c, i) => {
-            const x = -261 + i * 174, y = -164;
-            const equipped = pet.coat === c.id;
-            const owned = pet.ownedCoats.includes(c.id);
-            const tile = this.uiNode(body, '毛色项-' + c.id, x, y, 162, 114);
-            const g = tile.addComponent(Graphics);
-            g.fillColor = this.color(equipped ? '#E6F5E3' : '#FFF8EA');
-            g.strokeColor = this.color(equipped ? '#539C5A' : '#DFC59A'); g.lineWidth = equipped ? 4 : 2;
-            g.roundRect(-81, -57, 162, 114, 18); g.fill(); g.stroke();
-            const skinIcon = this.uiNode(tile, '皮肤图标-' + c.id, 0, 22, 48, 48).addComponent(Sprite);
-            skinIcon.sizeMode = Sprite.SizeMode.CUSTOM;
-            this.loadOutfitIcon(skinIcon, c.icon);
-            this.dailyText(tile, c.name, 0, -14, 148, 26, 19);
-            if (equipped || owned) {
-                const st = this.dailyText(tile, equipped ? '穿戴中 ✓' : '点击换肤', 0, -38, 148, 24, 17);
-                st.color = this.statusColor(true); st.outlineWidth = 1;
-            } else {
-                this.currencyIcon(tile, c.currency, -26, -38, 20);
-                const st = this.dailyText(tile, String(c.price), 22, -38, 76, 24, 18, true);
-                const affordable = (c.currency === 'coins' ? this.data.coins : this.data.gems) >= c.price;
-                st.color = this.statusColor(affordable); st.outlineWidth = 1;
-            }
-            this.intercept(tile); this.pressVisualFeedback(tile, tile.children.slice());
-            tile.on(Node.EventType.TOUCH_END, () => this.selectPetCoat(pet.id, c.id), this);
-        });
+        // 7) 最底部状态汇总与照顾快捷条（居中落在左下粉色食盆与右下橙色背包之间，呼应参考图底部条）
+        const footBar = drawCard(layer, '底部状态条', 0, -764, 540, 82, '#FFF8E8', '#6E4226', 4, 28);
+        const statText = '饱腹 ' + Math.round(pet.hunger) + ' · 洁净 ' + Math.round(pet.clean) + ' · 体力 ' + Math.round(pet.energy) + ' · 心情 ' + Math.round(pet.joy);
+        const sLbl = this.text(footBar, statText, -74, 0, 360, 34, 20, '#5E3A1E');
+        sLbl.isBold = true; sLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+        const careBtn = drawCard(footBar, '主页前往照顾', 184, 0, 134, 52, '#FFD25A', '#6E4226', 3, 20);
+        const cbLbl = this.text(careBtn, '去照顾 ›', 0, 0, 120, 32, 22, '#5B3418');
+        cbLbl.isBold = true; cbLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+        this.intercept(careBtn); this.pressVisualFeedback(careBtn);
+        careBtn.on(Node.EventType.TOUCH_END, () => { this.selected = pet.id; this.open('pet'); }, this);
     }
     private shopArt(parent: Node, key: string, x: number, y: number, w: number, h: number) {
         const node = this.uiNode(parent, '商店素材-' + key, x, y, w, h);
