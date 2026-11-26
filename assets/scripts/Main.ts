@@ -2782,8 +2782,10 @@ export class Main extends Component {
         if (page !== 'profile') { this.previewViewportNode = null; this.clearProfilePreview(); }
         const prevPage = this.page;
         this.page = page; this.adventureLabel = null;
-        SoundManager.setBgmMode(page === 'adventure' ? 'adventure' : 'home');
-        if (prevPage !== page && page !== 'home') SoundManager.playSfx('click');
+        const onLoginFlow = page === 'login' || (page === 'settings' && this.settingsReturnPage === 'login');
+        SoundManager.setBgmMode(onLoginFlow ? 'none' : page === 'adventure' ? 'adventure' : 'home');
+        if (prevPage !== page && page !== 'home' && page !== 'login') SoundManager.playSfx('click');
+        if (this.world && isValid(this.world, true)) this.world.active = !onLoginFlow;
         this.syncActorVisibility();
         if (page === 'pet') this.petSelected = true;
         if (page === 'home') { this.petSelected = false; this.careSelected = ''; }
@@ -6591,6 +6593,15 @@ export class Main extends Component {
         const panel = this.sheet!;
         const s = this.data.settings || { bgm: true, sfx: true, floatToast: true, highFps: true };
 
+        // 从登录页打开设置时，底层保留 9:16 登录背景图（绝不露出主城庭院画面）
+        if (this.settingsReturnPage === 'login') {
+            const loginBg = this.uiNode(panel, '设置登录底图', 0, 0, 1400, 2400);
+            const lbsp = loginBg.addComponent(Sprite); lbsp.sizeMode = Sprite.SizeMode.CUSTOM;
+            resources.load('art/login/bg/spriteFrame', SpriteFrame, (e, f) => {
+                if (!e && f && isValid(lbsp, true)) lbsp.spriteFrame = f;
+            });
+        }
+
         // 全屏暖色半透明弹窗背景遮罩
         const backdrop = this.uiNode(panel, '设置弹窗遮罩', 0, 0, 3200, 3200);
         const bdg = backdrop.addComponent(Graphics);
@@ -6861,7 +6872,7 @@ export class Main extends Component {
             ]);
         });
 
-        const verLbl = this.text(panel, 'v1.0.0 · 绘本治愈版 · 游戏进度全程自动保存', 0, -834, 720, 36, 22, '#FFFDF5');
+        const verLbl = this.text(panel, 'v1.0.0', 0, -834, 420, 36, 24, '#FFFDF5');
         verLbl.isBold = true; verLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
         verLbl.enableOutline = true; verLbl.outlineColor = this.color('#4E2B10'); verLbl.outlineWidth = 2.5;
     }

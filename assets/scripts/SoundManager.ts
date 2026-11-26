@@ -59,10 +59,11 @@ const ADV_BASS: readonly (string | null)[] = [
 
 class SoundManagerImpl {
     private ctx: AudioContext | null = null;
+    private bgmGain: GainNode | null = null;
     private noiseBuf: AudioBuffer | null = null;
     private bgmEnabled = true;
     private sfxEnabled = true;
-    private bgmMode: BgmMode = 'home';
+    private bgmMode: BgmMode = 'none';
     private bgmRunningMode: BgmMode = 'none';
     private bgmTimer: ReturnType<typeof setInterval> | null = null;
     private bgmStep = 0;
@@ -179,12 +180,24 @@ class SoundManagerImpl {
         };
     }
 
+    private getBgmGain(ctx: AudioContext): GainNode {
+        if (!this.bgmGain || this.bgmGain.context !== ctx) {
+            this.bgmGain = ctx.createGain();
+            this.bgmGain.gain.setValueAtTime(1, ctx.currentTime);
+            this.bgmGain.connect(ctx.destination);
+        }
+        return this.bgmGain;
+    }
+
     private stopBgmLoop() {
         if (this.bgmTimer !== null) {
             clearInterval(this.bgmTimer);
             this.bgmTimer = null;
         }
         this.bgmRunningMode = 'none';
+        if (this.ctx && this.bgmGain) {
+            try { this.bgmGain.gain.setValueAtTime(0, this.ctx.currentTime); } catch {}
+        }
     }
 
     private startBgmLoop() {
@@ -196,6 +209,11 @@ class SoundManagerImpl {
         if (this.bgmTimer !== null && this.bgmRunningMode === this.bgmMode) return;
         this.stopBgmLoop();
         this.bgmRunningMode = this.bgmMode;
+        const initCtx = this.getCtx();
+        if (initCtx) {
+            const bg = this.getBgmGain(initCtx);
+            bg.gain.setValueAtTime(1, initCtx.currentTime);
+        }
         const isAdv = this.bgmMode === 'adventure';
         const stepMs = isAdv ? 245 : 370; // 冒险更轻快，主城更舒缓治愈
         const tick = () => {
@@ -208,21 +226,22 @@ class SoundManagerImpl {
             const idx = this.bgmStep % melody.length;
             this.bgmStep++;
 
+            const dest = this.getBgmGain(ctx);
             const mNote = melody[idx];
             if (mNote && NOTE[mNote]) {
-                this.playTone(ctx, NOTE[mNote], now, isAdv ? 0.21 : 0.34, isAdv ? 'triangle' : 'sine', isAdv ? 0.055 : 0.06, isAdv ? 1800 : 1400);
+                this.playTone(ctx, NOTE[mNote], now, isAdv ? 0.21 : 0.34, isAdv ? 'triangle' : 'sine', isAdv ? 0.055 : 0.06, isAdv ? 1800 : 1400, undefined, dest);
                 // 主城八音盒泛音点缀
                 if (!isAdv) {
-                    this.playTone(ctx, NOTE[mNote] * 2, now, 0.14, 'sine', 0.014, 2400);
+                    this.playTone(ctx, NOTE[mNote] * 2, now, 0.14, 'sine', 0.014, 2400, undefined, dest);
                 }
             }
             const bNote = bass[idx];
             if (bNote && NOTE[bNote]) {
-                this.playTone(ctx, NOTE[bNote], now, isAdv ? 0.20 : 0.42, 'triangle', isAdv ? 0.042 : 0.036, 700);
+                this.playTone(ctx, NOTE[bNote], now, isAdv ? 0.20 : 0.42, 'triangle', isAdv ? 0.042 : 0.036, 700, undefined, dest);
             }
             // 冒险背景轻快小木鱼/沙锤节拍
             if (isAdv && idx % 2 === 1) {
-                this.playFilteredNoise(ctx, now, 0.035, 3200, 'highpass', 0.018);
+                this.playFilteredNoise(ctx, now, 0.035, 3200, 'highpass', 0.018, dest);
             }
         };
         tick();
@@ -237,7 +256,8 @@ class SoundManagerImpl {
         type: OscillatorType,
         vol: number,
         lpfFreq = 2600,
-        endFreq?: number
+        endFreq?: number,
+        dest?: AudioNode
     ) {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
@@ -254,7 +274,7 @@ class SoundManagerImpl {
         gain.gain.exponentialRampToValueAtTime(0.0001, start + dur);
         osc.connect(filter);
         filter.connect(gain);
-        gain.connect(ctx.destination);
+        gain.connect(dest || ctx.destination);
         osc.start(start);
         osc.stop(start + dur + 0.02);
     }
@@ -265,7 +285,8 @@ class SoundManagerImpl {
         dur: number,
         freq: number,
         filterType: BiquadFilterType,
-        vol: number
+        vol: number,
+        dest?: AudioNode
     ) {
         const src = ctx.createBufferSource();
         src.buffer = this.getNoiseBuffer(ctx);
@@ -278,7 +299,7 @@ class SoundManagerImpl {
         gain.gain.exponentialRampToValueAtTime(0.0001, start + dur);
         src.connect(filter);
         filter.connect(gain);
-        gain.connect(ctx.destination);
+        gain.connect(dest || ctx.destination);
         src.start(start);
         src.stop(start + dur + 0.02);
     }
