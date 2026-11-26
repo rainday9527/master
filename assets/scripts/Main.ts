@@ -2142,7 +2142,7 @@ export class Main extends Component {
             ['heal', '治疗', () => this.care('medicine')],
             ['bag', '背包', () => { if (this.page !== 'bag') this.open('bag'); }],
         ];
-        void this.navArt(this.bottom, 'dock', 0, 0, 1080, 190);
+        void this.navArt(this.bottom, 'dock', 0, 8, 1236, 248);
         items.forEach(([icon, title, action], i) => {
             const button = this.uiNode(this.bottom, '照顾-' + icon, -430 + i * 172, 0, 166, 174);
             this.intercept(button); this.pressFeedback(button);
@@ -2205,7 +2205,7 @@ export class Main extends Component {
         }
         this.clear(this.bottom); if (!this.bottom.getComponent(BlockInputEvents)) this.intercept(this.bottom);
         if (careMode) { this.renderCareNav(); return; }
-        void this.navArt(this.bottom, 'dock', 0, 0, 1080, 190);
+        void this.navArt(this.bottom, 'dock', 0, 8, 1236, 248);
         const items: [Page, string][] = [['home', '主城'], ['recruit', '招募'], ['adventure', '冒险'], ['album', '图鉴'], ['shop', '商店']];
         items.forEach(([page, name], i) => {
             const active = navPage === page;
