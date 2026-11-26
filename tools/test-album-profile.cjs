@@ -268,7 +268,7 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
     }));
     console.log('GM panel check:', JSON.stringify(gmCheck));
     assert.equal(gmCheck.open, true, 'GM debug panel must open');
-    assert.equal(gmCheck.btnCount, 14, 'GM debug panel must show all 14 quick debug buttons');
+    assert.equal(gmCheck.btnCount, 18, 'GM debug panel must show all 18 quick debug buttons');
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-gm-panel.png') });
     // Trigger GM "解锁全部 12 伙伴" and test 12-pet roaming freedom over 2.5 seconds!
     await page.evaluate(() => {
@@ -532,6 +532,75 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
     });
     console.log('avatar swap check:', JSON.stringify(avSwap));
     assert.deepEqual(avSwap, { afterLocked: 0, afterUnlocked: 4, dialogClosed: true });
+
+    // 15) Health / Sickness / Heal Action / Medicine Shop / Yard Poop + Smoke / Pet Death + Ghost animation!
+    await page.evaluate(() => {
+      main.open('home');
+      const p0 = main.data.pets.find(p => p.id === 0);
+      p0.health = 20; p0.clean = 22; p0.hunger = 18;
+      const a0 = main.actors.find(a => a.pet.id === 0);
+      if (a0) a0.pet = p0;
+      main.data.itemInventory.bandage = 2;
+      main.spawnYardPoop(0, -0.4, 1.2);
+      main.spawnYardPoop(1, 0.7, 2.0);
+      main.selected = 0;
+      main.open('pet');
+    });
+    await page.waitForTimeout(450);
+    const careHealthCheck = await page.evaluate(() => ({
+      hasHealthBar: !!main.sheet?.getChildByName('健康-进度'),
+      hasHealBtn: !!main.bottom?.getChildByName('照顾-heal'),
+      poopCount: (main.data.poops || []).length,
+      poopNodes: main.poopVisuals ? main.poopVisuals.size : 0,
+    }));
+    console.log('health & poop check:', JSON.stringify(careHealthCheck));
+    assert.deepEqual(careHealthCheck, { hasHealthBar: true, hasHealBtn: true, poopCount: 2, poopNodes: 2 });
+    await page.screenshot({ path: path.join(OUT_DIR, 'verify-yard-poop-and-heal.png') });
+
+    // Clean a poop & heal the sick pet with bandage
+    const healAndClean = await page.evaluate(() => {
+      const pid = main.data.poops[0].id;
+      const c0 = main.data.coins;
+      main.cleanYardPoop(pid);
+      const poopsAfter = main.data.poops.length;
+      const coinGain = main.data.coins - c0;
+      main.care('medicine');
+      const hasMedTab = !!walk(main.sheet).find(n => n.name === '背包分类-治疗');
+      const h0 = main.data.pets.find(p => p.id === 0).health;
+      main.applyCare({ id: 'bandage', name: '爱心创可贴', appliesTo: 'both', currency: 'coins', price: 120, effects: { health: 25 }, category: 'medicine', weight: 4, limit: 3 }, null);
+      const h1 = main.data.pets.find(p => p.id === 0).health;
+      // Check shop guarantees at least 1 medicine item
+      main.shopClickTime = 0; main.refreshShop();
+      const medInShop = main.data.shop.slots.some(s => ['bandage','pet_vitamins','cough_syrup','herbal_salve','magic_elixir','first_aid_kit'].includes(s.id));
+      return { poopsAfter, coinGain, hasMedTab, healthBefore: h0, healthAfter: h1, medInShop };
+    });
+    console.log('heal & clean check:', JSON.stringify(healAndClean));
+    assert.deepEqual(healAndClean, { poopsAfter: 1, coinGain: 5, hasMedTab: true, healthBefore: 20, healthAfter: 45, medInShop: true });
+
+    // Trigger pet death in yard -> capture fallen pet + rising ghost screenshot -> verify pet disappears after animation!
+    await page.evaluate(() => {
+      main.open('home');
+      const p1 = main.data.pets.find(p => p.id === 1);
+      const a1 = main.actors.find(a => a.pet.id === 1);
+      if (a1) a1.node.setPosition(0.0, 0, 1.5);
+      main.triggerPetDeath(p1);
+    });
+    await page.waitForTimeout(850);
+    const midDeath = await page.evaluate(() => ({
+      deadFlag: !!main.data.pets.find(p => p.id === 1)?.dead,
+      ghostCount: main.ghosts.length,
+      actorDying: (main.actors.find(a => a.pet.id === 1)?.dying || 0) > 0,
+    }));
+    console.log('mid-death ghost check:', JSON.stringify(midDeath));
+    assert.deepEqual(midDeath, { deadFlag: true, ghostCount: 1, actorDying: true });
+    await page.screenshot({ path: path.join(OUT_DIR, 'verify-pet-death-ghost.png') });
+    await page.waitForTimeout(2300);
+    const afterDeath = await page.evaluate(() => ({
+      stillInActors: main.actors.some(a => a.pet.id === 1),
+      ghostCleared: main.ghosts.length === 0,
+    }));
+    console.log('after-death vanish check:', JSON.stringify(afterDeath));
+    assert.deepEqual(afterDeath, { stillInActors: false, ghostCleared: true });
 
     assert.deepEqual(errors, [], 'zero pageerrors');
     assert.deepEqual(failures, [], 'zero HTTP errors');

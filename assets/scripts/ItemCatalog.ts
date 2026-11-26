@@ -1,6 +1,6 @@
 export type PetKind = 'cat' | 'dog';
-export type ItemCategory = 'food' | 'soap' | 'toy';
-export type PetStat = 'hunger' | 'clean' | 'joy' | 'energy';
+export type ItemCategory = 'food' | 'soap' | 'toy' | 'medicine';
+export type PetStat = 'hunger' | 'clean' | 'joy' | 'energy' | 'health';
 export interface ItemDefinition {
     id: string;
     name: string;
@@ -76,12 +76,20 @@ export const ITEM_CATALOG: readonly ItemDefinition[] = [
     { id: 'bath_foam', name: '免洗泡沫', appliesTo: 'both', currency: 'gems', price: 36, effects: { clean: 100 }, category: 'soap', weight: 2, limit: 1 },
     { id: 'pet_towel', name: '吸水毛巾', appliesTo: 'both', currency: 'gems', price: 50, effects: { clean: 90, joy: 40 }, category: 'soap', weight: 1, limit: 1 },
     { id: 'paw_cleaner', name: '洗爪杯', appliesTo: 'both', currency: 'gems', price: 26, effects: { clean: 75, joy: 10 }, category: 'soap', weight: 2, limit: 2 },
+
+    // 治疗药品类：用于恢复健康度与治愈生病状态（金币常规品 + 钻石急救高阶品）。
+    { id: 'bandage', name: '爱心创可贴', appliesTo: 'both', currency: 'coins', price: 120, effects: { health: 25 }, category: 'medicine', weight: 4, limit: 3 },
+    { id: 'pet_vitamins', name: '复合维生素', appliesTo: 'both', currency: 'coins', price: 220, effects: { health: 40, energy: 10 }, category: 'medicine', weight: 3, limit: 2 },
+    { id: 'cough_syrup', name: '舒缓营养液', appliesTo: 'both', currency: 'coins', price: 320, effects: { health: 55, joy: 10 }, category: 'medicine', weight: 3, limit: 2 },
+    { id: 'herbal_salve', name: '草本疗愈膏', appliesTo: 'both', currency: 'gems', price: 22, effects: { health: 65, clean: 15 }, category: 'medicine', weight: 2, limit: 2 },
+    { id: 'magic_elixir', name: '活力急救药水', appliesTo: 'both', currency: 'gems', price: 32, effects: { health: 85, energy: 25 }, category: 'medicine', weight: 2, limit: 1 },
+    { id: 'first_aid_kit', name: '萌宠急救箱', appliesTo: 'both', currency: 'gems', price: 42, effects: { health: 100, joy: 20 }, category: 'medicine', weight: 2, limit: 1 },
 ];
 
 export function findItem(id: string) { return ITEM_CATALOG.find(item => item.id === id); }
 export function itemApplies(item: ItemDefinition, kind: PetKind) { return item.appliesTo === 'both' || item.appliesTo === kind; }
 export function effectText(item: ItemDefinition) {
-    const names: Record<PetStat, string> = { hunger: '饱腹', clean: '洁净', joy: '心情', energy: '体力' };
+    const names: Record<PetStat, string> = { hunger: '饱腹', clean: '洁净', joy: '心情', energy: '体力', health: '健康' };
     return (Object.keys(item.effects) as PetStat[]).map(stat => names[stat] + (item.effects[stat]! > 0 ? '+' : '') + item.effects[stat]).join(' ');
 }
 export interface ShopSlot { id: string; remaining: number; }
@@ -97,9 +105,10 @@ export function drawShopSlots(previous: readonly ShopSlot[] = [], random: () => 
     const dogFood = (item: ItemDefinition) => item.category === 'food' && item.currency === 'coins' && itemApplies(item, 'dog');
     pick(catFood);
     if (!selected.some(dogFood)) pick(dogFood);
+    // 每轮货架保底至少 1 格治疗药品，方便玩家及时购买治病道具。
+    pick(item => item.category === 'medicine');
     // 每轮 6 格货架保底至少 2 格钻石高阶品 + 至少 3 格金币常规品，均衡金币与钻石消费体验。
-    pick(item => item.currency === 'gems');
-    pick(item => item.currency === 'gems');
+    while (selected.filter(item => item.currency === 'gems').length < 2) pick(item => item.currency === 'gems');
     const coinsNeeded = () => Math.max(0, 3 - selected.filter(item => item.currency === 'coins').length);
     for (const species of ['cat', 'dog', 'both'] as const) {
         if (selected.length < 6 && !selected.some(item => item.appliesTo === species)) {
@@ -113,6 +122,7 @@ export function drawShopSlots(previous: readonly ShopSlot[] = [], random: () => 
     const valid = (items: readonly ItemDefinition[]) =>
         items.filter(item => item.currency === 'coins').length >= 3 &&
         items.filter(item => item.currency === 'gems').length >= 2 && items.some(catFood) && items.some(dogFood) &&
+        items.some(item => item.category === 'medicine') &&
         ['cat', 'dog', 'both'].every(species => items.some(item => item.appliesTo === species));
     if (selected.every(item => previous.some(slot => slot.id === item.id))) {
         // 有限枚举至多 6×ITEM_CATALOG.length 个替换，不破坏食物、货币及适用保底。

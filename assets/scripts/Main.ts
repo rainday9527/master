@@ -32,6 +32,8 @@ interface Pet {
     clean: number;
     energy: number;
     joy: number;
+    health: number;
+    dead?: boolean;
     star: number;
     nickname: string;
     renameCount?: number;
@@ -41,12 +43,20 @@ interface Pet {
     ownedOutfits: OutfitId[];
     ownedCoats: CoatId[];
 }
+interface YardPoop {
+    id: number;
+    petId: number;
+    x: number;
+    z: number;
+    createdAt: number;
+}
 interface ShopState { day: number; freeUsed: number; paidUsed: number; maxTime: number; revision: number; slots: ShopSlot[]; }
 interface Save {
     version: number; coins: number; gems: number; xp: number; avatar: number; pets: Pet[];
     food: number; soap: number; toy: number; itemInventory: Record<string, number>;
     adventureEnd: number; lastSeen: number; shop: ShopState; daily: DailyState; recruit: RecruitState;
     albumClaimed: Record<string, boolean>;
+    poops?: YardPoop[];
 }
 type RigPartName = 'body' | 'head' | 'face' | 'earL' | 'earR' | 'legFL' | 'legFR' | 'legBL' | 'legBR' | 'tail';
 interface PetRigAsset {
@@ -91,8 +101,23 @@ interface Actor {
     socialCooldownUntil?: number;
     facing?: number;
     rig?: ActorRig;
+    dying?: number;
+    ghostSpawned?: boolean;
 }
 interface SocialBubble { node: Node; actor: Actor; until: number; side: number; }
+interface PoopVisual {
+    node: Node;
+    poop: YardPoop;
+    smokes: { node: Node; op: UIOpacity; phase: number }[];
+}
+interface GhostFloat {
+    node: Node;
+    op: UIOpacity;
+    baseX: number;
+    baseY: number;
+    age: number;
+    duration: number;
+}
 const BREEDS = PET_BREEDS;
 const C = { cream: '#FFF9ED', ink: '#573D2D', green: '#679B7C', pale: '#E5EFDF', coral: '#A65D45', muted: '#795F48', white: '#FFFFFF' };
 
@@ -123,6 +148,10 @@ export class Main extends Component {
     private socialTime = 0;
     private pairCooldowns = new Map<string, number>();
     private bubbleLayer: Node | null = null;
+    private poopLayer: Node | null = null;
+    private poopVisuals = new Map<number, PoopVisual>();
+    private poopNextId = 1;
+    private ghosts: GhostFloat[] = [];
     private socialBubbles: SocialBubble[] = [];
     private needBubbles = new Map<number, { node: Node; icon: string; until: number; urgent: boolean }>();
     private needHistory = new Map<number, number[]>();
@@ -217,9 +246,9 @@ export class Main extends Component {
         if (this.saveWarning) this.toast('存档异常，已安全恢复为初始庭院');
     }
 
-    private makePet(id: number, hunger = 70, clean = 80, energy = 85, joy = 75): Pet {
+    private makePet(id: number, hunger = 70, clean = 80, energy = 85, joy = 75, health = 100): Pet {
         return {
-            id, hunger, clean, energy, joy, star: 1, nickname: '', renameCount: 0,
+            id, hunger, clean, energy, joy, health, dead: false, star: 1, nickname: '', renameCount: 0,
             trait: BREEDS[id].defaultTrait, outfit: 'none', coat: 'original',
             ownedOutfits: ['none'], ownedCoats: ['original'],
         };
@@ -232,10 +261,10 @@ export class Main extends Component {
 
     private fresh(): Save {
         return { version: 1, coins: 260, gems: 100, xp: 0, avatar: 0,
-            pets: [0, 1].map(id => this.makePet(id, 75, 85, 90, 80)),
-            food: 5, soap: 4, toy: 3, itemInventory: {}, adventureEnd: 0, lastSeen: Date.now(), shop: this.newShop(Date.now()), daily: newDaily(this.shopDay(Date.now())),
+            pets: [0, 1].map(id => this.makePet(id, 75, 85, 90, 80, 100)),
+            food: 5, soap: 4, toy: 3, itemInventory: { bandage: 2 }, adventureEnd: 0, lastSeen: Date.now(), shop: this.newShop(Date.now()), daily: newDaily(this.shopDay(Date.now())),
             recruit: restoreRecruit(undefined, [0, 1], BREEDS.map((_, id) => id), false),
-            albumClaimed: {} };
+            albumClaimed: {}, poops: [] };
     }
 
     private load(): Save {
@@ -270,8 +299,10 @@ export class Main extends Component {
                 if (Array.isArray(p.ownedCoats)) p.ownedCoats.forEach(c => { if (isCoatId(c)) petCoats.add(c); });
                 if (coat !== 'original' && legacyCoats?.has(coat)) petCoats.add(coat);
                 if (!petCoats.has(coat)) coat = 'original';
+                const health = typeof (p as any).health === 'number' && Number.isFinite((p as any).health) && (p as any).health >= 0 && (p as any).health <= 100 ? (p as any).health : 100;
+                const dead = Boolean((p as any).dead);
                 return {
-                    id: p.id, hunger: p.hunger, clean: p.clean, energy: p.energy, joy: p.joy,
+                    id: p.id, hunger: p.hunger, clean: p.clean, energy: p.energy, joy: p.joy, health, dead,
                     star, nickname, renameCount, trait, outfit, coat,
                     ownedOutfits: Array.from(petOutfits), ownedCoats: Array.from(petCoats),
                 };
@@ -280,12 +311,26 @@ export class Main extends Component {
             if (s.adventureEnd > Date.now() + 120000) s.adventureEnd = 0;
             const hours = Math.min(12, Math.max(0, (Date.now() - s.lastSeen) / 3600000));
             s.pets.forEach(p => {
+                if (p.dead) return;
                 const tr = PET_TRAITS[p.trait];
-                p.hunger = Math.max(10, p.hunger - hours * 4);
-                p.clean = Math.max(10, p.clean - hours * 3 * (tr.cleanDecayMult ?? 1));
-                p.joy = Math.max(10, p.joy - hours * 2 * (tr.joyDecayMult ?? 1));
+                p.hunger = Math.max(0, p.hunger - hours * 4);
+                p.clean = Math.max(0, p.clean - hours * 3 * (tr.cleanDecayMult ?? 1));
+                p.joy = Math.max(0, p.joy - hours * 2 * (tr.joyDecayMult ?? 1));
                 p.energy = Math.min(100, p.energy + hours * 3);
+                if (p.hunger < 20 || p.clean < 30) {
+                    p.health = Math.max(0, p.health - hours * 5);
+                    if (p.health <= 0) p.dead = true;
+                }
             });
+            const validPoops: YardPoop[] = [];
+            if (Array.isArray(s.poops)) {
+                s.poops.slice(0, 6).forEach((pp, i) => {
+                    if (pp && typeof pp.x === 'number' && typeof pp.z === 'number' && Number.isFinite(pp.x) && Number.isFinite(pp.z)) {
+                        validPoops.push({ id: validInt(pp.id) ? pp.id : i + 1, petId: validInt(pp.petId, BREEDS.length - 1) ? pp.petId : 0, x: pp.x, z: pp.z, createdAt: validInt(pp.createdAt, 9000000000000000) ? pp.createdAt : Date.now() });
+                    }
+                });
+            }
+            s.poops = validPoops;
             const inventory: Record<string, number> = {};
             ITEM_CATALOG.forEach(item => {
                 const count = s.itemInventory && s.itemInventory[item.id];
@@ -998,6 +1043,7 @@ export class Main extends Component {
     }
 
     private spawnPet(pet: Pet) {
+        if (pet.dead) return;
         const b = BREEDS[pet.id], cat = b.kind === 'cat';
         const root = new Node(b.name); this.world.addChild(root);
         const col = pet.id % 4, row = Math.floor(pet.id / 4);
@@ -1607,7 +1653,7 @@ export class Main extends Component {
         let loading = this.careIcons.get(name);
         if (!loading) {
             loading = new Promise<SpriteFrame | null>(resolve => {
-                resources.load('art/' + (['feed', 'clean', 'rest', 'play', 'bag'].indexOf(name) !== -1 ? 'care/' : 'nav/') + name + '/spriteFrame', SpriteFrame, (error, frame) => resolve(error ? null : frame));
+                resources.load('art/' + (['feed', 'clean', 'rest', 'play', 'heal', 'bag'].indexOf(name) !== -1 ? 'care/' : 'nav/') + name + '/spriteFrame', SpriteFrame, (error, frame) => resolve(error ? null : frame));
             });
             this.careIcons.set(name, loading);
         }
@@ -1617,20 +1663,23 @@ export class Main extends Component {
 
     private renderCareNav() {
         const items: [string, string, () => void][] = [
-            ['feed', '喂养', () => this.care('food')], ['clean', '清洁', () => this.care('soap')],
-            ['rest', '休息', () => this.care('rest')], ['play', '陪玩', () => this.care('toy')],
+            ['feed', '喂养', () => this.care('food')],
+            ['clean', '清洁', () => this.care('soap')],
+            ['rest', '休息', () => this.care('rest')],
+            ['play', '陪玩', () => this.care('toy')],
+            ['heal', '治疗', () => this.care('medicine')],
             ['bag', '背包', () => { if (this.page !== 'bag') this.open('bag'); }],
         ];
         void this.navArt(this.bottom, 'dock', 0, 0, 1080, 190);
         items.forEach(([icon, title, action], i) => {
-            const button = this.uiNode(this.bottom, '照顾-' + icon, -408 + i * 204, 0, 190, 174);
+            const button = this.uiNode(this.bottom, '照顾-' + icon, -430 + i * 172, 0, 166, 174);
             this.intercept(button); this.pressFeedback(button);
-            void this.navArt(button, 'selected', 0, 4, 154, 150);
+            void this.navArt(button, 'selected', 0, 4, 142, 146);
             button.getChildByName('主城素材-selected')!.active = this.careSelected === icon;
-            const image = this.uiNode(button, '照顾图标', 0, 26, 98, 98).addComponent(Sprite);
+            const image = this.uiNode(button, '照顾图标', 0, 26, 86, 86).addComponent(Sprite);
             image.sizeMode = Sprite.SizeMode.CUSTOM; void this.loadCareIcon(image, icon);
-            void this.navArt(button, 'label' + i, 0, -48, 160, 49);
-            this.headerText(button, title, 0, -48, 148, 40, 30);
+            void this.navArt(button, 'label' + (i % 5), 0, -48, 146, 48);
+            this.headerText(button, title, 0, -48, 136, 38, 28);
             button.on(Node.EventType.TOUCH_END, () => {
                 this.careSelected = icon;
                 for (const item of this.bottom.children) {
@@ -1827,34 +1876,40 @@ export class Main extends Component {
     }
 
     private renderPet() {
-        const p = this.data.pets.find(v => v.id === this.selected)!;
+        const p = this.data.pets.find(v => v.id === this.selected && !v.dead);
+        if (!p) return;
         const title = this.sheet!.getChildByName('宠物标题')?.getComponent(Label);
-        if (title) title.string = this.petDisplayName(this.selected) + ' ★' + p.star + ' · ' + PET_TRAITS[p.trait].name;
-        const needs: [string, number][] = [['饱腹', p.hunger], ['洁净', p.clean], ['体力', p.energy], ['心情', p.joy]];
+        const sickTag = p.health < 30 ? ' [生病中]' : p.energy <= 0 ? ' [疲惫]' : '';
+        if (title) title.string = this.petDisplayName(this.selected) + ' ★' + p.star + ' · ' + PET_TRAITS[p.trait].name + sickTag;
+        const needs: [string, number][] = [['饱腹', p.hunger], ['洁净', p.clean], ['体力', p.energy], ['心情', p.joy], ['健康', p.health]];
         needs.forEach(([name, value], i) => {
             const existing = this.sheet!.getChildByName(name + '-进度')?.getComponent(Sprite);
             if (existing) {
                 if (existing.spriteFrame) existing.fillRange = value / 100;
-                existing.color = this.color(value < 30 ? '#F0A68A' : '#FFFFFF');
+                existing.color = this.color(value < 30 ? '#F08A72' : '#FFFFFF');
                 const number = this.sheet!.getChildByName(name + '-数字')?.getComponent(Label);
                 if (number) number.string = String(Math.round(value));
                 return;
             }
-            const x = -185 + (i % 2) * 370, y = 13 - Math.floor(i / 2) * 69;
-            this.headerText(this.sheet!, name, x - 125, y, 72, 34, 23);
-            const bg = this.uiNode(this.sheet!, name + '-槽', x + 14, y, 192, 33);
+            const isHealth = i === 4;
+            const x = isHealth ? 0 : (-185 + (i % 2) * 370);
+            const y = isHealth ? -94 : (28 - Math.floor(i / 2) * 60);
+            const barW = isHealth ? 380 : 192;
+            this.headerText(this.sheet!, name, isHealth ? -246 : x - 125, y, 72, 32, 22);
+            const bg = this.uiNode(this.sheet!, name + '-槽', isHealth ? 0 : x + 14, y, barW, 30);
             this.headerArt(bg, 'xp-track');
-            const fillNode = this.uiNode(this.sheet!, name + '-进度', x + 14, y, 192, 33);
+            const fillNode = this.uiNode(this.sheet!, name + '-进度', isHealth ? 0 : x + 14, y, barW, 30);
             const fill = fillNode.addComponent(Sprite); fill.sizeMode = Sprite.SizeMode.CUSTOM;
             resources.load('art/header/xp-fit/spriteFrame', SpriteFrame, (error, frame) => {
                 if (error || !frame || !isValid(fill, true)) return;
                 fill.spriteFrame = frame; fill.type = Sprite.Type.FILLED;
-                const current = this.data.pets.find(pet => pet.id === this.selected)!;
-                const liveValue = [current.hunger, current.clean, current.energy, current.joy][i];
+                const current = this.data.pets.find(pet => pet.id === this.selected);
+                if (!current) return;
+                const liveValue = [current.hunger, current.clean, current.energy, current.joy, current.health][i];
                 fill.fillType = Sprite.FillType.HORIZONTAL; fill.fillStart = 0; fill.fillRange = liveValue / 100;
-                fill.color = this.color(liveValue < 30 ? '#F0A68A' : '#FFFFFF');
+                fill.color = this.color(liveValue < 30 ? '#F08A72' : '#FFFFFF');
             });
-            this.headerText(this.sheet!, String(Math.round(value)), x + 137, y, 58, 34, 23).node.name = name + '-数字';
+            this.headerText(this.sheet!, String(Math.round(value)), isHealth ? 232 : x + 137, y, 58, 32, 22).node.name = name + '-数字';
         });
     }
     private care(item: ItemCategory | 'rest') {
@@ -1869,24 +1924,30 @@ export class Main extends Component {
     }
 
     private legacyItem(key: ItemCategory): ItemDefinition {
-        const names = { food: '营养餐', soap: '清洁包', toy: '陪玩球' };
+        const names: Record<ItemCategory, string> = { food: '营养餐', soap: '清洁包', toy: '陪玩球', medicine: '急救包' };
         return { id: key, name: names[key], appliesTo: 'both', currency: 'coins', price: 0,
-            effects: key === 'food' ? { hunger: 40 } : key === 'soap' ? { clean: 40 } : { joy: 40, energy: -8 },
+            effects: key === 'food' ? { hunger: 40 } : key === 'soap' ? { clean: 40 } : key === 'medicine' ? { health: 35 } : { joy: 40, energy: -8 },
             category: key, weight: 0, limit: 0 };
     }
 
     private applyCare(item: ItemDefinition | null, legacy: ItemCategory | 'rest' | null = null) {
         if (!this.petSelected) { this.toast('请先选择要照顾的伙伴'); return; }
-        const p = this.data.pets.find(pet => pet.id === this.selected);
+        const p = this.data.pets.find(pet => pet.id === this.selected && !pet.dead);
         if (!p) return;
+        const catCheck = legacy === 'rest' ? 'rest' : item?.category;
+        if (p.energy <= 0 && catCheck !== 'rest' && catCheck !== 'medicine') {
+            this.toast(this.petDisplayName(p.id) + ' 太疲惫了，请先让它休息恢复活力！');
+            return;
+        }
         if (item && !itemApplies(item, BREEDS[p.id].kind)) { this.toast('这个道具不适合当前伙伴'); return; }
-        const count = legacy && legacy !== 'rest' ? this.data[legacy] : item ? (this.data.itemInventory[item.id] || 0) : 0;
+        const count = legacy && legacy !== 'rest' && legacy !== 'medicine' ? this.data[legacy] : item ? (this.data.itemInventory[item.id] || 0) : 0;
         if (legacy !== 'rest' && count <= 0) { this.toast('库存不足，去补给铺看看吧'); return; }
         const effects = item ? item.effects : { energy: 35 };
         const stats = Object.keys(effects) as PetStat[];
         if (stats.filter(stat => effects[stat]! > 0).every(stat => p[stat] >= 100)) {
             this.toast('相关状态已满，本次未消耗道具'); return;
         }
+        const wasSick = p.health < 30;
         const nextPet = { ...p };
         const trait = PET_TRAITS[p.trait];
         stats.forEach(stat => {
@@ -1910,22 +1971,20 @@ export class Main extends Component {
             gems: Math.min(100000000, this.data.gems + levels * 12),
             pets: this.data.pets.map(pet => pet.id === p.id ? nextPet : pet),
             itemInventory: { ...this.data.itemInventory } };
-        if (legacy && legacy !== 'rest') candidate[legacy]--;
+        if (legacy && legacy !== 'rest' && legacy !== 'medicine') candidate[legacy]--;
         else if (item) candidate.itemInventory[item.id] = count - 1;
         const category = legacy === 'rest' ? 'rest' : item?.category;
-        if (category) recordDaily(candidate.daily, category === 'food' ? (BREEDS[p.id].kind === 'cat' ? 'feedCat' : 'feedDog') : category === 'soap' ? 'clean' : category === 'toy' ? 'play' : 'rest');
+        if (category && category !== 'medicine') recordDaily(candidate.daily, category === 'food' ? (BREEDS[p.id].kind === 'cat' ? 'feedCat' : 'feedDog') : category === 'soap' ? 'clean' : category === 'toy' ? 'play' : 'rest');
         if (!this.commitShop(candidate)) return;
         const actor = this.actors.find(a => a.pet.id === p.id);
-        if (actor) { actor.pet = nextPet; actor.timer = -1.3; }
+        if (actor) { actor.pet = nextPet; actor.timer = -1.2; actor.tailExcite = 1; }
         this.renderHeader();
-        if (this.page === 'bag') this.updateBag(); else this.open('pet');
-        const tired = (effects.energy || 0) < 0 && p.energy < -(effects.energy || 0);
-        const bonusHint = (statBonus => statBonus ? '（' + trait.name + '加成）' : '')(
-            (legacy === 'food' || item?.category === 'food') && trait.foodBonus ||
-            (legacy === 'rest' && trait.restBonus) ||
-            ((legacy === 'toy' || item?.category === 'toy') && trait.playBonus)
-        );
-        this.toast((item ? '已使用' + item.name : '精神满满') + bonusHint + '，经验 +' + xpGain + (tired ? '（体力已降至0）' : ''));
+        if (this.page === 'bag') this.updateBag(); else if (this.page === 'pet') this.open('pet');
+        if (category === 'medicine') {
+            this.toast(wasSick && nextPet.health >= 30 ? '治疗成功！' + this.petDisplayName(p.id) + ' 恢复健康啦！' : '使用「' + (item?.name || '治疗') + '」，健康度 +' + (effects.health || 0));
+        } else {
+            this.toast((item ? '使用「' + item.name + '」' : '休息完成') + '，经验 +' + xpGain + (levels > 0 ? '，升级啦！' : ''));
+        }
     }
     private gainXP(amount: number) {
         const old = Math.floor(this.data.xp / 100); this.data.xp = Math.min(100000000, this.data.xp + amount);
@@ -2735,17 +2794,61 @@ export class Main extends Component {
                 c.adventureEnd = Date.now() - 1000;
                 if (this.commitShop(c)) { refreshVisible(); this.toast('GM：林间寻宝已完成，可立即领奖'); }
             }],
+            ['庭院拉便便', () => {
+                const alive = this.actors.find(a => !a.pet.dead && !a.dying);
+                const x = alive ? alive.node.position.x : 0.2;
+                const z = alive ? alive.node.position.z : 1.4;
+                this.spawnYardPoop(alive ? alive.pet.id : 0, x, z);
+                this.closeGmPanel();
+                this.open('home');
+                this.toast('GM：庭院出现一坨便便，点击即可清理！');
+            }],
+            ['当前宠生病(健康20)', () => {
+                const pid = activePetId();
+                const c = this.dailyCandidate();
+                const pet = c.pets.find(p => p.id === pid && !p.dead);
+                if (!pet) { this.toast('请先选中存活伙伴'); return; }
+                pet.health = 20; pet.clean = 18; pet.hunger = 15;
+                if (this.commitShop(c)) {
+                    const a = this.actors.find(x => x.pet.id === pid);
+                    if (a) a.pet = pet;
+                    refreshVisible(); this.toast('GM：' + this.petDisplayName(pid) + ' 健康度已设为 20（生病中）');
+                }
+            }],
+            ['触发死亡鬼魂演示', () => {
+                const pid = activePetId();
+                const pet = this.data.pets.find(p => p.id === pid && !p.dead);
+                if (!pet) { this.toast('请先选中存活伙伴'); return; }
+                this.closeGmPanel();
+                this.open('home');
+                this.triggerPetDeath(pet);
+            }],
+            ['复活全部伙伴', () => {
+                const c = this.dailyCandidate();
+                let revived = 0;
+                c.pets = c.pets.map(p => {
+                    if (!p.dead) return p;
+                    revived++;
+                    return { ...p, dead: false, health: 100, hunger: 85, clean: 85, energy: 90, joy: 85 };
+                });
+                if (this.commitShop(c)) {
+                    c.pets.forEach(p => {
+                        if (!this.actors.some(a => a.pet.id === p.id)) this.spawnPet(p);
+                    });
+                    refreshVisible(); this.toast(revived > 0 ? 'GM：已复活 ' + revived + ' 只伙伴并满血回归！' : 'GM：全部伙伴均健在');
+                }
+            }],
         ];
 
         actions.forEach(([title, run], idx) => {
             const col = idx % 2, row = Math.floor(idx / 2);
             const x = col === 0 ? -195 : 195;
-            const y = 390 - row * 116;
-            const btn = this.bagButton(card, title, x, y, 360, 82, run);
+            const y = 416 - row * 94;
+            const btn = this.bagButton(card, title, x, y, 360, 74, run);
             btn.name = 'GM按钮-' + title;
         });
 
-        const resetBtn = this.bagButton(card, '清空存档重置初始态', 0, -456, 460, 74, () => {
+        const resetBtn = this.bagButton(card, '清空存档重置初始态', 0, -492, 460, 68, () => {
             const fresh = this.fresh();
             if (!this.commitShop(fresh)) return;
             this.actors.forEach(a => { if (isValid(a.node, true)) a.node.destroy(); });
@@ -3632,11 +3735,13 @@ export class Main extends Component {
         wScroll.scrollToLeft(0);
 
         // 7) 最底部状态汇总与照顾快捷条（居中落在左下粉色食盆与右下橙色背包之间，呼应参考图底部条）
-        const footBar = drawCard(layer, '底部状态条', 0, -764, 540, 82, '#FFF8E8', '#6E4226', 4, 28);
-        const statText = '饱腹 ' + Math.round(pet.hunger) + ' · 洁净 ' + Math.round(pet.clean) + ' · 体力 ' + Math.round(pet.energy) + ' · 心情 ' + Math.round(pet.joy);
-        const sLbl = this.text(footBar, statText, -74, 0, 360, 34, 20, '#5E3A1E');
+        const footBar = drawCard(layer, '底部状态条', 0, -764, 580, 82, '#FFF8E8', '#6E4226', 4, 28);
+        const statText = pet.dead
+            ? '该伙伴已离开庭院（可在GM面板复活）'
+            : '饱腹 ' + Math.round(pet.hunger) + ' · 洁净 ' + Math.round(pet.clean) + ' · 体力 ' + Math.round(pet.energy) + ' · 心情 ' + Math.round(pet.joy) + ' · 健康 ' + Math.round(pet.health);
+        const sLbl = this.text(footBar, statText, -74, 0, 410, 34, 18, pet.health < 30 || pet.dead ? '#C93832' : '#5E3A1E');
         sLbl.isBold = true; sLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
-        const careBtn = drawCard(footBar, '主页前往照顾', 184, 0, 134, 52, '#FFD25A', '#6E4226', 3, 20);
+        const careBtn = drawCard(footBar, '主页前往照顾', 206, 0, 134, 52, '#FFD25A', '#6E4226', 3, 20);
         const cbLbl = this.text(careBtn, '去照顾 ›', 0, 0, 120, 32, 22, '#5B3418');
         cbLbl.isBold = true; cbLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
         this.intercept(careBtn); this.pressVisualFeedback(careBtn);
@@ -3925,11 +4030,11 @@ export class Main extends Component {
         this.shopButton(close, () => this.open(this.petSelected ? 'pet' : 'home'));
         // 实际浅内区映射 x=-392.5..390.5、y=-659..341，内容不占顶部装饰。
         this.bagTargetLabel = this.dailyText(panel, '', 0, 302, 742, 40, 23);
-        const filters: [string, ItemCategory | null][] = [['全部', null], ['喂养', 'food'], ['清洁', 'soap'], ['陪玩', 'toy']];
+        const filters: [string, ItemCategory | null][] = [['全部', null], ['喂养', 'food'], ['清洁', 'soap'], ['陪玩', 'toy'], ['治疗', 'medicine']];
         filters.forEach(([name, category], index) => {
-            const tab = this.uiNode(panel, '背包分类-' + name, -282 + index * 188, 245, 170, 66);
-            this.shopArt(tab, 'tab', 0, 0, 170, 66);
-            const label = this.dailyText(tab, name, 0, 0, 145, 40, 26);
+            const tab = this.uiNode(panel, '背包分类-' + name, -304 + index * 152, 245, 142, 66);
+            this.shopArt(tab, 'tab', 0, 0, 142, 66);
+            const label = this.dailyText(tab, name, 0, 0, 126, 40, 24);
             this.bagTabs.push({ category, label });
             this.intercept(tab);
             this.pressVisualFeedback(tab, tab.children.slice());
@@ -4172,6 +4277,9 @@ export class Main extends Component {
     private adventureAction() {
         const candidate = this.dailyCandidate();
         if (!candidate.adventureEnd) {
+            const alivePets = candidate.pets.filter(p => !p.dead);
+            if (!alivePets.length) { this.toast('庭院里目前没有可出行的伙伴'); return; }
+            if (alivePets.every(p => p.hunger < 20)) { this.toast('伙伴饱腹度低于 20，请先喂饱后再外出冒险！'); return; }
             candidate.adventureEnd = Date.now() + 60000;
             if (!this.commitShop(candidate)) return;
             this.open('adventure'); this.toast('寻宝出发，60 秒后带回礼物'); return;
@@ -4270,18 +4378,198 @@ export class Main extends Component {
             if (this.page !== 'pet' || !this.petSelected || this.selected !== id) { this.selected = id; this.open('pet'); }
         } else if (this.petSelected && (this.page === 'pet' || this.page === 'bag')) this.open('home');
     }
+    private spawnYardPoop(petId: number, x: number, z: number) {
+        if (!this.data.poops) this.data.poops = [];
+        if (this.data.poops.length >= 6) return;
+        const id = ++this.poopNextId;
+        const clampedX = Math.max(this.yardMinX + 0.25, Math.min(this.yardMaxX - 0.25, x));
+        const clampedZ = Math.max(this.yardMinZ + 0.25, Math.min(this.yardMaxZ - 0.25, z));
+        this.data.poops.push({ id, petId, x: clampedX, z: clampedZ, createdAt: Date.now() });
+        this.dirty = true;
+        this.persist();
+    }
+
+    private cleanYardPoop(poopId: number) {
+        if (!this.data.poops) return;
+        const poop = this.data.poops.find(p => p.id === poopId);
+        if (!poop) return;
+        const c = this.dailyCandidate();
+        c.poops = (c.poops || []).filter(p => p.id !== poopId);
+        c.coins = Math.min(100000000, c.coins + 5);
+        c.xp = Math.min(100000000, c.xp + 4);
+        const targetPet = c.pets.find(p => p.id === poop.petId && !p.dead) || c.pets.find(p => !p.dead);
+        if (targetPet) {
+            targetPet.clean = Math.min(100, targetPet.clean + 8);
+            const actor = this.actors.find(a => a.pet.id === targetPet.id);
+            if (actor) actor.pet = targetPet;
+        }
+        recordDaily(c.daily, 'clean');
+        if (!this.commitShop(c)) return;
+        const vis = this.poopVisuals.get(poopId);
+        if (vis) {
+            if (isValid(vis.node, true)) { vis.node.active = false; vis.node.destroy(); }
+            this.poopVisuals.delete(poopId);
+        }
+        this.renderHeader();
+        if (this.page === 'pet') this.open('pet');
+        this.toast('清理便便成功！金币 +5，庭院更干净啦');
+    }
+
+    private syncYardPoops(dt: number) {
+        if (!isValid(this.ui, true) || !this.worldCamera || !this.uiCamera) return;
+        const list = this.data.poops || [];
+        const visiblePage = this.page === 'home' || this.page === 'pet';
+        const activeIds = new Set(list.map(p => p.id));
+
+        // 清理已消失的便便节点
+        this.poopVisuals.forEach((vis, id) => {
+            if (!activeIds.has(id) || !isValid(vis.node, true)) {
+                if (isValid(vis.node, true)) { vis.node.active = false; vis.node.destroy(); }
+                this.poopVisuals.delete(id);
+            }
+        });
+        if (!list.length) return;
+        if (!this.poopLayer || !isValid(this.poopLayer, true)) {
+            this.poopLayer = this.uiNode(this.ui, '庭院便便层', 0, 0, this.width, this.height);
+            this.poopLayer.setSiblingIndex(0);
+        }
+        this.poopLayer.getComponent(UITransform)!.setContentSize(this.width, this.height);
+
+        for (const poop of list) {
+            let vis = this.poopVisuals.get(poop.id);
+            if (!vis) {
+                const node = this.uiNode(this.poopLayer, '庭院便便-' + poop.id, 0, 0, 82, 82);
+                const img = this.uiNode(node, '便便图', 0, 0, 66, 66);
+                const sp = img.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM;
+                resources.load('art/yard/poop/spriteFrame', SpriteFrame, (err, frame) => {
+                    if (!err && frame && isValid(sp, true)) sp.spriteFrame = frame;
+                });
+                // 3 缕飘升臭烟粒子（绿灰暖雾，持续向上飘动并淡出）
+                const smokes: PoopVisual['smokes'] = [];
+                for (let s = 0; s < 3; s++) {
+                    const sn = this.uiNode(node, '便便烟-' + s, 0, 18, 28, 28);
+                    const g = sn.addComponent(Graphics);
+                    g.fillColor = new Color(168, 186, 122, 185);
+                    g.circle(0, 0, 10); g.circle(-7, -3, 7); g.circle(7, -2, 7.5); g.fill();
+                    g.fillColor = new Color(216, 224, 178, 125);
+                    g.circle(0, 2, 6); g.fill();
+                    const op = sn.addComponent(UIOpacity);
+                    smokes.push({ node: sn, op, phase: s * (Math.PI * 2 / 3) });
+                }
+                this.intercept(node); this.pressFeedback(node);
+                node.on(Node.EventType.TOUCH_END, () => this.cleanYardPoop(poop.id), this);
+                vis = { node, poop, smokes };
+                this.poopVisuals.set(poop.id, vis);
+            }
+            const screen = this.worldCamera.worldToScreen(new Vec3(poop.x, 0.08, poop.z), new Vec3());
+            const uiWorld = this.uiCamera.screenToWorld(screen, new Vec3());
+            const local = this.poopLayer.getComponent(UITransform)!.convertToNodeSpaceAR(uiWorld);
+            vis.node.active = visiblePage && screen.z >= 0 && screen.z <= 1;
+            vis.node.setPosition(local.x, local.y, 0);
+            // 动画更新飘升的臭烟
+            vis.smokes.forEach((sm, idx) => {
+                sm.phase = (sm.phase + dt * 0.95) % 1;
+                const t = sm.phase;
+                const sway = Math.sin((t * Math.PI * 2) + idx * 1.9) * (10 + t * 8);
+                sm.node.setPosition(sway, 18 + t * 68, 0);
+                const sc = 0.45 + t * 0.85;
+                sm.node.setScale(sc, sc, 1);
+                sm.op.opacity = Math.round(Math.sin(t * Math.PI) * 205);
+            });
+        }
+    }
+
+    private playPetGhostRise(worldPos: Vec3) {
+        if (!isValid(this.ui, true) || !this.worldCamera || !this.uiCamera) return;
+        if (!this.bubbleLayer || !isValid(this.bubbleLayer, true)) {
+            this.bubbleLayer = this.uiNode(this.ui, '伙伴相遇气泡层', 0, 0, this.width, this.height);
+            this.bubbleLayer.setSiblingIndex(0);
+        }
+        const screen = this.worldCamera.worldToScreen(new Vec3(worldPos.x, worldPos.y + 0.55, worldPos.z), new Vec3());
+        const uiWorld = this.uiCamera.screenToWorld(screen, new Vec3());
+        const local = this.bubbleLayer.getComponent(UITransform)!.convertToNodeSpaceAR(uiWorld);
+        const ghostNode = this.uiNode(this.bubbleLayer, '宠物鬼魂', local.x, local.y, 128, 128);
+        const sp = ghostNode.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM;
+        resources.load('art/yard/pet-ghost/spriteFrame', SpriteFrame, (err, frame) => {
+            if (!err && frame && isValid(sp, true)) sp.spriteFrame = frame;
+        });
+        const op = ghostNode.addComponent(UIOpacity);
+        op.opacity = 235;
+        this.ghosts.push({ node: ghostNode, op, baseX: local.x, baseY: local.y, age: 0, duration: 2.6 });
+    }
+
+    private updateGhosts(dt: number) {
+        if (!this.ghosts.length) return;
+        this.ghosts = this.ghosts.filter(g => {
+            if (!isValid(g.node, true)) return false;
+            g.age += dt;
+            if (g.age >= g.duration) {
+                g.node.active = false; g.node.destroy();
+                return false;
+            }
+            const t = g.age / g.duration;
+            const sway = Math.sin(t * Math.PI * 3.5) * 24;
+            g.node.setPosition(g.baseX + sway, g.baseY + t * 280, 0);
+            const sc = 0.65 + Math.sin(Math.min(1, t * 2) * Math.PI * 0.5) * 0.42;
+            g.node.setScale(sc, sc, 1);
+            g.op.opacity = Math.round((t < 0.2 ? t / 0.2 : 1 - (t - 0.2) / 0.8) * 235);
+            return true;
+        });
+    }
+
+    public triggerPetDeath(pet: Pet) {
+        if (pet.dead) return;
+        pet.dead = true;
+        pet.health = 0;
+        this.dirty = true;
+        this.persist();
+        const actor = this.actors.find(a => a.pet.id === pet.id);
+        const inYard = this.page === 'home' || this.page === 'pet';
+        if (this.selected === pet.id && (this.page === 'pet' || this.page === 'bag')) {
+            this.open('home');
+        }
+        if (actor && isValid(actor.node, true)) {
+            if (inYard) {
+                actor.dying = 0.001;
+                actor.ghostSpawned = false;
+                this.toast('「' + this.petDisplayName(pet.id) + '」因长期未照顾生病离开了庭院…');
+            } else {
+                actor.node.active = false;
+                actor.node.destroy();
+                this.actors = this.actors.filter(a => a !== actor);
+            }
+        }
+    }
+
     private tick = () => {
         this.elapsed++;
         const size = view.getVisibleSize(); if (size.width !== this.width || size.height !== this.height) this.layout();
         if (this.elapsed % 20 === 0) {
+            const poopCount = (this.data.poops || []).length;
+            const toDie: Pet[] = [];
             this.data.pets.forEach(p => {
+                if (p.dead) return;
                 const tr = PET_TRAITS[p.trait];
                 p.hunger = Math.max(0, p.hunger - 1);
-                p.clean = Math.max(0, p.clean - 0.7 * (tr.cleanDecayMult ?? 1));
-                p.joy = Math.max(0, p.joy - 0.5 * (tr.joyDecayMult ?? 1));
+                p.clean = Math.max(0, p.clean - (0.7 + poopCount * 0.35) * (tr.cleanDecayMult ?? 1));
+                p.joy = Math.max(0, p.joy - (0.5 + (p.hunger < 20 ? 0.5 : 0) + (p.clean < 30 ? 0.4 : 0)) * (tr.joyDecayMult ?? 1));
                 p.energy = Math.max(0, p.energy - 0.35 * (tr.energyDecayMult ?? 1));
+                if (p.hunger < 20 || p.clean < 30) {
+                    const hDrop = (p.hunger < 20 ? 1.6 : 0) + (p.clean < 30 ? 1.8 : 0) + (poopCount >= 3 ? 0.6 : 0);
+                    p.health = Math.max(0, p.health - hDrop);
+                    if (p.health <= 0) toDie.push(p);
+                }
             });
+            toDie.forEach(p => this.triggerPetDeath(p));
             this.dirty = true; if (this.page === 'pet') this.open('pet');
+        }
+        // 庭院中存活的猫狗每隔 35 秒随机拉一次便便（最多同时存在 5 坨）
+        if (this.elapsed > 0 && this.elapsed % 35 === 0 && (this.data.poops || []).length < 5) {
+            const aliveActors = this.actors.filter(a => !a.pet.dead && !a.dying && isValid(a.node, true));
+            if (aliveActors.length) {
+                const chosen = aliveActors[Math.floor(Math.random() * aliveActors.length)];
+                this.spawnYardPoop(chosen.pet.id, chosen.node.position.x, chosen.node.position.z);
+            }
         }
         if (this.elapsed % 10 === 0 && this.dirty) this.persist();
         if (this.page === 'adventure' && this.data.adventureEnd && Date.now() >= this.data.adventureEnd && this.adventureLabel && this.adventureLabel.string.indexOf('伙伴回来') !== 0) this.open('adventure');
@@ -4451,10 +4739,10 @@ export class Main extends Component {
         if (!isValid(this.ui, true)) return;
         const alive = new Set<number>();
         for (const actor of this.actors) {
-            if (!isValid(actor.node, true)) continue;
+            if (!isValid(actor.node, true) || actor.pet.dead || actor.dying) continue;
             const pet = actor.pet;
             alive.add(pet.id);
-            const needs: [number, string][] = [[pet.hunger, 'feed'], [pet.clean, 'clean'], [pet.energy, 'rest'], [pet.joy, 'play']];
+            const needs: [number, string][] = [[pet.hunger, 'feed'], [pet.clean, 'clean'], [pet.energy, 'rest'], [pet.joy, 'play'], [pet.health, 'heal']];
             const previous = this.needHistory.get(pet.id);
             let queue = this.needQueue.get(pet.id) || [];
             if (previous) {
@@ -4565,11 +4853,30 @@ export class Main extends Component {
     update(dt: number) {
         const delta = Math.max(0, Math.min(dt, 0.1));
         const steps = Math.max(1, Math.ceil(delta / (1 / 60))), step = delta / steps;
+        const expiredActors: Actor[] = [];
         for (let i = 0; i < steps; i++) {
             this.actors.forEach(a => {
                 if (!isValid(a.node, true)) return;
+                if (a.dying && a.dying > 0) {
+                    a.dying += step;
+                    const fallT = Math.min(1, a.dying / 0.55);
+                    const roll = fallT * fallT * 86;
+                    a.visual.setRotationFromEuler(0, 0, roll);
+                    a.node.setPosition(a.node.position.x, fallT * 0.14, a.node.position.z);
+                    if (!a.ghostSpawned && a.dying >= 0.35) {
+                        a.ghostSpawned = true;
+                        this.playPetGhostRise(a.node.worldPosition);
+                    }
+                    if (a.dying >= 2.2) {
+                        const fade = Math.max(0, 1 - (a.dying - 2.2) / 0.6);
+                        const sc = this.petNodeScale * fade;
+                        a.node.setScale(sc, sc, sc);
+                    }
+                    if (a.dying >= 2.8 && expiredActors.indexOf(a) === -1) expiredActors.push(a);
+                    return;
+                }
                 const isCat = BREEDS[a.pet.id].kind === 'cat';
-                const tiredFactor = a.pet.energy <= 5 ? 0.55 : 1;
+                const tiredFactor = a.pet.energy <= 5 ? 0.55 : a.pet.health < 30 ? 0.50 : 1;
                 const cruise = (isCat ? 0.86 : 0.96) * tiredFactor;
                 a.idleTime = (a.idleTime || 0) + step;
                 let desiredSpeed = 0;
@@ -4772,9 +5079,17 @@ export class Main extends Component {
             });
             this.resolvePetCollisions(step);
         }
+        if (expiredActors.length) {
+            expiredActors.forEach(a => {
+                if (isValid(a.node, true)) { a.node.active = false; a.node.destroy(); }
+            });
+            this.actors = this.actors.filter(a => expiredActors.indexOf(a) === -1);
+        }
         this.updateSelectionRing();
         this.updateSocialBubbles();
         this.updateNeedBubbles();
+        this.syncYardPoops(delta);
+        this.updateGhosts(delta);
         this.updateProfilePreview(delta);
         if (Date.now() < this.noticeUntil) this.layoutNotice();
     }
@@ -4790,6 +5105,12 @@ export class Main extends Component {
         this.socialBubbles = []; this.pairCooldowns.clear();
         this.needBubbles.forEach(b => { if (isValid(b.node, true)) b.node.destroy(); });
         this.needBubbles.clear(); this.needHistory.clear(); this.needQueue.clear(); this.needZeroNextAt.clear(); this.needZeroCursor.clear();
+        this.poopVisuals.forEach(v => { if (isValid(v.node, true)) v.node.destroy(); });
+        this.poopVisuals.clear();
+        if (this.poopLayer && isValid(this.poopLayer, true)) this.poopLayer.destroy();
+        this.poopLayer = null;
+        this.ghosts.forEach(g => { if (isValid(g.node, true)) g.node.destroy(); });
+        this.ghosts = [];
         if (this.bubbleLayer && isValid(this.bubbleLayer, true)) this.bubbleLayer.destroy();
         this.bubbleLayer = null;
         if (this.selectionRing && isValid(this.selectionRing, true)) this.selectionRing.destroy();
