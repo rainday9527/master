@@ -193,10 +193,10 @@ export class Main extends Component {
     private actors: Actor[] = [];
     public petNodeScale = 0.48;
     public petCollisionRadius = 0.54;
-    private readonly yardMinX = -4.2;
-    private readonly yardMaxX = 4.2;
-    private readonly yardMinZ = -3.8;
-    private readonly yardMaxZ = 7.4;
+    private readonly yardMinX = -6.2;
+    private readonly yardMaxX = 6.2;
+    private readonly yardMinZ = -5.4;
+    private readonly yardMaxZ = 9.2;
     private socialTime = 0;
     private pairCooldowns = new Map<string, number>();
     private bubbleLayer: Node | null = null;
@@ -219,6 +219,7 @@ export class Main extends Component {
     private furnitureVisuals = new Map<number, { node: Node; id: FurnitureId; ring: Node }>();
     private furnitureNextUid = 10;
     private selectedFurnitureUid: number | null = null;
+    private draggingFurnitureUid: number | null = null;
     private zzzBubbles: Array<{ node: Node; x: number; y: number; age: number; duration: number; driftX: number }> = [];
     private pendingAlerts: { kind: 'lost' | 'dead'; petId: number; reason: string }[] = [];
     private allDeadPrompted = false;
@@ -316,6 +317,8 @@ export class Main extends Component {
         this.data.pets.forEach(p => this.spawnPet(p));
         this.scheduleOnce(() => { if (isValid(this, true)) this.checkMainCityAlerts(); }, 0.35);
         this.makeUI();
+        input.on(Input.EventType.TOUCH_START, this.onWorldTouchStart, this);
+        input.on(Input.EventType.TOUCH_MOVE, this.onWorldTouchMove, this);
         input.on(Input.EventType.TOUCH_END, this.onWorldTouch, this);
         this.schedule(this.tick, 1);
         if (this.saveWarning) this.toast('存档异常，已安全恢复为初始庭院');
@@ -634,12 +637,12 @@ export class Main extends Component {
         const n = new Node('庭院相机'); this.node.addChild(n);
         this.worldCamera = n.addComponent(Camera);
         this.worldCamera.projection = Camera.ProjectionType.ORTHO;
-        this.worldCamera.orthoHeight = 11.2;
+        this.worldCamera.orthoHeight = 13.0;
         this.worldCamera.near = 0.1; this.worldCamera.far = 100;
         this.worldCamera.visibility = Layers.Enum.DEFAULT;
         this.worldCamera.clearFlags = Camera.ClearFlag.DEPTH_ONLY;
         this.worldCamera.priority = 1;
-        n.setPosition(0, 27, 15); n.lookAt(new Vec3(0, 0, 0.4));
+        n.setPosition(0, 32, 14); n.lookAt(new Vec3(0, 0, 1.0));
 
         // 宠物主页专属 3D 展示相机：渲染至 512×512 透明 RenderTexture，由主页展示舞台 Sprite 承载，1:1 零拉伸且严守 UI 层级。
         const previewRT = new RenderTexture();
@@ -1903,7 +1906,7 @@ export class Main extends Component {
             const cover = Math.max(this.width / 1080, this.height / 1920);
             this.recruitBackground.getComponent(UITransform)!.setContentSize(1080 * cover, 1920 * cover);
         }
-        this.worldCamera.orthoHeight = Math.max(11.2, 11.2 * this.height / 1920);
+        this.worldCamera.orthoHeight = Math.max(13.0, 13.0 * this.height / 1920);
         if (this.sheet) {
             this.sheet.setPosition(0, this.page === 'pet' ? -this.height / 2 + 350 : this.page === 'shop' ? -this.height / 2 + 850 : -this.height / 2 + 640, 0);
             if (this.page === 'recruit') {
@@ -5329,12 +5332,12 @@ export class Main extends Component {
                     sr.setSharedMaterial(smat, 0);
                 });
 
-                // 面向高俯视庭院正交相机的手绘 2.5D 家具立牌（plane 沿 X 轴旋转 +29° 朝向相机且贴图正向不倒置）
+                // 面向高俯视全院正交相机的手绘 2.5D 家具立牌（plane 沿 X 轴旋转 +24° 朝向相机且贴图正向不倒置）
                 const card = new Node('家具画面');
                 card.layer = Layers.Enum.DEFAULT;
                 root.addChild(card);
-                card.setPosition(0, sz * 0.32, 0);
-                card.setRotationFromEuler(29, 0, 0);
+                card.setPosition(0, sz * 0.30, 0);
+                card.setRotationFromEuler(24, 0, 0);
                 card.setScale(sz, 1, sz);
                 const mr = card.addComponent(MeshRenderer);
                 mr.mesh = quadMesh!;
@@ -5393,14 +5396,14 @@ export class Main extends Component {
         return true;
     }
 
-    public movePlacedFurniture(uid: number, x: number, z: number): boolean {
+    public movePlacedFurniture(uid: number, x: number, z: number, saveNow = true): boolean {
         const list = this.data.placedFurniture || [];
         const idx = list.findIndex(f => f.uid === uid);
         if (idx < 0) return false;
         const next = list.map(f => f.uid === uid ? { ...f, x, z } : f);
         this.data.placedFurniture = next;
         this.dirty = true;
-        this.persist();
+        if (saveNow) this.persist();
         this.syncYardFurniture();
         return true;
     }
@@ -5438,7 +5441,7 @@ export class Main extends Component {
         bg.fillColor = this.color('#FFF8E8'); bg.strokeColor = this.color('#8B5A34'); bg.lineWidth = 5;
         bg.roundRect(-510, -175, 1020, 350, 28); bg.fill(); bg.stroke();
 
-        const title = this.text(panel, '庭院布置 · 点草坪移动选中家具', -215, 134, 520, 36, 22, '#5A361C');
+        const title = this.text(panel, '庭院布置 · 按住家具直接拖动，或点草坪移动', -205, 134, 540, 36, 21, '#5A361C');
         title.isBold = true; title.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
 
         // 快捷去家具商店按钮
@@ -7510,46 +7513,82 @@ export class Main extends Component {
         this.notice.string = message; this.noticeUntil = Date.now() + 4500;
     }
 
-    private onWorldTouch(event: EventTouch) {
-        const location = event.getLocation();
-        if (this.dialog || this.gmPanel || Date.now() < this.blockedUntil) return;
-        const screen = new Vec3(location.x, location.y, 0), uiWorld = new Vec3(); this.uiCamera.screenToWorld(screen, uiWorld);
+    private screenToYardGround(location: Vec2): { x: number; z: number } | null {
+        const ray = this.worldCamera.screenPointToRay(location.x, location.y);
+        if (Math.abs(ray.d.y) <= 0.001) return null;
+        const t = -ray.o.y / ray.d.y;
+        if (t <= 0) return null;
+        return {
+            x: Math.max(this.yardMinX + 0.35, Math.min(this.yardMaxX - 0.35, ray.o.x + ray.d.x * t)),
+            z: Math.max(this.yardMinZ + 0.35, Math.min(this.yardMaxZ - 0.35, ray.o.z + ray.d.z * t)),
+        };
+    }
+
+    private isTouchOnUI(location: Vec2): boolean {
+        const screen = new Vec3(location.x, location.y, 0), uiWorld = new Vec3();
+        this.uiCamera.screenToWorld(screen, uiWorld);
         const point = this.ui.getComponent(UITransform)!.convertToNodeSpaceAR(uiWorld);
-        const hits = (n: Node) => {
+        const hits = (n: Node | null) => {
+            if (!n || !isValid(n, true) || !n.active) return false;
             const size = n.getComponent(UITransform)!.contentSize;
             return Math.abs(point.x - n.position.x) <= size.width / 2 && Math.abs(point.y - n.position.y) <= size.height / 2;
         };
-        if (hits(this.top) || (this.bottom && this.bottom.active && hits(this.bottom)) || (this.sheet && hits(this.sheet))) return;
-        // 布置模式：点击已有家具选中，点击草坪空地将选中家具平滑移动到该位置
-        if (this.page === 'layout') {
-            let hitFurn: PlacedFurniture | null = null, bestD = 78;
-            (this.data.placedFurniture || []).forEach(pf => {
-                const proj = new Vec3();
-                this.worldCamera.worldToScreen(new Vec3(pf.x, 0.45, pf.z), proj);
-                const d = Vec2.distance(location, new Vec2(proj.x, proj.y));
-                if (proj.z >= 0 && proj.z <= 1 && d < bestD) { bestD = d; hitFurn = pf; }
-            });
-            if (hitFurn) {
-                this.selectedFurnitureUid = (hitFurn as PlacedFurniture).uid;
-                this.syncYardFurniture();
-                this.renderLayoutPanel();
-                const def = findFurniture((hitFurn as PlacedFurniture).id);
-                if (def) this.toast(`已选中「${def.name}」，点击草坪任意位置即可移动或点击收回`);
-                return;
+        return hits(this.top) || hits(this.bottom) || hits(this.sheet);
+    }
+
+    private onWorldTouchStart(event: EventTouch) {
+        if (this.page !== 'layout' || this.dialog || this.gmPanel) return;
+        const location = event.getLocation();
+        if (this.isTouchOnUI(location)) return;
+        // 优先检测是否按中某件已摆放家具（宽松热区 115px），按住即可顺滑直接拖动！
+        let hitFurn: PlacedFurniture | null = null, bestD = 115;
+        (this.data.placedFurniture || []).forEach(pf => {
+            const proj = new Vec3();
+            this.worldCamera.worldToScreen(new Vec3(pf.x, 0.40, pf.z), proj);
+            const d = Vec2.distance(location, new Vec2(proj.x, proj.y));
+            if (proj.z >= 0 && proj.z <= 1 && d < bestD) { bestD = d; hitFurn = pf; }
+        });
+        if (hitFurn) {
+            this.selectedFurnitureUid = (hitFurn as PlacedFurniture).uid;
+            this.draggingFurnitureUid = this.selectedFurnitureUid;
+            this.syncYardFurniture();
+            this.renderLayoutPanel();
+            return;
+        }
+        // 点中草坪空地：若已有选中家具则立刻移至该点并支持继续顺滑拖动
+        if (this.selectedFurnitureUid !== null) {
+            const pt = this.screenToYardGround(location);
+            if (pt) {
+                this.draggingFurnitureUid = this.selectedFurnitureUid;
+                this.movePlacedFurniture(this.selectedFurnitureUid, pt.x, pt.z, false);
             }
-            if (this.selectedFurnitureUid !== null) {
-                const ray = this.worldCamera.screenPointToRay(location.x, location.y);
-                if (Math.abs(ray.d.y) > 0.001) {
-                    const t = -ray.o.y / ray.d.y;
-                    if (t > 0) {
-                        const wx = Math.max(this.yardMinX + 0.3, Math.min(this.yardMaxX - 0.3, ray.o.x + ray.d.x * t));
-                        const wz = Math.max(this.yardMinZ + 0.3, Math.min(this.yardMaxZ - 0.3, ray.o.z + ray.d.z * t));
-                        this.movePlacedFurniture(this.selectedFurnitureUid, wx, wz);
-                    }
+        }
+    }
+
+    private onWorldTouchMove(event: EventTouch) {
+        if (this.page !== 'layout' || this.draggingFurnitureUid === null) return;
+        const location = event.getLocation();
+        if (this.isTouchOnUI(location)) return;
+        const pt = this.screenToYardGround(location);
+        if (pt) this.movePlacedFurniture(this.draggingFurnitureUid, pt.x, pt.z, false);
+    }
+
+    private onWorldTouch(event: EventTouch) {
+        const location = event.getLocation();
+        if (this.dialog || this.gmPanel || Date.now() < this.blockedUntil) return;
+        if (this.page === 'layout') {
+            if (this.draggingFurnitureUid !== null) {
+                const pt = this.screenToYardGround(location);
+                if (pt && !this.isTouchOnUI(location)) {
+                    this.movePlacedFurniture(this.draggingFurnitureUid, pt.x, pt.z, true);
+                } else {
+                    this.persist();
                 }
+                this.draggingFurnitureUid = null;
             }
             return;
         }
+        if (this.isTouchOnUI(location)) return;
         // 优先检测是否点中庭院 3D 便便，点击即可清理。
         if (this.page === 'home' || this.page === 'pet') {
             let closestPoop: YardPoop | null = null, poopDist = 56;
@@ -8753,6 +8792,8 @@ export class Main extends Component {
         this.closeGmPanel();
         this.closeDialog();
         this.rewardedVideoProvider = null;
+        input.off(Input.EventType.TOUCH_START, this.onWorldTouchStart, this);
+        input.off(Input.EventType.TOUCH_MOVE, this.onWorldTouchMove, this);
         input.off(Input.EventType.TOUCH_END, this.onWorldTouch, this);
         this.unscheduleAllCallbacks(); if (this.data) this.persist();
         this.socialBubbles.forEach(b => { if (isValid(b.node, true)) b.node.destroy(); });
