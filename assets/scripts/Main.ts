@@ -54,6 +54,8 @@ interface Pet {
     ownedOutfits: OutfitId[];
     ownedCoats: CoatId[];
 }
+interface DialogAction { title: string; run: () => void; cost?: { currency: Currency; amount: number }; }
+const LOST_PET_RECOVER_GEMS = 50;
 type RewardGrantItem =
     | { kind: 'coins'; amount: number }
     | { kind: 'gems'; amount: number }
@@ -1449,7 +1451,7 @@ export class Main extends Component {
     }
 
     private showDialog(title: string, body: string,
-        actions: [{ title: string; run: () => void }] | [{ title: string; run: () => void }, { title: string; run: () => void }],
+        actions: [DialogAction] | [DialogAction, DialogAction],
         reward?: { amount: number; currency: Currency; description: string }) {
         if (this.dialog) return;
         const overlay = this.uiNode(this.ui, '通用弹窗遮罩', 0, 0, this.width, this.height);
@@ -1492,12 +1494,86 @@ export class Main extends Component {
             const x = actions.length === 1 ? 0 : (i === 0 ? -230 : 230) * ratio;
             const button = this.shopArt(content, 'buy', x, -160 * ratio, 380 * ratio, 380 * ratio * 120 / 321);
             button.name = '弹窗按钮-' + action.title;
-            this.headerText(button, action.title, 0, 0, 300 * ratio, 50 * ratio, 28);
+            if (action.cost) {
+                this.headerText(button, action.title, -52, 0, 150, 50 * ratio, 26);
+                this.addPriceTag(button, action.cost.currency, action.cost.amount, 62, 0, 28);
+            } else {
+                this.headerText(button, action.title, 0, 0, 300 * ratio, 50 * ratio, 28);
+            }
             this.shopButton(button, action.run);
         });
         const close = this.shopArt(panel, 'close', 480 * ratio, (452 - 335) * ratio, 71 * ratio, 72 * ratio);
         this.shopButton(close, () => this.closeDialog());
         this.layoutDialog();
+    }
+
+    /** 通用「货币图标 + 数字」价格标签：所有涉及金币/钻石消耗或获得的按钮与面板统一使用 */
+    private addPriceTag(parent: Node, currency: Currency, amount: number, x: number, y: number, size = 28, textColor: string = '#FFFFFF') {
+        const tag = this.uiNode(parent, '价格标签-' + currency, x, y, size * 3.2, size);
+        const icon = this.uiNode(tag, '价格图标', -size * 0.9, 0, size, size);
+        const sp = icon.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM;
+        resources.load('art/header/' + (currency === 'coins' ? 'coin-icon' : 'diamond-icon') + '/spriteFrame', SpriteFrame, (e, f) => {
+            if (!e && f && isValid(sp, true) && isValid(icon, true)) {
+                sp.spriteFrame = f;
+                const asp = f.rect.width / Math.max(1, f.rect.height);
+                icon.getComponent(UITransform)!.setContentSize(asp >= 1 ? size : size * asp, asp >= 1 ? size / asp : size);
+            }
+        });
+        const lbl = this.text(tag, String(amount), size * 0.55, 0, size * 1.9, size + 4, Math.round(size * 0.9), textColor);
+        lbl.isBold = true; lbl.horizontalAlign = Label.HorizontalAlign.LEFT; lbl.node.name = '价格数字';
+        lbl.enableOutline = true; lbl.outlineColor = this.color('#6A3E16'); lbl.outlineWidth = 2;
+        return tag;
+    }
+
+    /** 浮动图标+数字获得提示（替代纯文字 toast），自动上浮淡出 */
+    public showRewardToast(rewards: RewardGrantItem[], label = '获得') {
+        const list = rewards.filter(r => r.amount !== 0).slice(0, 4);
+        if (!list.length || !this.ui || !isValid(this.ui, true)) return;
+        const old = this.ui.getChildByName('浮动奖励提示');
+        if (old && isValid(old, true)) { old.destroy(); }
+        const cellW = 150, w = 130 + list.length * cellW, h = 74;
+        const pill = this.uiNode(this.ui, '浮动奖励提示', 0, this.height / 2 - 380, w, h);
+        const g = pill.addComponent(Graphics);
+        g.fillColor = new Color(76, 47, 26, 238); g.roundRect(-w / 2, -h / 2, w, h, 26); g.fill();
+        g.strokeColor = this.color('#F5CC6C'); g.lineWidth = 3; g.roundRect(-w / 2, -h / 2, w, h, 26); g.stroke();
+        const l = this.text(pill, label, -w / 2 + 56, 0, 90, 40, 26, '#FFE896'); l.isBold = true;
+        list.forEach((rw, i) => {
+            const x = -w / 2 + 120 + i * cellW + cellW / 2 - 10;
+            if (rw.kind === 'coins' || rw.kind === 'gems') {
+                this.addPriceTag(pill, rw.kind, rw.amount, x, 0, 34, '#FFF6DC');
+            } else {
+                const path = rw.kind === 'item' ? `art/items/${rw.itemId}` : `art/care/${rw.careType === 'food' ? 'feed' : rw.careType === 'soap' ? 'clean' : 'play'}`;
+                const ic = this.uiNode(pill, '获得图标', x - 40, 0, 44, 44);
+                const sp = ic.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM;
+                resources.load(path + '/spriteFrame', SpriteFrame, (e, f) => { if (!e && f && isValid(sp, true)) sp.spriteFrame = f; });
+                const n = this.text(pill, `×${rw.amount}`, x + 22, 0, 70, 40, 30, '#FFF6DC'); n.isBold = true;
+            }
+        });
+        const op = pill.addComponent(UIOpacity); op.opacity = 0;
+        pill.setSiblingIndex(this.ui.children.length - 1);
+        tween(op).to(0.18, { opacity: 255 }).delay(1.5).to(0.4, { opacity: 0 }).call(() => { if (isValid(pill, true)) pill.destroy(); }).start();
+        tween(pill).by(2.1, { position: new Vec3(0, 46, 0) }).start();
+    }
+
+    /** 统一激励视频入口：未接入 SDK 时仅提示，不发放任何奖励；接入后完整观看才回调 */
+    private requestRewardedAd(onCompleted: () => void, failPrefix: string) {
+        if (this.rewardedVideoPending) { this.toast('广告播放中，请勿重复请求'); return; }
+        const provider = this.rewardedVideoProvider;
+        if (!provider) { this.toast('激励视频暂未接入'); return; }
+        this.rewardedVideoPending = true;
+        let settled = false;
+        const finish = (result: RewardedVideoResult) => {
+            if (settled) return;
+            settled = true;
+            this.rewardedVideoPending = false;
+            if (!isValid(this, true)) return;
+            if (result !== 'completed') {
+                this.toast(result === 'cancelled' ? '未完整观看广告，' + failPrefix : '广告播放失败，' + failPrefix);
+                return;
+            }
+            onCompleted();
+        };
+        try { provider.show(finish); } catch { finish('failed'); }
     }
 
     /** 通用图标+数字奖励领取弹窗（金币、钻石、道具统一可视化展示，不以纯文字堆砌） */
@@ -4078,7 +4154,7 @@ export class Main extends Component {
             shop: { ...shop, freeUsed: shop.freeUsed + (cost === 0 ? 1 : 0), paidUsed: shop.paidUsed + (cost > 0 ? 1 : 0),
                 revision: shop.revision + 1, slots: drawShopSlots(shop.slots) } };
         if (!this.commitShop(candidate)) return;
-        this.updateShopCards(); this.renderHeader(); this.toast(cost ? '刷新成功，钻石 -' + cost : '免费刷新成功');
+        this.updateShopCards(); this.renderHeader(); if (cost) this.showRewardToast([{ kind: 'gems', amount: -cost }], '消耗'); else this.toast('免费刷新成功');
     }
 
     private buyShopItem(id: string) {
@@ -4753,15 +4829,16 @@ export class Main extends Component {
         const chestBox = this.uiNode(layer, '冒险右侧宝箱区', Math.min(this.width / 2 - 122, 386), -this.height / 2 + 520, 230, 320);
 
         // 旋转金光光环（可领取时亮起旋转）
-        const aura = this.uiNode(chestBox, '宝箱金光', 0, 26, 250, 250);
+        const aura = this.uiNode(chestBox, '宝箱金光', 0, 26, 340, 340);
         const ag = aura.addComponent(Graphics);
         for (let r = 0; r < 12; r++) {
             const a0 = (r * Math.PI * 2) / 12;
-            const a1 = a0 + 0.17;
-            ag.fillColor = new Color(255, 224, 96, r % 2 === 0 ? 135 : 70);
-            ag.moveTo(0, 0); ag.lineTo(Math.cos(a0) * 122, Math.sin(a0) * 122); ag.lineTo(Math.cos(a1) * 122, Math.sin(a1) * 122); ag.close(); ag.fill();
+            const a1 = a0 + 0.2;
+            ag.fillColor = new Color(255, 214, 70, r % 2 === 0 ? 205 : 120);
+            ag.moveTo(0, 0); ag.lineTo(Math.cos(a0) * 168, Math.sin(a0) * 168); ag.lineTo(Math.cos(a1) * 168, Math.sin(a1) * 168); ag.close(); ag.fill();
         }
-        ag.fillColor = new Color(255, 240, 152, 145); ag.circle(0, 0, 68); ag.fill();
+        ag.fillColor = new Color(255, 246, 170, 215); ag.circle(0, 0, 96); ag.fill();
+        ag.fillColor = new Color(255, 255, 236, 170); ag.circle(0, 0, 58); ag.fill();
         this.advChestAura = aura;
 
         const chestNode = this.uiNode(chestBox, '冒险挂机宝箱', 0, 26, 184, 184);
@@ -5086,8 +5163,81 @@ export class Main extends Component {
         if (preview.coins > 0) grantRewards.push({ kind: 'coins', amount: preview.coins });
         if (preview.gems > 0) grantRewards.push({ kind: 'gems', amount: preview.gems });
         bonusItems.forEach(bi => grantRewards.push({ kind: 'item', itemId: bi.id, amount: bi.count }));
-        this.showRewardGrantDialog('冒险宝箱已开启！', grantRewards, `累计挂机 ${preview.minutes} 分钟 · 满载而归！`, '太棒了');
+        this.playChestOpenEffect();
+        const dialogTitle = `累计挂机 ${preview.minutes} 分钟 · 满载而归！`;
+        // 先完整播放开箱特效，再弹出图标+数字奖励面板，避免弹窗遮住特效
+        this.scheduleOnce(() => {
+            if (isValid(this, true)) this.showRewardGrantDialog('冒险宝箱已开启！', grantRewards, dialogTitle, '太棒了');
+        }, 1.5);
         return true;
+    }
+
+    /** 宝箱开启特效：冲天光柱 + 放射金光 + 白闪 + 星光四散 + 宝箱弹跳摇晃，播放完毕后再弹出奖励 */
+    private playChestOpenEffect() {
+        const layer = this.sheet;
+        if (!layer || !isValid(layer, true) || this.page !== 'adventure') return;
+        const box = layer.getChildByName('冒险右侧宝箱区');
+        if (!box) return;
+        const cx = box.position.x, cy = box.position.y + 26;
+        const fx = this.uiNode(layer, '宝箱开启特效', cx, cy, 10, 10);
+
+        // 1) 冲天光柱
+        const pillar = this.uiNode(fx, '光柱', 0, 260, 150, 560);
+        const pg = pillar.addComponent(Graphics);
+        pg.fillColor = new Color(255, 232, 120, 120); pg.roundRect(-75, -280, 150, 560, 70); pg.fill();
+        pg.fillColor = new Color(255, 250, 200, 190); pg.roundRect(-38, -280, 76, 560, 38); pg.fill();
+        const pop = pillar.addComponent(UIOpacity); pop.opacity = 0;
+        tween(pop).to(0.18, { opacity: 255 }).delay(0.9).to(0.5, { opacity: 0 }).start();
+        pillar.setScale(0.4, 0.2, 1);
+        tween(pillar).to(0.28, { scale: new Vec3(1.15, 1, 1) }).start();
+
+        // 2) 放射金光爆发
+        const burst = this.uiNode(fx, '放射金光', 0, 0, 10, 10);
+        const bg = burst.addComponent(Graphics);
+        for (let r = 0; r < 16; r++) {
+            const a0 = (r * Math.PI * 2) / 16, a1 = a0 + 0.14;
+            bg.fillColor = new Color(255, 218, 80, r % 2 === 0 ? 235 : 150);
+            bg.moveTo(0, 0); bg.lineTo(Math.cos(a0) * 300, Math.sin(a0) * 300); bg.lineTo(Math.cos(a1) * 300, Math.sin(a1) * 300); bg.close(); bg.fill();
+        }
+        const bop = burst.addComponent(UIOpacity); bop.opacity = 255;
+        burst.setScale(0.25, 0.25, 1);
+        tween(burst).to(1.3, { scale: new Vec3(2.1, 2.1, 1), angle: 50 }).start();
+        tween(bop).delay(0.35).to(0.95, { opacity: 0 }).start();
+
+        // 3) 白色闪光
+        const flash = this.uiNode(fx, '闪光', 0, 0, 10, 10);
+        const fg = flash.addComponent(Graphics);
+        fg.fillColor = new Color(255, 250, 215, 150); fg.circle(0, 0, 96); fg.fill();
+        const fop = flash.addComponent(UIOpacity); fop.opacity = 255;
+        flash.setScale(0.4, 0.4, 1);
+        tween(flash).to(0.28, { scale: new Vec3(1.3, 1.3, 1) }).start();
+        tween(fop).to(0.28, { opacity: 0 }).start();
+
+        // 4) 星光四散
+        for (let i = 0; i < 22; i++) {
+            const star = this.uiNode(fx, '星光', 0, 0, 10, 10);
+            const sg = star.addComponent(Graphics);
+            const s = 13 + Math.random() * 12;
+            sg.fillColor = i % 3 === 0 ? new Color(255, 255, 255, 255) : new Color(255, 222, 84, 255);
+            sg.moveTo(0, s); sg.lineTo(s * 0.26, s * 0.26); sg.lineTo(s, 0); sg.lineTo(s * 0.26, -s * 0.26);
+            sg.lineTo(0, -s); sg.lineTo(-s * 0.26, -s * 0.26); sg.lineTo(-s, 0); sg.lineTo(-s * 0.26, s * 0.26); sg.close(); sg.fill();
+            const op = star.addComponent(UIOpacity); op.opacity = 255;
+            const ang = Math.random() * Math.PI * 2, dist = 150 + Math.random() * 190;
+            const dx = Math.cos(ang) * dist, dy = Math.sin(ang) * dist + 60;
+            tween(star).delay(Math.random() * 0.25).to(0.9 + Math.random() * 0.4, { position: new Vec3(dx, dy, 0), angle: 180 }, { easing: 'quadOut' }).start();
+            tween(op).delay(0.6 + Math.random() * 0.3).to(0.5, { opacity: 0 }).start();
+        }
+
+        // 5) 宝箱弹跳摇晃
+        const chest = box.getChildByName('冒险挂机宝箱');
+        if (chest && isValid(chest, true)) {
+            Tween.stopAllByTarget(chest);
+            chest.setScale(1, 1, 1); chest.angle = 0;
+            tween(chest).to(0.12, { scale: new Vec3(1.28, 0.82, 1) }).to(0.16, { scale: new Vec3(0.92, 1.24, 1) })
+                .to(0.14, { scale: new Vec3(1.1, 1.1, 1) }).to(0.12, { scale: new Vec3(1, 1, 1) }).start();
+            tween(chest).to(0.06, { angle: 7 }).to(0.08, { angle: -7 }).to(0.08, { angle: 5 }).to(0.08, { angle: -4 }).to(0.06, { angle: 0 }).start();
+        }
+        this.scheduleOnce(() => { if (isValid(fx, true)) fx.destroy(); }, 2.0);
     }
 
     /** 同步主城与冒险场景中 3D 宠物的可见性：外出冒险的伙伴不显示在主城庭院，只在冒险道路上奔跑 */
@@ -5185,6 +5335,13 @@ export class Main extends Component {
         });
         this.renderHeader();
         this.refreshMemorialEntry();
+        {
+            const gained: RewardGrantItem[] = [];
+            if (outcome.coins) gained.push({ kind: 'coins', amount: outcome.coins });
+            if (outcome.gems) gained.push({ kind: 'gems', amount: outcome.gems });
+            if (outcome.item) gained.push({ kind: 'item', itemId: outcome.item.id, amount: outcome.itemCount || 1 });
+            if (gained.length && (this.page === 'home' || this.page === 'adventure')) this.showRewardToast(gained, name + ' 带回');
+        }
         if (outcome.setLost) {
             this.pendingAlerts.push({ kind: 'lost', petId: pet.id, reason: outcome.text });
             this.checkMainCityAlerts();
@@ -5208,9 +5365,9 @@ export class Main extends Component {
         if (this.dialog) this.closeDialog();
         const name = this.petDisplayName(petId);
         if (kind === 'lost') {
-            this.showDialog('走失警报！', `「${name}」在冒险中贪玩走丢了！\n可以免费观看广告立刻找回，或花 100 金币发布寻宠启事。`, [
+            this.showDialog('走失警报！', `「${name}」在冒险中贪玩走丢了！\n观看广告可免费找回，或消耗钻石立刻找回。`, [
                 { title: '看广告找回', run: () => this.recoverLostPet(petId, 'ad') },
-                { title: '100金币找回', run: () => this.recoverLostPet(petId, 'coins') },
+                { title: '钻石找回', cost: { currency: 'gems', amount: LOST_PET_RECOVER_GEMS }, run: () => this.recoverLostPet(petId, 'gems') },
             ]);
         } else {
             this.showDialog('离别提醒', `「${name}」因【${reason}】离开了庭院……\n可以观看广告奇迹复活，或前往后院纪念角立碑纪念。`, [
@@ -5220,30 +5377,33 @@ export class Main extends Component {
         }
     }
 
-    private recoverLostPet(petId: number, mode: 'ad' | 'coins') {
+    private recoverLostPet(petId: number, mode: 'ad' | 'gems') {
         const pet = this.data.pets.find(p => p.id === petId);
         if (!pet || !pet.lost) { this.closeDialog(); return; }
         const finish = () => {
             const c = this.dailyCandidate();
-            if (mode === 'coins') {
-                if (c.coins < 100) { this.closeDialog(); this.showCoinDialog(); return; }
-                c.coins -= 100;
+            if (mode === 'gems') {
+                if (c.gems < LOST_PET_RECOVER_GEMS) { this.closeDialog(); this.showGemDialog(); return; }
+                c.gems -= LOST_PET_RECOVER_GEMS;
             }
             const target = c.pets.find(p => p.id === petId);
             if (!target) return;
-            target.lost = false; target.joy = Math.min(100, target.joy + 20);
+            target.lost = false; target.adventuring = false; target.adventureReturnAt = undefined; target.joy = Math.min(100, target.joy + 20);
             (c.adventureLogs || []).forEach(l => { if (l.petId === petId && l.type === 'lost') l.resolved = true; });
             if (!this.commitShop(c)) return;
             if (!this.actors.some(a => a.pet.id === petId)) this.spawnPet(target);
+            this.syncActorVisibility();
             this.closeDialog();
             this.renderHeader();
             if (this.page === 'diary') { if (this.sheet) { this.sheet.destroy(); this.sheet = null; } this.open('diary'); }
             this.toast('太好了！「' + this.petDisplayName(petId) + '」已经平安回到庭院啦！');
+            if (mode === 'gems') this.showRewardToast([{ kind: 'gems', amount: -LOST_PET_RECOVER_GEMS }], '消耗');
         };
-        if (mode === 'coins') { finish(); return; }
-        if (this.rewardedVideoProvider) {
-            this.rewardedVideoProvider.show(res => { if (res === 'completed') finish(); else this.toast('未完整观看广告，暂未找回'); });
-        } else { finish(); }
+        if (mode === 'gems') {
+            if (this.data.gems < LOST_PET_RECOVER_GEMS) { this.closeDialog(); this.showGemDialog(); return; }
+            finish(); return;
+        }
+        this.requestRewardedAd(finish, '暂未找回');
     }
 
     public revivePetByAd(petId: number) {
@@ -5253,11 +5413,12 @@ export class Main extends Component {
             const c = this.dailyCandidate();
             const target = c.pets.find(p => p.id === petId);
             if (!target) return;
-            target.dead = false; target.lost = false;
+            target.dead = false; target.lost = false; target.adventuring = false; target.adventureReturnAt = undefined;
             target.health = 100; target.hunger = 80; target.clean = 80; target.energy = 90; target.joy = 85;
             (c.adventureLogs || []).forEach(l => { if (l.petId === petId && (l.type === 'death_trafficker' || l.type === 'death_sick')) l.resolved = true; });
             if (!this.commitShop(c)) return;
             if (!this.actors.some(a => a.pet.id === petId)) this.spawnPet(target);
+            this.syncActorVisibility();
             this.closeDialog();
             this.renderHeader();
             this.refreshMemorialEntry();
@@ -5268,9 +5429,7 @@ export class Main extends Component {
             }
             this.toast('奇迹发生！「' + this.petDisplayName(petId) + '」满血复活回到庭院啦！');
         };
-        if (this.rewardedVideoProvider) {
-            this.rewardedVideoProvider.show(res => { if (res === 'completed') finish(); else this.toast('未完整观看广告，未能复活'); });
-        } else { finish(); }
+        this.requestRewardedAd(finish, '未能复活');
     }
 
     private refreshMemorialEntry() {
@@ -5355,7 +5514,10 @@ export class Main extends Component {
                 const btnY = -cardH / 2 + 38;
                 if (log.type === 'lost') {
                     this.bagButton(card, '看广告找回', -150, btnY, 240, 50, () => this.recoverLostPet(log.petId, 'ad'));
-                    this.bagButton(card, '100金币找回', 150, btnY, 240, 50, () => this.recoverLostPet(log.petId, 'coins'));
+                    const gemBtn = this.bagButton(card, '钻石找回', 150, btnY, 240, 50, () => this.recoverLostPet(log.petId, 'gems'));
+                    const gemLbl = gemBtn.children.find(ch => ch.getComponent(Label));
+                    if (gemLbl) gemLbl.setPosition(-38, 0, 0);
+                    this.addPriceTag(gemBtn, 'gems', LOST_PET_RECOVER_GEMS, 56, 0, 28, '#FFFFFF');
                 } else {
                     this.bagButton(card, '看广告复活', -150, btnY, 240, 50, () => this.revivePetByAd(log.petId));
                     this.bagButton(card, '立碑纪念', 150, btnY, 240, 50, () => { this.open('memorial'); this.showErectTombstoneDialog(log.petId); });
@@ -5702,7 +5864,7 @@ export class Main extends Component {
         }
         this.renderHeader();
         if (this.page === 'pet') this.open('pet');
-        this.toast('清理便便成功！金币 +5，庭院更干净啦');
+        this.toast('清理便便成功，庭院更干净啦'); this.showRewardToast([{ kind: 'coins', amount: 5 }]);
     }
 
     private getPoopMaterial(): Material {

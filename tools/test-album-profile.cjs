@@ -656,7 +656,17 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
       const ok = main.claimAdventureChest();
       return { ok, coinGain: main.data.coins - c0, gemGain: main.data.gems - g0, dialogOpen: !!main.dialog };
     });
-    await page.waitForTimeout(450);
+    await page.waitForTimeout(620);
+    const fxCheck = await page.evaluate(() => ({
+      fx: !!walk(main.sheet).find(n => n.name === '宝箱开启特效'),
+      sparks: walk(main.sheet).filter(n => n.name === '星光').length,
+      dialogDeferred: !main.dialog,
+    }));
+    console.log('chest open effect check:', JSON.stringify(fxCheck));
+    assert.ok(fxCheck.fx && fxCheck.sparks >= 12 && fxCheck.dialogDeferred, 'chest effect must play before reward dialog');
+    await page.screenshot({ path: path.join(OUT_DIR, 'verify-chest-open-effect.png') });
+    await page.waitForTimeout(1300);
+    chestRes.dialogOpen = await page.evaluate(() => !!main.dialog);
     const rewardCardsCheck = await page.evaluate(() => {
       const cards = main.dialog ? walk(main.dialog).filter(n => n.name.startsWith('奖励图标卡-')) : [];
       const iconsLoaded = cards.filter(c => !!c.getChildByName('奖励图标')?.getComponent('cc.Sprite')?.spriteFrame).length;
@@ -667,6 +677,32 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
     assert.ok(chestRes.ok && chestRes.coinGain > 500 && chestRes.gemGain >= 20 && chestRes.dialogOpen, '6h idle chest must grant rich coins & gems');
     assert.ok(rewardCardsCheck.cardCount >= 3 && rewardCardsCheck.iconsLoaded === rewardCardsCheck.cardCount && rewardCardsCheck.bodyHidden, 'chest reward dialog must show Icon+Number visual cards instead of plain text');
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-chest-reward-dialog.png') });
+
+    // Crisis dialogs: no SDK -> ad buttons only toast; lost pet recovers with gems (icon+number), never coins
+    await page.evaluate(() => { main.closeDialog(); main.rewardedVideoProvider = null; });
+    const adGate = await page.evaluate(() => {
+      const before = !!main.data.pets.find(p => p.id === 1)?.dead;
+      main.revivePetByAd(1);
+      return { before, after: !!main.data.pets.find(p => p.id === 1)?.dead, notice: main.notice.string };
+    });
+    console.log('ad gate check:', JSON.stringify(adGate));
+    assert.deepEqual(adGate, { before: true, after: true, notice: '激励视频暂未接入' });
+    const lostRes = await page.evaluate(() => {
+      const p0 = main.data.pets.find(p => p.id === 0);
+      p0.lost = true;
+      main.showPetCrisisDialog('lost', 0, '');
+      const tag = walk(main.dialog).find(n => n.name === '价格标签-gems');
+      const num = tag?.getChildByName('价格数字')?.getComponent('cc.Label')?.string;
+      const coinBtn = !!walk(main.dialog).find(n => n.name.indexOf('金币') >= 0 && n.name.startsWith('弹窗按钮-'));
+      const g0 = main.data.gems;
+      main.recoverLostPet(0, 'ad');
+      const stillLost = main.data.pets.find(p => p.id === 0).lost;
+      main.recoverLostPet(0, 'gems');
+      return { hasGemTag: !!tag, num, coinBtn, stillLost, recovered: !main.data.pets.find(p => p.id === 0).lost, gemSpent: g0 - main.data.gems };
+    });
+    console.log('lost recover check:', JSON.stringify(lostRes));
+    assert.deepEqual(lostRes, { hasGemTag: true, num: '50', coinBtn: false, stillLost: true, recovered: true, gemSpent: 50 });
+    await page.waitForTimeout(300);
 
     // Open Adventure Diary -> verify item card + death log
     await page.evaluate(() => { main.closeDialog(); main.open('diary'); });
