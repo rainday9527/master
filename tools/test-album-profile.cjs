@@ -877,13 +877,14 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
       const tabBtn = walk(main.sheet).find(n => n.name === '商店页签-家具');
       tabBtn.emit('touch-end', {});
       const cards = walk(main.sheet).filter(n => n.name.startsWith('家具商品卡-')).length;
+      const adBtns = walk(main.sheet).filter(n => n.name.startsWith('家具广告按钮-')).length;
       main.data.coins += 500;
       const bought = main.buyFurniture('deco_fountain');
       const bagCnt = main.data.furnitureInventory?.deco_fountain || 0;
-      return { cards, bought, bagCnt };
+      return { cards, adBtns, bought, bagCnt };
     });
     console.log('shop furniture tab check:', JSON.stringify(furnTabRes));
-    assert.deepEqual(furnTabRes, { cards: 16, bought: true, bagCnt: 1 });
+    assert.deepEqual(furnTabRes, { cards: 16, adBtns: 3, bought: true, bagCnt: 1 });
     await page.waitForTimeout(450);
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-shop-furniture.png') });
 

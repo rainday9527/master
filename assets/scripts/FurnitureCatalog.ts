@@ -29,6 +29,7 @@ export interface FurnitureDef {
     appliesTo: PetKind | 'both';
     price: number;
     currency: FurnitureCurrency;
+    unlockMode?: 'buy' | 'ad';
     starter?: boolean;
     limited?: boolean;
     slotTheme: SlotBgTheme;
@@ -55,22 +56,22 @@ export const FURNITURE_CATALOG: readonly FurnitureDef[] = [
     { id: 'dog_bed_basic', name: '暖木狗窝', category: 'bed', appliesTo: 'dog', price: 140, currency: 'coins', starter: true, slotTheme: 'general', effectTag: '狗窝 · 睡眠回体', sleepRate: 6, radius: 0.78, entryOffset: [-0.36, 0.44], hideInside: true, desc: '温馨小木屋造型狗窝，小狗累了会自动从门洞钻进去打盹回复体力。' },
     { id: 'cat_bowl_basic', name: '小鱼猫盆', category: 'bowl', appliesTo: 'cat', price: 110, currency: 'coins', starter: true, slotTheme: 'heal', effectTag: '猫盆 · 自动喂食', feedBonus: 0, radius: 0.52, entryOffset: [0.0, 0.56], desc: '小猫饿了会自动走到猫盆前，消耗背包猫粮/通用食物进食。' },
     { id: 'dog_bowl_basic', name: '骨头狗盆', category: 'bowl', appliesTo: 'dog', price: 110, currency: 'coins', starter: true, slotTheme: 'heal', effectTag: '狗盆 · 自动喂食', feedBonus: 0, radius: 0.52, entryOffset: [0.0, 0.56], desc: '小狗饿了会自动走到狗盆前，消耗背包狗粮/通用食物进食。' },
-    { id: 'play_park_basic', name: '秋千游玩乐园', category: 'park', appliesTo: 'both', price: 220, currency: 'coins', starter: true, slotTheme: 'coin', effectTag: '乐园 · 自动玩耍', playBonus: 0, radius: 0.95, entryOffset: [0.0, 0.58], desc: '猫猫狗狗会自动跑进乐园消耗玩具道具开心玩耍，恢复心情。' },
+    { id: 'play_park_basic', name: '秋千游玩乐园', category: 'park', appliesTo: 'both', price: 220, currency: 'coins', starter: true, slotTheme: 'heal', effectTag: '乐园 · 自动玩耍', playBonus: 0, radius: 0.95, entryOffset: [0.0, 0.58], desc: '猫猫狗狗会自动跑进乐园消耗玩具道具开心玩耍，恢复心情。' },
 
-    // 进阶功能家具（商店「家具」页签购买）
-    { id: 'cat_bed_castle', name: '星空猫爬架窝', category: 'bed', appliesTo: 'cat', price: 320, currency: 'coins', slotTheme: 'gem', effectTag: '猫窝 · 回体+35%', sleepRate: 8.2, radius: 0.84, entryOffset: [0.0, 0.46], desc: '多层星空绒布猫爬架窝，小猫睡眠回复体力速度提升 35%。' },
-    { id: 'dog_bed_villa', name: '小木屋狗窝', category: 'bed', appliesTo: 'dog', price: 360, currency: 'coins', slotTheme: 'gem', effectTag: '狗窝 · 回体+35%', sleepRate: 8.2, radius: 0.88, entryOffset: [-0.34, 0.50], hideInside: true, desc: '红瓦斜顶豪华小木屋狗窝，小狗睡眠回复体力速度提升 35%。' },
-    { id: 'cloud_bed_limited', name: '云朵梦境大床', category: 'bed', appliesTo: 'both', price: 85, currency: 'gems', limited: true, slotTheme: 'rainbow', effectTag: '通用 · 极速回体+65%', sleepRate: 10, radius: 0.92, entryOffset: [0.0, 0.34], desc: '猫狗通用的星月云朵大床，极速恢复体力并自带梦境光晕。' },
-    { id: 'cat_bowl_fancy', name: '陶瓷双格猫盆', category: 'bowl', appliesTo: 'cat', price: 240, currency: 'coins', slotTheme: 'heal', effectTag: '猫盆 · 饱腹+20%', feedBonus: 0.20, radius: 0.58, entryOffset: [0.0, 0.58], desc: '粉嫩蝴蝶结陶瓷双碗，小猫自动进食时饱腹回复额外 +20%。' },
-    { id: 'dog_bowl_fancy', name: '皇家餐台狗盆', category: 'bowl', appliesTo: 'dog', price: 260, currency: 'coins', slotTheme: 'heal', effectTag: '狗盆 · 饱腹+20%', feedBonus: 0.20, radius: 0.60, entryOffset: [0.0, 0.60], desc: '实木皇冠垫高双餐台，小狗自动进食时饱腹回复额外 +20%。' },
-    { id: 'play_park_slide', name: '彩虹滑梯乐园', category: 'park', appliesTo: 'both', price: 480, currency: 'coins', slotTheme: 'epic', effectTag: '乐园 · 心情+25%', playBonus: 0.25, radius: 1.05, entryOffset: [-0.24, 0.64], desc: '七彩大滑梯宠物游乐场，猫狗自动游玩时心情恢复额外 +25%。' },
-    { id: 'play_park_ferris', name: '摩天轮梦幻乐园', category: 'park', appliesTo: 'both', price: 95, currency: 'gems', limited: true, slotTheme: 'rainbow', effectTag: '梦幻乐园 · 心情+40%', playBonus: 0.40, radius: 1.12, entryOffset: [0.0, 0.66], desc: '自带小摩天轮的梦幻宠物乐园，猫狗游玩心情恢复额外 +40%。' },
+    // 进阶功能家具（蓝/绿框金币购，紫/金框钻石购，粉金彩限定看广告解锁）
+    { id: 'cat_bed_castle', name: '星空猫爬架窝', category: 'bed', appliesTo: 'cat', price: 55, currency: 'gems', slotTheme: 'epic', effectTag: '猫窝 · 回体+35%', sleepRate: 8.2, radius: 0.84, entryOffset: [0.0, 0.46], desc: '多层星空绒布猫爬架窝，小猫睡眠回复体力速度提升 35%。' },
+    { id: 'dog_bed_villa', name: '小木屋狗窝', category: 'bed', appliesTo: 'dog', price: 60, currency: 'gems', slotTheme: 'epic', effectTag: '狗窝 · 回体+35%', sleepRate: 8.2, radius: 0.88, entryOffset: [-0.34, 0.50], hideInside: true, desc: '红瓦斜顶豪华小木屋狗窝，小狗睡眠回复体力速度提升 35%。' },
+    { id: 'cloud_bed_limited', name: '云朵梦境大床', category: 'bed', appliesTo: 'both', price: 0, currency: 'gems', unlockMode: 'ad', limited: true, slotTheme: 'rainbow', effectTag: '通用 · 极速回体+65%', sleepRate: 10, radius: 0.92, entryOffset: [0.0, 0.34], desc: '限定 · 猫狗通用的星月云朵大床，极速恢复体力并自带梦境光晕。' },
+    { id: 'cat_bowl_fancy', name: '陶瓷双格猫盆', category: 'bowl', appliesTo: 'cat', price: 240, currency: 'coins', slotTheme: 'gem', effectTag: '猫盆 · 饱腹+20%', feedBonus: 0.20, radius: 0.58, entryOffset: [0.0, 0.58], desc: '粉嫩蝴蝶结陶瓷双碗，小猫自动进食时饱腹回复额外 +20%。' },
+    { id: 'dog_bowl_fancy', name: '皇家餐台狗盆', category: 'bowl', appliesTo: 'dog', price: 260, currency: 'coins', slotTheme: 'gem', effectTag: '狗盆 · 饱腹+20%', feedBonus: 0.20, radius: 0.60, entryOffset: [0.0, 0.60], desc: '实木皇冠垫高双餐台，小狗自动进食时饱腹回复额外 +20%。' },
+    { id: 'play_park_slide', name: '彩虹滑梯乐园', category: 'park', appliesTo: 'both', price: 75, currency: 'gems', slotTheme: 'coin', effectTag: '乐园 · 心情+25%', playBonus: 0.25, radius: 1.05, entryOffset: [-0.24, 0.64], desc: '七彩大滑梯宠物游乐场，猫狗自动游玩时心情恢复额外 +25%。' },
+    { id: 'play_park_ferris', name: '摩天轮梦幻乐园', category: 'park', appliesTo: 'both', price: 0, currency: 'gems', unlockMode: 'ad', limited: true, slotTheme: 'rainbow', effectTag: '梦幻乐园 · 心情+40%', playBonus: 0.40, radius: 1.12, entryOffset: [0.0, 0.66], desc: '限定 · 自带小摩天轮的梦幻宠物乐园，猫狗游玩心情恢复额外 +40%。' },
 
     // 场景装饰建筑
     { id: 'deco_fountain', name: '爪印喷泉', category: 'decor', appliesTo: 'both', price: 280, currency: 'coins', slotTheme: 'gem', effectTag: '庭院水景装饰', radius: 0.78, desc: '清凉叮咚的石雕爪印小喷泉，让庭院充满生机。' },
-    { id: 'deco_lamp', name: '萤火路灯', category: 'decor', appliesTo: 'both', price: 180, currency: 'coins', slotTheme: 'coin', effectTag: '庭院暖灯装饰', radius: 0.46, desc: '铁艺暖黄童话小路灯，点亮庭院温馨角落。' },
+    { id: 'deco_lamp', name: '萤火路灯', category: 'decor', appliesTo: 'both', price: 180, currency: 'coins', slotTheme: 'general', effectTag: '庭院暖灯装饰', radius: 0.46, desc: '铁艺暖黄童话小路灯，点亮庭院温馨角落。' },
     { id: 'deco_flowerbed', name: '绣球花坛', category: 'decor', appliesTo: 'both', price: 160, currency: 'coins', slotTheme: 'heal', effectTag: '庭院花境装饰', radius: 0.68, desc: '盛开粉紫绣球花的木框花坛，装点清新花园。' },
-    { id: 'deco_swing_tree', name: '樱花凉亭', category: 'decor', appliesTo: 'both', price: 75, currency: 'gems', limited: true, slotTheme: 'rainbow', effectTag: '限定樱花庭院建筑', radius: 1.05, desc: '落英缤纷的浪漫樱花小凉亭，打造高颜值梦幻主城。' },
+    { id: 'deco_swing_tree', name: '樱花凉亭', category: 'decor', appliesTo: 'both', price: 0, currency: 'gems', unlockMode: 'ad', limited: true, slotTheme: 'rainbow', effectTag: '限定樱花庭院建筑', radius: 1.05, desc: '限定 · 落英缤纷的浪漫樱花小凉亭，打造高颜值梦幻主城。' },
 ];
 
 export function findFurniture(id: string): FurnitureDef | undefined {

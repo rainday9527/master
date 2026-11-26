@@ -5198,11 +5198,16 @@ export class Main extends Component {
             ownedLbl.isBold = true;
 
             const buyBtn = this.shopArt(card, 'buy', 0, -108, 190, 66);
-            buyBtn.name = '家具购买按钮-' + f.id;
-            this.addPriceTag(buyBtn, f.currency, f.price, 8, 0, 30, '#FFFFFF');
-            this.shopButton(buyBtn, () => {
-                if (this.buyFurniture(f.id)) refreshAll();
-            });
+            buyBtn.name = f.unlockMode === 'ad' ? '家具广告按钮-' + f.id : '家具购买按钮-' + f.id;
+            if (f.unlockMode === 'ad') {
+                this.headerText(buyBtn, '看广告解锁', 0, 0, 176, 36, 22);
+                this.shopButton(buyBtn, () => this.unlockFurnitureByAd(f.id, refreshAll));
+            } else {
+                this.addPriceTag(buyBtn, f.currency, f.price, 8, 0, 30, '#FFFFFF');
+                this.shopButton(buyBtn, () => {
+                    if (this.buyFurniture(f.id)) refreshAll();
+                });
+            }
 
             updaters.push(() => {
                 const bag = (this.data.furnitureInventory || {})[f.id] || 0;
@@ -5216,7 +5221,7 @@ export class Main extends Component {
 
     public buyFurniture(id: FurnitureId): boolean {
         const def = findFurniture(id);
-        if (!def) return false;
+        if (!def || def.unlockMode === 'ad') return false;
         if (def.currency === 'coins' && this.data.coins < def.price) { this.showCoinDialog(); return false; }
         if (def.currency === 'gems' && this.data.gems < def.price) { this.showGemDialog(); return false; }
         const c = this.dailyCandidate();
@@ -5227,6 +5232,19 @@ export class Main extends Component {
         if (def.price > 0) this.showRewardToast([{ kind: def.currency, amount: -def.price }], '消耗');
         this.toast(`已购入「${def.name}」存入家具仓库，点击主城「布置」即可摆放！`);
         return true;
+    }
+
+    public unlockFurnitureByAd(id: FurnitureId, onDone?: () => void) {
+        const def = findFurniture(id);
+        if (!def || def.unlockMode !== 'ad') return;
+        this.requestRewardedAd(() => {
+            const c = this.dailyCandidate();
+            c.furnitureInventory = { ...(c.furnitureInventory || {}), [id]: ((c.furnitureInventory || {})[id] || 0) + 1 };
+            if (!this.commitShop(c)) return;
+            this.renderHeader();
+            onDone?.();
+            this.toast(`限定家具解锁成功！「${def.name}」已存入仓库，点击主城「布置」即可摆放`);
+        }, '暂未解锁限定家具');
     }
 
     /** 同步庭院 3D 手绘家具模型与选中光环（仅主城/照顾/布置页显示，绝不泄漏到冒险页） */
