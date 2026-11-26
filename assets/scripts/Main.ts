@@ -6854,18 +6854,18 @@ export class Main extends Component {
             return btn;
         };
 
-        makeLoginBtn('登录开始游戏按钮', '开始游戏', -468, 456, 104, '#F5B53A', '#7A3E12', '#FFFDF5', 42, () => {
+        makeLoginBtn('登录开始游戏按钮', '开始游戏', -466, 420, 94, '#F5B53A', '#7A3E12', '#FFFDF5', 36, () => {
             SoundManager.playSfx('reward');
             this.settingsReturnPage = 'home';
             this.open('home');
         }, true);
 
-        makeLoginBtn('登录设置按钮', '设  置', -598, 368, 84, '#FFF3D4', '#8B5426', '#FFFDF5', 34, () => {
+        makeLoginBtn('登录设置按钮', '设  置', -584, 420, 94, '#FFF3D4', '#8B5426', '#FFFDF5', 36, () => {
             this.settingsReturnPage = 'login';
             this.open('settings');
         });
 
-        makeLoginBtn('登录退出游戏按钮', '退出游戏', -708, 368, 84, '#E8C4A8', '#7D4B28', '#FFFDF5', 34, () => {
+        makeLoginBtn('登录退出游戏按钮', '退出游戏', -702, 420, 94, '#E8C4A8', '#7D4B28', '#FFFDF5', 36, () => {
             this.persist();
             this.showDialog('退出游戏', '进度已自动保存，确定要退出《猫狗乐园》吗？', [
                 {
