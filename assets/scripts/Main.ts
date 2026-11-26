@@ -25,6 +25,7 @@ import {
     FURNITURE_CATALOG, FurnitureDef, FurnitureId, PlacedFurniture,
     findFurniture, isFurnitureId, defaultPlacedFurniture, furnitureMatchesPet,
 } from './FurnitureCatalog';
+import { SoundManager } from './SoundManager';
 
 const { ccclass } = _decorator;
 type Kind = 'cat' | 'dog';
@@ -313,6 +314,7 @@ export class Main extends Component {
     onLoad() {
         profiler.hideStats();
         this.data = this.load();
+        SoundManager.init(this.data.settings?.bgm !== false, this.data.settings?.sfx !== false);
         // 立即保存商店迁移结果；失败时后续商店事务仍须先落盘才会生效。
         this.commitShop(this.data);
         view.setDesignResolutionSize(1080, 1920, ResolutionPolicy.SHOW_ALL);
@@ -1897,7 +1899,7 @@ export class Main extends Component {
         const n = this.uiNode(parent, title, x, y, w, h); this.card(n, fill, 22); this.intercept(n);
         this.text(n, title, 0, 0, w - 18, h - 8, font, C.ink);
         this.pressFeedback(n);
-        n.on(Node.EventType.TOUCH_END, (event: EventTouch) => { event.propagationStopped = true; this.blockedUntil = Date.now() + 350; action(); }, this);
+        n.on(Node.EventType.TOUCH_END, (event: EventTouch) => { event.propagationStopped = true; this.blockedUntil = Date.now() + 350; SoundManager.playSfx('click'); action(); }, this);
         return n;
     }
     private clearRecruitBackground() {
@@ -2268,6 +2270,7 @@ export class Main extends Component {
     public showRewardGrantDialog(title: string, rewards: RewardGrantItem[], subtitle?: string, buttonText = '太棒了') {
         const list = rewards.filter(r => r.amount > 0);
         if (!list.length) return;
+        SoundManager.playSfx('reward');
         if (this.dialog) this.closeDialog();
         this.showDialog(title, '', [{ title: buttonText, run: () => this.closeDialog() }]);
         const panel = this.dialog?.getChildByName('通用弹窗面板');
@@ -2769,7 +2772,10 @@ export class Main extends Component {
         }
         this.clearRecruitBackground();
         if (page !== 'profile') { this.previewViewportNode = null; this.clearProfilePreview(); }
+        const prevPage = this.page;
         this.page = page; this.adventureLabel = null;
+        SoundManager.setBgmMode(page === 'adventure' ? 'adventure' : 'home');
+        if (prevPage !== page && page !== 'home') SoundManager.playSfx('click');
         this.syncActorVisibility();
         if (page === 'pet') this.petSelected = true;
         if (page === 'home') { this.petSelected = false; this.careSelected = ''; }
@@ -3101,8 +3107,13 @@ export class Main extends Component {
             this.showRewardToast([{ kind: 'item', itemId: item.id, amount: -1 }], '使用');
         }
         if (category === 'medicine') {
+            SoundManager.playSfx('heal');
             this.toast(wasSick && nextPet.health >= 30 ? '治疗成功！' + this.petDisplayName(p.id) + ' 恢复健康啦！' : '使用「' + (item?.name || '治疗') + '」，健康度 +' + (effects.health || 0));
         } else {
+            if (category === 'food') SoundManager.playSfx('eat');
+            else if (category === 'soap') SoundManager.playSfx('bath');
+            else if (category === 'rest') SoundManager.playSfx('sleep');
+            else if (category === 'toy') SoundManager.playSfx(BREEDS[p.id].kind === 'cat' ? 'cat_meow' : 'dog_bark');
             this.toast((item ? '使用「' + item.name + '」' : '休息完成') + '，经验 +' + xpGain + (levels > 0 ? '，升级啦！' : ''));
         }
     }
@@ -4100,7 +4111,7 @@ export class Main extends Component {
             this.blockedUntil = Date.now() + 350;
             const tap = start && !moved && Vec2.distance(start, event.getUILocation()) <= 12;
             start = null;
-            if (tap) action();
+            if (tap) { SoundManager.playSfx('click'); action(); }
         }, this);
     }
 
@@ -5063,7 +5074,7 @@ export class Main extends Component {
             node.setScale(base.x * 0.94, base.y * 0.94, base.z);
         }, this);
         node.on(Node.EventType.TOUCH_CANCEL, restore, this);
-        node.on(Node.EventType.TOUCH_END, () => { restore(); action(); }, this);
+        node.on(Node.EventType.TOUCH_END, () => { restore(); SoundManager.playSfx('click'); action(); }, this);
     }
 
     private shopClick(cooldownMs = 160): boolean {
@@ -5609,6 +5620,7 @@ export class Main extends Component {
         recordAchievement(c.achievements!, 'furniture');
         if (!this.commitShop(c)) return false;
         this.selectedFurnitureUid = uid;
+        SoundManager.playSfx('place');
         this.syncYardFurniture();
         if (this.page === 'layout') this.renderLayoutPanel();
         this.toast(`已摆放「${def.name}」，点击草坪任意位置可调整摆放位置`);
@@ -5633,7 +5645,7 @@ export class Main extends Component {
                 a.node.setPosition(nx, 0, nz);
             }
         });
-        if (saveNow) this.persist();
+        if (saveNow) { this.persist(); SoundManager.playSfx('place'); }
         this.syncYardFurniture();
         return true;
     }
@@ -5802,6 +5814,9 @@ export class Main extends Component {
         if (act) act.pet = target;
         this.renderHeader();
         if (this.page === 'home' || this.page === 'pet') {
+            if (category === 'food') SoundManager.playSfx('eat');
+            else if (category === 'soap') SoundManager.playSfx('bath');
+            else if (category === 'toy') SoundManager.playSfx(kind === 'cat' ? 'cat_meow' : 'dog_bark');
             if (chosenLegacy) this.showRewardToast([{ kind: 'care', careType: chosenLegacy, amount: -1 }], this.petDisplayName(pet.id) + ' 自动使用');
             else this.showRewardToast([{ kind: 'item', itemId: chosenItem.id, amount: -1 }], this.petDisplayName(pet.id) + ' 自动使用');
         }
@@ -6103,7 +6118,7 @@ export class Main extends Component {
             this.blockedUntil = Date.now() + 350;
             const tap = start && !moved && Vec2.distance(start, event.getUILocation()) <= 10;
             start = null;
-            if (tap) action();
+            if (tap) { SoundManager.playSfx('click'); action(); }
         }, this);
         return node;
     }
@@ -6458,13 +6473,20 @@ export class Main extends Component {
         this.dailyText(panel, '每日 00:00 (UTC+8) 刷新 · 每满 7 天全额 +20 钻石（第 4 轮起封顶）', 0, -534, 700, 34, 19);
     }
 
+    public getSoundState() {
+        return SoundManager.getState();
+    }
+
     private toggleSetting(key: 'bgm' | 'sfx' | 'floatToast' | 'highFps') {
         const c = this.dailyCandidate();
         const cur = c.settings || { bgm: true, sfx: true, floatToast: true, highFps: true };
         const next = { ...cur, [key]: !cur[key] };
         c.settings = next;
         if (!this.commitShop(c)) return;
+        if (key === 'bgm') SoundManager.setBgmEnabled(next.bgm);
+        if (key === 'sfx') SoundManager.setSfxEnabled(next.sfx);
         if (key === 'highFps') game.frameRate = next.highFps ? 60 : 30;
+        SoundManager.playSfx('click');
         const names: Record<typeof key, string> = {
             bgm: '背景音乐',
             sfx: '交互音效',
@@ -7735,7 +7757,10 @@ export class Main extends Component {
         if (outcome.cleanSetMax !== undefined) target.clean = Math.min(target.clean, outcome.cleanSetMax);
         if (outcome.cleanDelta) target.clean = Math.max(0, Math.min(100, target.clean + outcome.cleanDelta));
         if (outcome.healthDelta) target.health = Math.max(0, Math.min(100, target.health + outcome.healthDelta));
-        if (outcome.type === 'injured' || (outcome.healthDelta || 0) < 0) target.injured = true;
+        if (outcome.type === 'injured' || (outcome.healthDelta || 0) < 0) {
+            target.injured = true;
+            SoundManager.playSfx('sick');
+        }
         if (outcome.joyDelta) target.joy = Math.max(0, Math.min(100, target.joy + outcome.joyDelta));
         if (outcome.setLost) { target.lost = true; target.adventuring = false; target.adventureReturnAt = undefined; }
         if (outcome.setDead) {
@@ -8410,6 +8435,7 @@ export class Main extends Component {
         });
         if (closest) {
             const id = (closest as Actor).pet.id;
+            SoundManager.playSfx(BREEDS[id].kind === 'cat' ? 'cat_meow' : 'dog_bark');
             if (this.selected !== id) this.careSelected = '';
             if (this.page !== 'pet' || !this.petSelected || this.selected !== id) { this.selected = id; this.open('pet'); }
         } else if (this.petSelected && (this.page === 'pet' || this.page === 'bag')) this.open('home');
@@ -8930,11 +8956,15 @@ export class Main extends Component {
         }
         this.showSocialBubble(a, -1);
         this.showSocialBubble(b, 1);
+        if (this.page === 'home' || this.page === 'pet') {
+            SoundManager.playSfx(BREEDS[a.pet.id].kind === 'cat' ? 'cat_meow' : 'dog_bark');
+        }
     }
 
     /** 触发庭院打架事件并生成 3D 卡通滚烟云特效（团团翻滚云球 + 闪烁冲击星芒），打完有一方轻微挂彩显示受伤创可贴 */
     public triggerYardFight(a: Actor, b: Actor) {
         if (!this.world || !isValid(a.node, true) || !isValid(b.node, true)) return;
+        SoundManager.playSfx('fight');
         const mx = (a.node.position.x + b.node.position.x) * 0.5;
         const mz = (a.node.position.z + b.node.position.z) * 0.5;
         const duration = 3.0;
@@ -8990,7 +9020,7 @@ export class Main extends Component {
             const bruised = Math.random() < 0.5;
             lp.health = Math.max(30, lp.health - (bruised ? 8 : 3));
             lp.joy = Math.max(10, lp.joy - 5);
-            if (bruised) lp.injured = true;
+            if (bruised) { lp.injured = true; SoundManager.playSfx('sick'); }
             loserActor.pet = lp;
             this.dirty = true;
             if (bruised) void this.refreshPetAppearance(lp.id);
@@ -9379,6 +9409,7 @@ export class Main extends Component {
                                 }
                             } else if (a.activity.type === 'sleep') {
                                 a.activity.zzzTimer = 0.05;
+                                if (this.page === 'home' || this.page === 'pet') SoundManager.playSfx('sleep');
                                 // 有屋顶门洞的狗屋：走到门洞后钻进屋内隐藏身形，仅冒 Zzz，绝不穿墙穿屋顶
                                 if (fdef?.hideInside && isValid(a.visual, true)) {
                                     a.visual.active = false;
