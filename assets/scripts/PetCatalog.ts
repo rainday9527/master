@@ -12,10 +12,24 @@ export type OutfitId =
     | 'flower_wreath'
     | 'star_glasses'
     | 'wizard_hat'
+    | 'chef_hat'
+    | 'cherry_beret'
+    | 'explorer_hat'
     | 'angel_halo'
     | 'butterfly_wings'
-    | 'royal_cape';
-export type CoatId = 'original' | 'cream_glow' | 'sunset_warm' | 'sakura_blush';
+    | 'royal_cape'
+    | 'sakura_aura'
+    | 'star_wings'
+    | 'rainbow_cloud';
+export type CoatId =
+    | 'original'
+    | 'cream_glow'
+    | 'sunset_warm'
+    | 'sakura_blush'
+    | 'dino_hoodie'
+    | 'maid_apron'
+    | 'prince_suit'
+    | 'fairy_dress';
 
 export interface RarityInfo {
     id: PetRarity;
@@ -141,6 +155,12 @@ export const PET_BREEDS: BreedDefinition[] = [
     { id: 9, name: '短腿柯基', speciesTitle: '彭布罗克柯基犬', kind: 'dog', skin: 'dog_keji', rarity: 'SR', unlockGems: 80, defaultTrait: 'energetic', color: '#E89B48', accent: '#FFF7EC', cost: 85, bio: '小短腿迈着超快节奏的微笑柯基，走到哪都是开心果。' },
     { id: 10, name: '赤毛柴犬', speciesTitle: '赤色柴犬', kind: 'dog', skin: 'dog_chaiquan', rarity: 'SSR', unlockGems: 120, defaultTrait: 'bold', color: '#D9823B', accent: '#FFF5E3', cost: 100, bio: '自带可爱豆豆眉的赤柴，胆大自信又爱到处探险。' },
     { id: 11, name: '阳光金毛', speciesTitle: '黄金巡回猎犬', kind: 'dog', skin: 'dog_jinmao', rarity: 'SSSR', unlockGems: 160, defaultTrait: 'lucky', color: '#E8B256', accent: '#C4842E', cost: 140, bio: '笑容像午后阳光般温暖的金毛宝宝，是庭院里最贴心的暖男。' },
+    { id: 12, name: '暹罗猫', speciesTitle: '重点色暹罗猫', kind: 'cat', skin: 'cat_xianluo', rarity: 'SR', unlockGems: 80, defaultTrait: 'explorer', color: '#EEDEC8', accent: '#6B4D3B', cost: 85, bio: '挖煤小脸配蓝宝石大眼睛的机灵暹罗，好奇心爆棚。' },
+    { id: 13, name: '美短虎斑', speciesTitle: '银虎斑美短猫', kind: 'cat', skin: 'cat_meiduan', rarity: 'SSR', unlockGems: 120, defaultTrait: 'energetic', color: '#C8CED6', accent: '#5E6570', cost: 105, bio: '披着银灰大理石虎斑纹的运动小健将，元气满满爱奔跑。' },
+    { id: 14, name: '雪白缅因', speciesTitle: '纯白长毛缅因猫', kind: 'cat', skin: 'cat_mianyin', rarity: 'SSSR', unlockGems: 160, defaultTrait: 'lucky', color: '#FCFBF8', accent: '#E8B856', cost: 150, bio: '毛茸茸如冬日初雪的仙气大缅因，温柔大气自带锦鲤好运。' },
+    { id: 15, name: '软萌比熊', speciesTitle: '卷毛棉花糖比熊', kind: 'dog', skin: 'dog_bixiong', rarity: 'SR', unlockGems: 80, defaultTrait: 'playful', color: '#FDFBF7', accent: '#E2D4C4', cost: 85, bio: '顶着蓬松棉花糖大脑袋的小比熊，最爱黏着主人撒娇玩耍。' },
+    { id: 16, name: '奶萌哈士奇', speciesTitle: '西伯利亚雪橇犬', kind: 'dog', skin: 'dog_hashiqi', rarity: 'SSR', unlockGems: 120, defaultTrait: 'bold', color: '#E6EAF0', accent: '#768292', cost: 105, bio: '冰蓝眼眸的奶凶小哈士奇，外表帅气内心是个爱拆家的憨憨。' },
+    { id: 17, name: '微笑萨摩耶', speciesTitle: '纯白微笑萨摩耶', kind: 'dog', skin: 'dog_samoye', rarity: 'SSSR', unlockGems: 160, defaultTrait: 'gentle', color: '#FEFCF9', accent: '#F2C6B8', cost: 150, bio: '自带治愈微笑天使光环的雪白萨摩耶，一眼融化所有烦恼。' },
 ];
 
 // 6 阶 × 5 星 = 最高 30 星：每满 5 星进阶下一颜色/皇冠图标（5★金星、10★蓝星、15★紫星、20★粉星、25★金冠、30★羽翼皇冠）。
@@ -223,9 +243,15 @@ export const PET_OUTFITS: OutfitDefinition[] = [
     { id: 'star_glasses', name: '星光墨镜', price: 45, currency: 'gems', effectTag: '冒险+12%', adventureBonus: 0.12, desc: '酷萌星星墨镜，冒险带回金币与宝箱加成 +12%。', swatch: '#E5A33C' },
     { id: 'gold_crown', name: '星光小皇冠', price: 60, currency: 'gems', freeAtStar: 3, effectTag: '经验+10%', xpBonus: 0.10, desc: '闪耀小金冠（3★免费解锁），照顾经验 +10%。', swatch: '#F2BC3C' },
     { id: 'wizard_hat', name: '魔法巫师帽', price: 80, currency: 'gems', effectTag: '经验+18%', xpBonus: 0.18, desc: '星辰尖顶魔法帽，照顾伙伴获得经验 +18%。', swatch: '#4B63A6' },
-    { id: 'angel_halo', name: '圣光天使环', price: 0, currency: 'gems', unlockMode: 'ad', limited: true, effectTag: '状态缓降25%', decayMult: 0.75, desc: '限定 · 温暖圣光天使环，心情与健康衰减减缓 25%。', swatch: '#FFE066' },
-    { id: 'butterfly_wings', name: '蝶梦小翅膀', price: 0, currency: 'gems', unlockMode: 'ad', limited: true, effectTag: '冒险收益+20%', adventureBonus: 0.20, desc: '限定 · 幻彩蝶翼，冒险宝箱与寻宝收益 +20%。', swatch: '#F5A6D6' },
-    { id: 'royal_cape', name: '星月披风', price: 0, currency: 'gems', unlockMode: 'ad', limited: true, effectTag: '经验与冒险+20%', xpBonus: 0.20, adventureBonus: 0.20, desc: '限定 · 梦幻星月小披风，经验与冒险收益双 +20%。', swatch: '#9E7AE0' },
+    { id: 'chef_hat', name: '甜点厨师帽', price: 360, currency: 'coins', effectTag: '状态缓降18%', decayMult: 0.82, desc: '蓬松奶油甜点厨师帽，心情与健康衰减减缓 18%。', swatch: '#FFF5E2' },
+    { id: 'cherry_beret', name: '樱桃贝雷帽', price: 55, currency: 'gems', effectTag: '经验+15%', xpBonus: 0.15, desc: '酒红毛呢樱桃贝雷帽，照顾伙伴获得经验 +15%。', swatch: '#B83446' },
+    { id: 'explorer_hat', name: '探险家圆帽', price: 65, currency: 'gems', effectTag: '冒险+16%', adventureBonus: 0.16, desc: '指南针徽章探险家帽，冒险寻宝收益 +16%。', swatch: '#CFA976' },
+    { id: 'angel_halo', name: '圣光天使环', price: 0, currency: 'gems', unlockMode: 'ad', limited: true, effectTag: '缓降25%·圣光特效', decayMult: 0.75, desc: '限定 · 圣光环绕粒子特效，心情与健康衰减减缓 25%。', swatch: '#FFE066' },
+    { id: 'butterfly_wings', name: '蝶梦小翅膀', price: 0, currency: 'gems', unlockMode: 'ad', limited: true, effectTag: '冒险+20%·蝶翼特效', adventureBonus: 0.20, desc: '限定 · 灵动扇动蝶翼与星尘特效，冒险收益 +20%。', swatch: '#F5A6D6' },
+    { id: 'royal_cape', name: '星月披风', price: 0, currency: 'gems', unlockMode: 'ad', limited: true, effectTag: '双+20%·星月特效', xpBonus: 0.20, adventureBonus: 0.20, desc: '限定 · 环绕星月粒子特效，经验与冒险收益双 +20%。', swatch: '#9E7AE0' },
+    { id: 'sakura_aura', name: '樱花仙子环', price: 0, currency: 'gems', unlockMode: 'ad', limited: true, effectTag: '缓降28%·樱瓣特效', decayMult: 0.72, desc: '限定 · 飘舞樱花花瓣环绕特效，状态衰减减缓 28%。', swatch: '#FFB6CE' },
+    { id: 'star_wings', name: '星辰精灵翼', price: 0, currency: 'gems', unlockMode: 'ad', limited: true, effectTag: '冒险+25%·流星特效', adventureBonus: 0.25, desc: '限定 · 闪耀流星环绕的精灵透明翼，冒险收益 +25%。', swatch: '#A6E0FF' },
+    { id: 'rainbow_cloud', name: '彩虹云朵冠', price: 0, currency: 'gems', unlockMode: 'ad', limited: true, effectTag: '双+25%·彩虹特效', xpBonus: 0.25, adventureBonus: 0.25, desc: '限定 · 悬浮彩虹白云与七彩星光特效，经验与冒险双 +25%。', swatch: '#FFD480' },
 ];
 
 export interface CoatDefinition {
@@ -236,6 +262,12 @@ export interface CoatDefinition {
     icon: string;
     price: number;
     currency: 'coins' | 'gems';
+    unlockMode?: 'buy' | 'ad';
+    limited?: boolean;
+    effectTag?: string;
+    adventureBonus?: number;
+    xpBonus?: number;
+    decayMult?: number;
     desc: string;
 }
 
@@ -244,6 +276,10 @@ export const PET_COATS: CoatDefinition[] = [
     { id: 'cream_glow', name: '水手小套装', tint: '#FFFFFF', overlay: 'cloth_sailor', icon: 'skin_sailor', price: 100, currency: 'coins', desc: '蓝白条纹海魂水手服配红色小领结，保留原品种脸蛋毛色。' },
     { id: 'sunset_warm', name: '小蜜蜂卫衣', tint: '#FFFFFF', overlay: 'cloth_bee', icon: 'skin_bee', price: 150, currency: 'coins', desc: '暖黄可可棕条纹小蜜蜂卫衣配背后小翅膀纹饰。' },
     { id: 'sakura_blush', name: '草莓针织衣', tint: '#FFFFFF', overlay: 'cloth_strawberry', icon: 'skin_strawberry', price: 200, currency: 'coins', desc: '奶油粉草莓针织开衫配蕾丝娃娃领与珍珠扣。' },
+    { id: 'dino_hoodie', name: '小恐龙连体衣', tint: '#FFFFFF', overlay: 'cloth_dino', icon: 'skin_dino', price: 260, currency: 'coins', effectTag: '状态缓降10%', decayMult: 0.90, desc: '薄荷绿软萌小恐龙连体服，状态衰减减缓 10%。' },
+    { id: 'maid_apron', name: '甜心小围裙', tint: '#FFFFFF', overlay: 'cloth_maid', icon: 'skin_maid', price: 50, currency: 'gems', effectTag: '经验+12%', xpBonus: 0.12, desc: '薰衣草紫蕾丝荷叶边小围裙，照顾经验 +12%。' },
+    { id: 'prince_suit', name: '星耀小礼服', tint: '#FFFFFF', overlay: 'cloth_prince', icon: 'skin_prince', price: 0, currency: 'gems', unlockMode: 'ad', limited: true, effectTag: '冒险收益+15%', adventureBonus: 0.15, desc: '限定 · 皇家藏青金肩章小礼服，冒险收益 +15%。' },
+    { id: 'fairy_dress', name: '花仙子纱裙', tint: '#FFFFFF', overlay: 'cloth_fairy', icon: 'skin_fairy', price: 0, currency: 'gems', unlockMode: 'ad', limited: true, effectTag: '经验与状态+15%', xpBonus: 0.15, decayMult: 0.85, desc: '限定 · 粉蓝渐层花仙子蓬蓬裙，经验 +15% 且状态缓降 15%。' },
 ];
 
 export const PET_NICKNAME_PRESETS: Record<PetKind, string[]> = {

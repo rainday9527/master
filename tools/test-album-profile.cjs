@@ -34,20 +34,20 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
       s.coins = 5000; s.gems = 500;
       const unlockedIds = [0, 1, 4, 6, 7, 9, 11];
       s.pets = unlockedIds.map(id => main.makePet(id, 72, 82, 88, 78));
-      s.recruit.copies = Object.fromEntries(Array.from({ length: 12 }, (_, id) => [id, unlockedIds.includes(id) ? 5 : 0]));
+      s.recruit.copies = Object.fromEntries(Array.from({ length: 18 }, (_, id) => [id, unlockedIds.includes(id) ? 5 : 0]));
       cc.sys.localStorage.setItem(main.key, JSON.stringify(s));
     });
     await page.reload({ waitUntil: 'domcontentloaded' });
     await attach();
     await page.waitForFunction(() => main.actors.length === 7 && main.actors.every(a => a.rig), { timeout: 15000 });
 
-    // 1) Open Album and verify formal panel + 12 cards (7 unlocked, 5 blackened locked silhouettes)
+    // 1) Open Album and verify formal panel + 18 cards (7 unlocked, 11 locked silhouettes)
     await page.evaluate(() => main.open('album'));
     await page.waitForFunction(() => {
       const panel = main.sheet?.getChildByName('图鉴正式大底板')?.getComponent('cc.Sprite')?.spriteFrame;
       const cards = walk(main.sheet).filter(n => n.name.startsWith('图鉴卡片-'));
       const imgs = walk(main.sheet).filter(n => n.name === '伙伴头像图');
-      return !!panel && cards.length === 12 && imgs.length === 12 && imgs.every(n => !!n.getComponent('cc.Sprite')?.spriteFrame);
+      return !!panel && cards.length === 18 && imgs.length === 18 && imgs.every(n => !!n.getComponent('cc.Sprite')?.spriteFrame);
     }, { timeout: 15000 });
     await page.waitForTimeout(300);
 
@@ -176,7 +176,7 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
     assert.equal(hopCheck.hopAfterScarf, 0, 'equipping outfit must NOT trigger jump/hop');
     await page.waitForFunction(() => {
       const icons = walk(main.sheet).filter(n => n.name.startsWith('装扮图标-'));
-      return icons.length === 12 && icons.every(n => !!n.getComponent('cc.Sprite')?.spriteFrame) && !!main.previewRig?.outfitNode;
+      return icons.length === 18 && icons.every(n => !!n.getComponent('cc.Sprite')?.spriteFrame) && !!main.previewRig?.outfitNode;
     }, { timeout: 10000 });
     await page.waitForTimeout(250);
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-pet-profile-scarf.png') });
@@ -272,13 +272,13 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
     assert.equal(gmCheck.open, true, 'GM debug panel must open');
     assert.equal(gmCheck.btnCount, 18, 'GM debug panel must show all 18 quick debug buttons');
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-gm-panel.png') });
-    // Trigger GM "解锁全部 12 伙伴" and test 12-pet roaming freedom over 2.5 seconds!
+    // Trigger GM "解锁全部 18 伙伴" and test 18-pet roaming freedom over 2.5 seconds!
     await page.evaluate(() => {
-      const btn = walk(main.gmPanel).find(n => n.name === 'GM按钮-解锁全部 12 伙伴');
+      const btn = walk(main.gmPanel).find(n => n.name === 'GM按钮-解锁全部 18 伙伴');
       btn.emit(cc.Node.EventType.TOUCH_END, { propagationStopped: false });
       main.toggleGmPanel();
     });
-    await page.waitForFunction(() => main.actors.length === 12, { timeout: 10000 });
+    await page.waitForFunction(() => main.actors.length === 18, { timeout: 10000 });
     const pos0 = await page.evaluate(() => main.actors.map(a => [a.node.position.x, a.node.position.z]));
     await page.waitForTimeout(2400);
     const crowdStats = await page.evaluate((p0) => {
@@ -290,11 +290,34 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
       const zs = main.actors.map(a => a.node.position.z);
       return { total: main.actors.length, moved, socializing, zSpan: +(Math.max(...zs) - Math.min(...zs)).toFixed(2), bubbles: main.socialBubbles.length };
     }, pos0);
-    console.log('12-pet crowd roaming check:', JSON.stringify(crowdStats));
-    assert.equal(crowdStats.total, 12);
-    assert.ok(crowdStats.moved >= 8, 'at least 8 of 12 pets must actively walk instead of freezing in social deadlock');
+    console.log('18-pet crowd roaming check:', JSON.stringify(crowdStats));
+    assert.equal(crowdStats.total, 18);
+    assert.ok(crowdStats.moved >= 10, 'at least 10 of 18 pets must actively walk instead of freezing in social deadlock');
     assert.ok(crowdStats.bubbles <= 4, 'concurrent social bubbles must be capped cleanly');
-    await page.screenshot({ path: path.join(OUT_DIR, 'verify-garden-12pets-roaming.png') });
+    await page.screenshot({ path: path.join(OUT_DIR, 'verify-garden-18pets-roaming.png') });
+
+    // 8b) Verify new limited outfits & 3D animated VFX ring (sakura_aura / star_wings / rainbow_cloud) + new breeds!
+    await page.evaluate(() => {
+      main.openProfile(14, 'outfit');
+      const p14 = main.data.pets.find(p => p.id === 14);
+      p14.ownedOutfits = [...new Set([...p14.ownedOutfits, 'sakura_aura', 'star_wings', 'rainbow_cloud', 'chef_hat'])];
+      p14.ownedCoats = [...new Set([...p14.ownedCoats, 'fairy_dress', 'dino_hoodie'])];
+      main.selectPetOutfit(14, 'sakura_aura');
+      main.selectPetCoat(14, 'fairy_dress');
+    });
+    await page.waitForTimeout(250);
+    const vfxY0 = await page.evaluate(() => main.previewRig?.outfitNode?.getChildByName('限定特效环')?.eulerAngles?.y ?? null);
+    await page.waitForTimeout(300);
+    const vfxY1 = await page.evaluate(() => main.previewRig?.outfitNode?.getChildByName('限定特效环')?.eulerAngles?.y ?? null);
+    console.log('limited outfit 3D VFX rotation check:', JSON.stringify({ vfxY0, vfxY1 }));
+    assert.ok(vfxY0 !== null && vfxY1 !== null && Math.abs(vfxY1 - vfxY0) > 1, 'limited outfit must have animated 3D VFX ring');
+    await page.screenshot({ path: path.join(OUT_DIR, 'verify-new-limited-sakura-fairy.png') });
+    await page.evaluate(() => { main.openProfile(17, 'outfit'); const p17 = main.data.pets.find(p => p.id === 17); p17.ownedOutfits = [...new Set([...p17.ownedOutfits, 'star_wings', 'rainbow_cloud'])]; p17.ownedCoats = [...new Set([...p17.ownedCoats, 'prince_suit'])]; main.selectPetOutfit(17, 'star_wings'); main.selectPetCoat(17, 'prince_suit'); });
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: path.join(OUT_DIR, 'verify-new-limited-starwings-samoye.png') });
+    await page.evaluate(() => { main.openProfile(12, 'outfit'); const p12 = main.data.pets.find(p => p.id === 12); p12.ownedOutfits = [...new Set([...p12.ownedOutfits, 'rainbow_cloud'])]; main.selectPetOutfit(12, 'rainbow_cloud'); });
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: path.join(OUT_DIR, 'verify-new-limited-rainbowcloud-xianluo.png') });
 
     // 9) Verify Recruit page: signboard aligned left with avatar, reward panel shifted right, Album cards in preview strip, and swipeable card details dialog!
     await page.evaluate(() => main.open('recruit'));
@@ -305,7 +328,7 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
       const badges = walk(main.sheet).filter(n => n.name.startsWith('稀有度徽章-'));
       const avatars = walk(main.sheet).filter(n => n.name === '伙伴头像图');
       const titleArt = walk(main.sheet).find(n => n.name === '招募素材-title');
-      return cards.length === 12 && frames.length === 12 && badges.length === 12 && avatars.length === 12
+      return cards.length === 18 && frames.length === 18 && badges.length === 18 && avatars.length === 18
         && frames.every(n => !!n.getComponent('cc.Sprite')?.spriteFrame)
         && badges.every(n => !!n.getComponent('cc.Sprite')?.spriteFrame)
         && avatars.every(n => !!n.getComponent('cc.Sprite')?.spriteFrame)
@@ -334,7 +357,7 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
     assert.ok(Math.abs(recruitLayout.titleLeft - recruitLayout.profileLeft) <= 8, 'signboard left edge must align with top-left avatar');
     assert.ok(recruitLayout.rewardX >= 380, 'recruit reward panel must be shifted right');
     assert.equal(recruitLayout.previewHorizontal, true, 'recruit preview must use horizontal scrollable Album cards');
-    assert.equal(recruitLayout.previewCards, 12, 'recruit preview must include all 12 Album cards');
+    assert.equal(recruitLayout.previewCards, 18, 'recruit preview must include all 18 Album cards');
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-recruit-after.png') });
 
     // Open swipeable Card Details dialog via "查看详情 ›"
@@ -346,7 +369,7 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
       if (!main.dialog) return false;
       const cards = walk(main.dialog).filter(n => n.name.startsWith('卡池详情卡片-'));
       const frames = walk(main.dialog).filter(n => n.name === '图鉴卡片底框');
-      return cards.length === 12 && frames.length === 12 && frames.every(n => !!n.getComponent('cc.Sprite')?.spriteFrame);
+      return cards.length === 18 && frames.length === 18 && frames.every(n => !!n.getComponent('cc.Sprite')?.spriteFrame);
     }, { timeout: 15000 });
     await page.waitForTimeout(300);
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-recruit-details.png') });
@@ -363,7 +386,7 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
     const afterSwipe = await page.evaluate(() => walk(main.dialog).find(n => n.name === '招募卡池可视窗口').getComponent('cc.ScrollView').getScrollOffset().x);
     console.log('recruit details swipe check:', JSON.stringify({ ...swipeCheck, after: +afterSwipe.toFixed(1) }));
     assert.equal(swipeCheck.horizontal, true, 'details dialog must be horizontally swipeable');
-    assert.equal(swipeCheck.cards, 12, 'details dialog must render all 12 swipeable Album cards');
+    assert.equal(swipeCheck.cards, 18, 'details dialog must render all 18 swipeable Album cards');
     assert.ok(afterSwipe < swipeCheck.before - 100, 'swiping right must advance the card carousel');
 
     // 10) Verify clicking Normal Recruit (1-draw) and Advanced Recruit (10-draw) open Recruit Result Popups with pet cards!
@@ -503,7 +526,7 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
     await page.waitForTimeout(450);
     const avCheck = await page.evaluate(() => {
       const panel = main.dialog?.getChildByName('更换头像面板');
-      const slots = panel ? panel.children.filter(c => c.name.startsWith('头像选项-')) : [];
+      const slots = panel ? walk(panel).filter(c => c.name.startsWith('头像选项-')) : [];
       const locked = slots.filter(s => !!walk(s).find(n => n.name === '未解锁遮罩')).length;
       const unlocked = slots.length - locked;
       return {
@@ -517,18 +540,18 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
       };
     });
     console.log('avatar picker check:', JSON.stringify(avCheck));
-    assert.deepEqual(avCheck, { page: 'home', title: '更换头像', totalSlots: 12, unlocked: 7, locked: 5, hasConfirm: true, hasCancel: true });
+    assert.deepEqual(avCheck, { page: 'home', title: '更换头像', totalSlots: 18, unlocked: 7, locked: 11, hasConfirm: true, hasCancel: true });
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-avatar-picker.png') });
     // Clicking a locked avatar must NOT change equipped avatar; clicking unlocked avatar + 确认更换 MUST equip it!
     const avSwap = await page.evaluate(() => {
       const panel = main.dialog.getChildByName('更换头像面板');
-      panel.getChildByName('头像选项-8').emit('touch-end', {}); // locked
+      walk(panel).find(n => n.name === '头像选项-8').emit('touch-end', {}); // locked
       panel.getChildByName('弹窗按钮-确认更换').emit('touch-end', {});
       const afterLocked = main.data.avatar;
       // Re-open, select unlocked pet #4, confirm
       main.showAvatarDialog();
       const panel2 = main.dialog.getChildByName('更换头像面板');
-      panel2.getChildByName('头像选项-4').emit('touch-end', {});
+      walk(panel2).find(n => n.name === '头像选项-4').emit('touch-end', {});
       panel2.getChildByName('弹窗按钮-确认更换').emit('touch-end', {});
       return { afterLocked, afterUnlocked: main.data.avatar, dialogClosed: !main.dialog };
     });
@@ -760,7 +783,7 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
     await page.waitForTimeout(350);
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-shop-tombstones.png') });
 
-    // Switch to Shop Outfits tab in-place -> verify pure store (no pet switcher), 14 outfit/coat cards, buy into bag, & free unlock on pet profile!
+    // Switch to Shop Outfits tab in-place -> verify pure store (no pet switcher), 24 outfit/coat cards (8 limited ad), buy into bag, & free unlock on pet profile!
     const outfitTabRes = await page.evaluate(() => {
       const sheetBefore = main.sheet;
       const tabBtn = walk(main.sheet).find(n => n.name === '商店页签-装扮');
@@ -778,7 +801,7 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
       return { sameSheet: main.sheet === sheetBefore, cards, adBtns, noPetBar, boughtToBag, bagCntAfterBuy, freeUnlocked, coinsSpentOnEquip, bagCntAfterEquip };
     });
     console.log('shop outfits tab check:', JSON.stringify(outfitTabRes));
-    assert.deepEqual(outfitTabRes, { sameSheet: true, cards: 14, adBtns: 3, noPetBar: true, boughtToBag: true, bagCntAfterBuy: 1, freeUnlocked: true, coinsSpentOnEquip: 0, bagCntAfterEquip: 0 });
+    assert.deepEqual(outfitTabRes, { sameSheet: true, cards: 24, adBtns: 8, noPetBar: true, boughtToBag: true, bagCntAfterBuy: 1, freeUnlocked: true, coinsSpentOnEquip: 0, bagCntAfterEquip: 0 });
     await page.waitForTimeout(450);
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-shop-outfits.png') });
 

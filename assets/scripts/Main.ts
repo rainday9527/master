@@ -810,18 +810,47 @@ export class Main extends Component {
     }
 
     private buildOutfitNode(outfit: OutfitId, rig: ActorRig): Node | null {
-        // 全包式大帽与大花环（草帽、巫师帽、春日花环）宽幅直接包住头顶并收纳双耳，彻底零穿模且还原饱满廓形；换回其他装扮自动恢复双耳。
-        const coversEars = outfit === 'straw_hat' || outfit === 'wizard_hat' || outfit === 'flower_wreath';
+        // 全包式大帽与大花环（草帽、巫师帽、春日花环、厨师帽、贝雷帽、探险帽、樱花仙子环）宽幅包住头顶并收纳双耳，零穿模；换回其他装扮自动恢复双耳。
+        const coversEars = outfit === 'straw_hat' || outfit === 'wizard_hat' || outfit === 'flower_wreath'
+            || outfit === 'chef_hat' || outfit === 'cherry_beret' || outfit === 'explorer_hat' || outfit === 'sakura_aura';
         if (isValid(rig.earL, true)) rig.earL.active = !coversEars;
         if (isValid(rig.earR, true)) rig.earR.active = !coversEars;
         if (outfit === 'none') return null;
         const headMounted = outfit === 'pink_bow' || outfit === 'straw_hat' || outfit === 'gold_crown'
-            || outfit === 'flower_wreath' || outfit === 'star_glasses' || outfit === 'wizard_hat' || outfit === 'angel_halo';
+            || outfit === 'flower_wreath' || outfit === 'star_glasses' || outfit === 'wizard_hat' || outfit === 'angel_halo'
+            || outfit === 'chef_hat' || outfit === 'cherry_beret' || outfit === 'explorer_hat'
+            || outfit === 'sakura_aura' || outfit === 'rainbow_cloud';
         const parent = headMounted ? rig.head : rig.modelNode;
         if (!isValid(parent, true)) return null;
         const root = new Node('宠物装扮-' + outfit);
         root.layer = Layers.Enum.DEFAULT;
         parent.addChild(root);
+        // 辅助：为限定装扮挂接可实时公转/闪烁的 3D 限定特效环
+        const addVfxRing = (y: number, radius: number, colors: string[], count: number, starMode = true) => {
+            const vfx = new Node('限定特效环');
+            vfx.layer = Layers.Enum.DEFAULT;
+            root.addChild(vfx);
+            vfx.setPosition(0, y, 0);
+            for (let i = 0; i < count; i++) {
+                const rad = (i / count) * Math.PI * 2;
+                const px = Math.cos(rad) * radius;
+                const pz = Math.sin(rad) * radius;
+                const py = Math.sin(rad * 2) * 0.14;
+                const col = colors[i % colors.length];
+                const spark = new Node('特效粒子-' + i);
+                spark.layer = Layers.Enum.DEFAULT;
+                vfx.addChild(spark);
+                spark.setPosition(px, py, pz);
+                if (starMode) {
+                    this.shape(spark, 'box', col, [0, 0, 0], [0.14, 0.04, 0.04]);
+                    this.shape(spark, 'box', col, [0, 0, 0], [0.04, 0.14, 0.04]);
+                    this.shape(spark, 'box', col, [0, 0, 0], [0.04, 0.04, 0.14]);
+                } else {
+                    this.shape(spark, 'sphere', col, [0, 0, 0], [0.11, 0.11, 0.06], [18, i * 45, 24]);
+                }
+            }
+            return vfx;
+        };
         // 严格对照 2D 手绘图标配色与造型还原 3D 挂件。
         if (outfit === 'bell_collar') {
             this.shape(root, 'torus', '#E24B3E', [0, 0.72, 0.34], [1.04, 0.44, 1.02], [24, 0, 0]);
@@ -977,23 +1006,26 @@ export class Main extends Component {
                 // 下层短绒羽
                 this.shape(wing, 'sphere', '#FFFDF5', [side * 0.12, -0.04, -0.01], [0.22, 0.10, 0.075], [0, 0, side * 4]);
             }
+            addVfxRing(1.06, 0.66, ['#FFF4A3', '#FFE066', '#FFFFFF'], 6, true);
         } else if (outfit === 'butterfly_wings') {
-            // 还原 butterfly_wings.png：粉边+天蓝渐层上扬大蝶翼 + 下垂燕尾下翼 + 浮空金星（修正旋转符号使上翼高扬、下翼垂展）
+            // 还原 butterfly_wings.png：粉边+天蓝渐层上扬大蝶翼 + 下垂燕尾下翼 + 实时扇动 + 环绕星光特效
             this.shape(root, 'sphere', '#FFE89A', [0, 0.94, -0.32], [0.12, 0.22, 0.09]);
             for (const side of [-1, 1]) {
+                const piv = new Node(side < 0 ? '左精灵翼' : '右精灵翼');
+                piv.layer = Layers.Enum.DEFAULT;
+                root.addChild(piv);
+                piv.setPosition(0, 0.94, -0.32);
                 // 上翅：高高向上外展（+side * 34°），正反双面均有粉边+浅天蓝内纹
-                this.shape(root, 'sphere', '#F7A8D4', [side * 0.82, 1.24, -0.34], [0.74, 0.48, 0.06], [8, -side * 16, side * 34]);
-                this.shape(root, 'sphere', '#BCEBFF', [side * 0.72, 1.18, -0.30], [0.48, 0.30, 0.055], [8, -side * 16, side * 34]);
-                this.shape(root, 'sphere', '#BCEBFF', [side * 0.72, 1.18, -0.38], [0.48, 0.30, 0.055], [8, -side * 16, side * 34]);
+                this.shape(piv, 'sphere', '#F7A8D4', [side * 0.82, 0.30, -0.02], [0.74, 0.48, 0.06], [8, -side * 16, side * 34]);
+                this.shape(piv, 'sphere', '#BCEBFF', [side * 0.72, 0.24, 0.02], [0.48, 0.30, 0.055], [8, -side * 16, side * 34]);
+                this.shape(piv, 'sphere', '#BCEBFF', [side * 0.72, 0.24, -0.06], [0.48, 0.30, 0.055], [8, -side * 16, side * 34]);
                 // 下翅：向外下方展开（-side * 22°）+ 标志性粉色燕尾尖
-                this.shape(root, 'sphere', '#F7A8D4', [side * 0.62, 0.78, -0.37], [0.48, 0.36, 0.06], [8, -side * 14, -side * 22]);
-                this.shape(root, 'sphere', '#BCEBFF', [side * 0.56, 0.80, -0.33], [0.30, 0.22, 0.055], [8, -side * 14, -side * 22]);
-                this.shape(root, 'sphere', '#BCEBFF', [side * 0.56, 0.80, -0.41], [0.30, 0.22, 0.055], [8, -side * 14, -side * 22]);
-                this.shape(root, 'cone', '#F5A0CE', [side * 0.62, 0.50, -0.39], [0.10, 0.28, 0.055], [180, 0, -side * 16]);
-                // 蝶翼旁闪烁金星
-                this.shape(root, 'box', '#FFE066', [side * 0.98, 1.48, -0.26], [0.13, 0.04, 0.03]);
-                this.shape(root, 'box', '#FFE066', [side * 0.98, 1.48, -0.26], [0.04, 0.13, 0.03]);
+                this.shape(piv, 'sphere', '#F7A8D4', [side * 0.62, -0.16, -0.05], [0.48, 0.36, 0.06], [8, -side * 14, -side * 22]);
+                this.shape(piv, 'sphere', '#BCEBFF', [side * 0.56, -0.14, -0.01], [0.30, 0.22, 0.055], [8, -side * 14, -side * 22]);
+                this.shape(piv, 'sphere', '#BCEBFF', [side * 0.56, -0.14, -0.09], [0.30, 0.22, 0.055], [8, -side * 14, -side * 22]);
+                this.shape(piv, 'cone', '#F5A0CE', [side * 0.62, -0.44, -0.07], [0.10, 0.28, 0.055], [180, 0, -side * 16]);
             }
+            addVfxRing(1.08, 1.05, ['#FFE066', '#FFA8D6', '#A8E6FF'], 6, true);
         } else if (outfit === 'royal_cape') {
             // 还原 royal_cape.png：蓬松薰衣草紫翻领 + 金色弯月胸扣 + 一体化圆润垂坠紫披风（完整顺滑包覆肩背与双侧，零碎块断层）+ 金色下摆边与星饰
             this.shape(root, 'torus', '#B492EC', [0, 0.76, 0.34], [1.04, 0.44, 1.00], [24, 0, 0]);
@@ -1022,8 +1054,144 @@ export class Main extends Component {
             addCapeStar(0, 0.38, -0.12, 0.12);
             addCapeStar(-0.28, 0.28, -0.44, 0.10);
             addCapeStar(0.28, 0.28, -0.44, 0.10);
+            addVfxRing(0.88, 1.02, ['#FFE168', '#D1B3FF', '#FFF5B8'], 6, true);
+        } else if (outfit === 'chef_hat') {
+            // 甜点厨师帽：白色宽帽箍 + 蓬松五瓣云朵厨师帽冠 + 红色小领结装饰
+            const chef = new Node('甜点厨师帽');
+            chef.layer = Layers.Enum.DEFAULT;
+            root.addChild(chef);
+            chef.setPosition(0, 0.44, 0.02);
+            chef.setRotationFromEuler(-6, 0, 0);
+            this.shape(chef, 'cylinder', '#F4F1EA', [0, 0.06, 0], [1.22, 0.24, 1.18]);
+            this.shape(chef, 'cylinder', '#E44D48', [0, -0.03, 0], [1.24, 0.08, 1.20]);
+            // 蓬松云朵帽顶
+            this.shape(chef, 'sphere', '#FFFFFF', [0, 0.42, 0], [0.88, 0.62, 0.86]);
+            for (let i = 0; i < 6; i++) {
+                const rad = (i * 60) * Math.PI / 180;
+                this.shape(chef, 'sphere', '#FFFDF8', [Math.cos(rad) * 0.42, 0.34, Math.sin(rad) * 0.40], [0.56, 0.48, 0.54]);
+            }
+            // 正前红蝴蝶结
+            this.shape(chef, 'sphere', '#E44D48', [-0.11, -0.02, 0.61], [0.16, 0.11, 0.08], [0, 0, 14]);
+            this.shape(chef, 'sphere', '#E44D48', [0.11, -0.02, 0.61], [0.16, 0.11, 0.08], [0, 0, -14]);
+            this.shape(chef, 'sphere', '#FF8E88', [0, -0.02, 0.63], [0.09, 0.09, 0.08]);
+        } else if (outfit === 'cherry_beret') {
+            // 樱桃贝雷帽：复古酒红微斜羊毛贝雷帽 + 小帽蒂 + 侧边双樱桃绿叶饰扣
+            const beret = new Node('樱桃贝雷帽');
+            beret.layer = Layers.Enum.DEFAULT;
+            root.addChild(beret);
+            beret.setPosition(-0.04, 0.46, 0.02);
+            beret.setRotationFromEuler(-6, 0, 10);
+            this.shape(beret, 'cylinder', '#A93246', [0, 0, 0], [1.22, 0.12, 1.18]);
+            this.shape(beret, 'sphere', '#C93B52', [0, 0.18, 0], [1.46, 0.44, 1.38]);
+            this.shape(beret, 'cylinder', '#8F2638', [0, 0.42, 0], [0.08, 0.14, 0.08], [0, 0, -12]);
+            // 右前侧双红樱桃与嫩绿叶
+            this.shape(beret, 'sphere', '#E62E43', [0.46, 0.06, 0.48], [0.18, 0.18, 0.16]);
+            this.shape(beret, 'sphere', '#FF6B7B', [0.42, 0.10, 0.54], [0.05, 0.05, 0.04]);
+            this.shape(beret, 'sphere', '#D9243A', [0.60, 0.02, 0.40], [0.17, 0.17, 0.15]);
+            this.shape(beret, 'sphere', '#58B454', [0.54, 0.20, 0.44], [0.18, 0.08, 0.05], [0, 0, 28]);
+            this.shape(beret, 'sphere', '#6EC666', [0.44, 0.22, 0.46], [0.16, 0.07, 0.05], [0, 0, -24]);
+        } else if (outfit === 'explorer_hat') {
+            // 探险家圆帽：卡其宽檐探险帽 + 棕皮带 + 金扣 + 绿色小羽毛
+            const exp = new Node('探险家圆帽');
+            exp.layer = Layers.Enum.DEFAULT;
+            root.addChild(exp);
+            exp.setPosition(0, 0.44, 0.02);
+            exp.setRotationFromEuler(-7, 0, 0);
+            this.shape(exp, 'cylinder', '#D8B476', [0, 0, 0], [1.62, 0.07, 1.54]);
+            this.shape(exp, 'sphere', '#CFA764', [0, 0.22, 0], [1.14, 0.56, 1.10]);
+            this.shape(exp, 'cylinder', '#7A4E2A', [0, 0.08, 0], [1.17, 0.12, 1.13]);
+            // 金色皮带扣
+            this.shape(exp, 'box', '#F4C446', [0, 0.08, 0.58], [0.18, 0.14, 0.06]);
+            this.shape(exp, 'box', '#7A4E2A', [0, 0.08, 0.60], [0.10, 0.08, 0.05]);
+            // 左侧绿叶羽毛
+            this.shape(exp, 'sphere', '#62B65A', [-0.52, 0.26, 0.18], [0.12, 0.34, 0.06], [0, 0, 28]);
+            this.shape(exp, 'sphere', '#9BE082', [-0.55, 0.34, 0.19], [0.09, 0.20, 0.05], [0, 0, 32]);
+        } else if (outfit === 'sakura_aura') {
+            // 限定·樱花仙子环：粉金樱花浮空花冠 + 8朵立体樱花 + 动态旋转花瓣星光特效环
+            const crown = new Node('樱花仙子环');
+            crown.layer = Layers.Enum.DEFAULT;
+            root.addChild(crown);
+            crown.setPosition(0, 0.52, 0.02);
+            crown.setRotationFromEuler(10, 0, 0);
+            this.shape(crown, 'torus', '#FFD480', [0, 0, 0], [1.22, 0.12, 1.16]);
+            for (let i = 0; i < 8; i++) {
+                const deg = i * 45;
+                const rad = deg * Math.PI / 180;
+                const fl = new Node('樱花-' + i);
+                fl.layer = Layers.Enum.DEFAULT;
+                crown.addChild(fl);
+                fl.setPosition(Math.sin(rad) * 0.65, 0.04, Math.cos(rad) * 0.62);
+                fl.setRotationFromEuler(-10, deg, 0);
+                this.shape(fl, 'sphere', '#FFE27A', [0, 0, 0.04], [0.07, 0.07, 0.04]);
+                for (let p = 0; p < 5; p++) {
+                    const pr = (p * 72) * Math.PI / 180;
+                    this.shape(fl, 'sphere', p % 2 === 0 ? '#FFB5CE' : '#FFD6E6', [Math.cos(pr) * 0.085, Math.sin(pr) * 0.085, 0.015], [0.10, 0.10, 0.045]);
+                }
+            }
+            // 头顶浮空樱花光环 + 旋转飘落樱花瓣特效环
+            this.shape(root, 'torus', '#FFB8D2', [0, 1.04, 0], [0.84, 0.14, 0.78], [6, 0, 0]);
+            addVfxRing(0.86, 0.92, ['#FFB0CC', '#FFD8E8', '#FFE47A', '#FFFFFF'], 8, false);
+        } else if (outfit === 'star_wings') {
+            // 限定·星辰精灵翼：星空靛蓝+亮金流光双翼（带实时扇动枢轴）+ 环绕金色星辰特效环
+            this.shape(root, 'sphere', '#FFE066', [0, 0.96, -0.32], [0.16, 0.24, 0.10]);
+            for (const side of [-1, 1]) {
+                const piv = new Node(side < 0 ? '左精灵翼' : '右精灵翼');
+                piv.layer = Layers.Enum.DEFAULT;
+                root.addChild(piv);
+                piv.setPosition(0, 0.96, -0.32);
+                // 星空上主翼（+side * 38° 上扬）
+                this.shape(piv, 'sphere', '#4D6BE6', [side * 0.86, 0.36, -0.02], [0.84, 0.44, 0.07], [8, -side * 16, side * 38]);
+                this.shape(piv, 'sphere', '#9CC4FF', [side * 0.74, 0.30, 0.02], [0.56, 0.26, 0.06], [8, -side * 16, side * 38]);
+                this.shape(piv, 'sphere', '#FFE168', [side * 1.12, 0.54, 0.0], [0.22, 0.14, 0.06], [8, -side * 16, side * 44]);
+                // 星光下副翼
+                this.shape(piv, 'sphere', '#6886F2', [side * 0.64, -0.14, -0.05], [0.56, 0.30, 0.06], [8, -side * 14, -side * 24]);
+                this.shape(piv, 'sphere', '#FFE168', [side * 0.78, -0.26, -0.02], [0.18, 0.14, 0.055], [8, -side * 14, -side * 28]);
+            }
+            addVfxRing(1.06, 1.12, ['#FFE168', '#9CC4FF', '#FFFFFF', '#FFD24D'], 8, true);
+        } else if (outfit === 'rainbow_cloud') {
+            // 限定·彩虹云朵冠：头顶蓬松白云枕 + 五色彩虹拱门 + 金星顶饰 + 七彩星光公转特效环
+            const cloud = new Node('彩虹云朵冠');
+            cloud.layer = Layers.Enum.DEFAULT;
+            root.addChild(cloud);
+            cloud.setPosition(0, 0.76, 0.02);
+            // 蓬松白云底座
+            this.shape(cloud, 'sphere', '#FFFFFF', [0, 0, 0], [0.68, 0.30, 0.48]);
+            this.shape(cloud, 'sphere', '#F5FAFF', [-0.30, -0.02, 0.04], [0.44, 0.26, 0.38]);
+            this.shape(cloud, 'sphere', '#F5FAFF', [0.30, -0.02, 0.04], [0.44, 0.26, 0.38]);
+            // 五色彩虹拱门（半圆弧点阵拼合）
+            const archColors = ['#FF7B89', '#FFB85C', '#FFE46B', '#7CE09B', '#7CC6FF'];
+            archColors.forEach((col, band) => {
+                const radR = 0.56 - band * 0.065;
+                for (let k = 0; k <= 8; k++) {
+                    const ang = (k / 8) * Math.PI;
+                    this.shape(cloud, 'sphere', col, [Math.cos(ang) * radR, 0.06 + Math.sin(ang) * radR * 0.86, -0.02], [0.095, 0.095, 0.095]);
+                }
+            });
+            // 拱顶金星
+            this.shape(cloud, 'box', '#FFE066', [0, 0.62, 0.02], [0.22, 0.07, 0.06]);
+            this.shape(cloud, 'box', '#FFE066', [0, 0.62, 0.02], [0.07, 0.22, 0.06]);
+            addVfxRing(1.02, 0.88, ['#FF8DA1', '#FFE066', '#7CE09B', '#7CC6FF', '#D2A6FF'], 7, true);
         }
         return root;
+    }
+
+    private animateOutfitVfx(outfitNode: Node | null | undefined, t: number) {
+        if (!outfitNode || !isValid(outfitNode, true)) return;
+        const vfx = outfitNode.getChildByName('限定特效环');
+        if (vfx && isValid(vfx, true)) {
+            vfx.setRotationFromEuler(Math.sin(t * 1.9) * 8, (t * 68) % 360, Math.cos(t * 1.6) * 6);
+            vfx.children.forEach((ch, idx) => {
+                const s = 0.88 + Math.sin(t * 4.6 + idx * 1.1) * 0.24;
+                ch.setScale(s, s, s);
+            });
+        }
+        const wingL = outfitNode.getChildByName('左精灵翼');
+        const wingR = outfitNode.getChildByName('右精灵翼');
+        if (wingL && isValid(wingL, true) && wingR && isValid(wingR, true)) {
+            const flap = Math.sin(t * 5.2) * 14;
+            wingL.setRotationFromEuler(0, flap, 0);
+            wingR.setRotationFromEuler(0, -flap, 0);
+        }
     }
 
     private setLayerRecursive(node: Node, layer: number) {
@@ -1197,6 +1365,7 @@ export class Main extends Component {
                 const sc = Math.max(0.76, 1 - hopY * 0.6);
                 rig.shadow.setScale(sc, 1, sc);
             }
+            this.animateOutfitVfx(rig.outfitNode, t);
         }
     }
 
@@ -1925,16 +2094,27 @@ export class Main extends Component {
         const sub = this.text(panel, '点击已解锁伙伴更换头像（已解锁 ' + ownedIds.size + '/' + BREEDS.length + '）', 0, 366, 720, 34, 24, '#7A5130');
         sub.isBold = true; sub.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
 
-        // 4×3 全部 12 只猫狗头像网格（未解锁自动灰显并上锁）
+        // 4列可滚动猫狗头像网格（适配全部 18 只及以上伙伴，未解锁自动灰显并上锁）
         const refreshers: Array<() => void> = [];
         const refreshAll = () => refreshers.forEach(fn => fn());
+
+        const avVpW = 736, avVpH = 612;
+        const avVp = this.uiNode(panel, '头像选择视口', 0, 22, avVpW, avVpH);
+        avVp.addComponent(Mask).type = Mask.Type.GRAPHICS_RECT;
+        const avRows = Math.ceil(BREEDS.length / 4);
+        const avTotalH = Math.max(avVpH, avRows * 196 + 24);
+        const avGrid = this.uiNode(avVp, '头像选择网格', 0, avVpH / 2, avVpW, avTotalH);
+        avGrid.getComponent(UITransform)!.setAnchorPoint(0.5, 1);
+        const avScroll = avVp.addComponent(ScrollView);
+        avScroll.content = avGrid; avScroll.horizontal = false; avScroll.vertical = true;
+        avScroll.cancelInnerEvents = true; avScroll.elastic = true;
 
         BREEDS.forEach((breed, idx) => {
             const col = idx % 4, row = Math.floor(idx / 4);
             const x = (col - 1.5) * 172;
-            const y = 215 - row * 198;
+            const y = -102 - row * 196;
             const owned = ownedIds.has(breed.id);
-            const slot = this.uiNode(panel, '头像选项-' + breed.id, x, y, 156, 182);
+            const slot = this.uiNode(avGrid, '头像选项-' + breed.id, x, y, 156, 182);
             const cardBg = slot.addComponent(Graphics);
             this.petAvatar(slot, breed.id, 0, 22, 112, !owned);
 
@@ -2553,7 +2733,9 @@ export class Main extends Component {
             }
             nextPet[stat] = Math.max(0, Math.min(100, p[stat] + delta));
         });
-        const xpGain = Math.round(15 * (1 + starXpBonus(p.star) + (trait.xpBonus || 0)));
+        const outfitXp = PET_OUTFITS.find(o => o.id === p.outfit)?.xpBonus || 0;
+        const coatXp = PET_COATS.find(co => co.id === p.coat)?.xpBonus || 0;
+        const xpGain = Math.round(15 * (1 + starXpBonus(p.star) + (trait.xpBonus || 0) + outfitXp + coatXp));
         const xp = Math.min(100000000, this.data.xp + xpGain);
         const levels = Math.floor(xp / 100) - Math.floor(this.data.xp / 100);
         const candidate: Save = { ...this.dailyCandidate(), xp,
@@ -3296,7 +3478,7 @@ export class Main extends Component {
                 c.coins = Math.min(100000000, c.coins + 10000);
                 if (this.commitShop(c)) { refreshVisible(); this.toast('GM：金币 +10000'); }
             }],
-            ['解锁全部 12 伙伴', () => {
+            ['解锁全部 ' + BREEDS.length + ' 伙伴', () => {
                 const c = this.dailyCandidate();
                 const owned = new Set(c.pets.map(p => p.id));
                 const added: Pet[] = [];
@@ -3743,6 +3925,9 @@ export class Main extends Component {
                 coatInv[coatId] = coatInv[coatId] - 1;
                 owned = true;
                 usedBag = true;
+            } else if (def.unlockMode === 'ad') {
+                this.unlockCoatByAd(coatId, petId);
+                return false;
             } else if (def.currency === 'coins') {
                 if (coins < def.price) { this.showCoinDialog(); return false; }
                 coins -= def.price;
@@ -4326,6 +4511,9 @@ export class Main extends Component {
                 const iconNode = this.uiNode(iconBg, '装扮图标-' + o.id, 0, 0, 96, 96);
                 const iconSprite = iconNode.addComponent(Sprite); iconSprite.sizeMode = Sprite.SizeMode.CUSTOM;
                 this.loadOutfitIcon(iconSprite, o.id);
+                if (o.limited) {
+                    this.pillBadge(tile, '限定', -62, 82, 58, 24, '#D94343', C.white, 15);
+                }
                 if (equipped) {
                     const chk = drawCard(tile, '已穿戴勾', 76, 82, 40, 40, '#469A50', '#FFFDF5', 3, 20);
                     const cTxt = this.text(chk, '✓', 0, 0, 34, 34, 24, '#FFFDF5');
@@ -4368,6 +4556,9 @@ export class Main extends Component {
                 const skinIcon = this.uiNode(iconBg, '皮肤图标-' + c.id, 0, 0, 92, 92).addComponent(Sprite);
                 skinIcon.sizeMode = Sprite.SizeMode.CUSTOM;
                 this.loadOutfitIcon(skinIcon, c.icon);
+                if (c.limited) {
+                    this.pillBadge(tile, '限定', -62, 82, 58, 24, '#D94343', C.white, 15);
+                }
                 if (equipped) {
                     const chk = drawCard(tile, '已穿戴勾', 76, 82, 40, 40, '#469A50', '#FFFDF5', 3, 20);
                     const cTxt = this.text(chk, '✓', 0, 0, 34, 34, 24, '#FFFDF5');
@@ -4383,6 +4574,10 @@ export class Main extends Component {
                 } else if (bagCnt > 0) {
                     const stPill = drawCard(tile, '皮肤背包解锁条', 0, -84, 166, 34, '#3B9E5A', '#FFFFFF', 0, 17);
                     const st = this.text(stPill, `背包×${bagCnt} 解锁`, 0, 0, 156, 28, 18, '#FFFDF5');
+                    st.isBold = true; st.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+                } else if (c.unlockMode === 'ad') {
+                    const stPill = drawCard(tile, '皮肤广告条', 0, -84, 166, 34, '#D94343', '#FFFFFF', 0, 17);
+                    const st = this.text(stPill, '限定·看广告', 0, 0, 156, 28, 18, '#FFFDF5');
                     st.isBold = true; st.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
                 } else {
                     const affordable = (c.currency === 'coins' ? this.data.coins : this.data.gems) >= c.price;
@@ -5071,7 +5266,8 @@ export class Main extends Component {
             })),
             ...coatList.map(c => ({
                 kind: 'coat' as const, id: c.id, name: c.name, icon: c.icon, price: c.price, currency: c.currency,
-                theme: (c.price >= 200 ? 'gem' : c.price >= 150 ? 'heal' : 'general') as SlotBgTheme,
+                unlockMode: c.unlockMode, limited: c.limited, effectTag: c.effectTag,
+                theme: (c.limited ? 'rainbow' : c.currency === 'gems' ? 'epic' : c.price >= 200 ? 'gem' : c.price >= 150 ? 'heal' : 'general') as SlotBgTheme,
             })),
         ];
 
@@ -5118,7 +5314,10 @@ export class Main extends Component {
             buyBtn.name = entry.unlockMode === 'ad' ? '装扮广告按钮-' + entry.id : '装扮购买按钮-' + entry.id;
             if (entry.unlockMode === 'ad') {
                 this.headerText(buyBtn, '看广告解锁', 0, 0, 176, 36, 22);
-                this.shopButton(buyBtn, () => this.unlockOutfitByAd(entry.id as OutfitId, undefined, refreshAll));
+                this.shopButton(buyBtn, () => {
+                    if (entry.kind === 'coat') this.unlockCoatByAd(entry.id as CoatId, undefined, refreshAll);
+                    else this.unlockOutfitByAd(entry.id as OutfitId, undefined, refreshAll);
+                });
             } else {
                 this.addPriceTag(buyBtn, entry.currency, entry.price, 8, 0, 30, '#FFFFFF');
                 this.shopButton(buyBtn, () => {
@@ -5157,7 +5356,7 @@ export class Main extends Component {
 
     public buyCoatToBag(id: CoatId): boolean {
         const def = PET_COATS.find(co => co.id === id);
-        if (!def || def.id === 'original') return false;
+        if (!def || def.id === 'original' || def.unlockMode === 'ad') return false;
         if (def.currency === 'coins' && this.data.coins < def.price) { this.showCoinDialog(); return false; }
         if (def.currency === 'gems' && this.data.gems < def.price) { this.showGemDialog(); return false; }
         const c = this.dailyCandidate();
@@ -5191,6 +5390,29 @@ export class Main extends Component {
             onDone?.();
             this.toast('限定装扮解锁成功！已获得「' + def.name + '」');
         }, '暂未解锁限定装扮');
+    }
+
+    public unlockCoatByAd(id: CoatId, equipPetId?: number, onDone?: () => void) {
+        const def = PET_COATS.find(co => co.id === id);
+        if (!def || def.unlockMode !== 'ad') return;
+        this.requestRewardedAd(() => {
+            const c = this.dailyCandidate();
+            if (equipPetId !== undefined) {
+                const pet = c.pets.find(p => p.id === equipPetId);
+                if (pet) {
+                    const ownedCoats = pet.ownedCoats.includes(id) ? pet.ownedCoats : [...pet.ownedCoats, id];
+                    c.pets = c.pets.map(p => p.id === equipPetId ? { ...p, coat: id, ownedCoats } : p);
+                }
+            } else {
+                c.coatInventory = { ...(c.coatInventory || {}), [id]: ((c.coatInventory || {})[id] || 0) + 1 };
+            }
+            if (!this.commitShop(c)) return;
+            if (equipPetId !== undefined) void this.refreshPetAppearance(equipPetId);
+            this.renderHeader();
+            if (this.page === 'profile') this.refreshProfileInPlace();
+            onDone?.();
+            this.toast('限定服装解锁成功！已获得「' + def.name + '」');
+        }, '暂未解锁限定服装');
     }
 
     private renderShopTombstones(panel: Node, content: Node) {
@@ -5649,8 +5871,8 @@ export class Main extends Component {
             return false;
         }
         const bonusItems = rollIdleBonusItems(preview.itemCount);
-        const outfitAdvBonus = this.data.pets.filter(p => !p.dead && !p.lost).reduce((acc, p) => acc + (PET_OUTFITS.find(o => o.id === p.outfit)?.adventureBonus || 0), 0);
-        const outfitXpBonus = this.data.pets.filter(p => !p.dead && !p.lost).reduce((acc, p) => acc + (PET_OUTFITS.find(o => o.id === p.outfit)?.xpBonus || 0), 0);
+        const outfitAdvBonus = this.data.pets.filter(p => !p.dead && !p.lost).reduce((acc, p) => acc + (PET_OUTFITS.find(o => o.id === p.outfit)?.adventureBonus || 0) + (PET_COATS.find(co => co.id === p.coat)?.adventureBonus || 0), 0);
+        const outfitXpBonus = this.data.pets.filter(p => !p.dead && !p.lost).reduce((acc, p) => acc + (PET_OUTFITS.find(o => o.id === p.outfit)?.xpBonus || 0) + (PET_COATS.find(co => co.id === p.coat)?.xpBonus || 0), 0);
         const finalCoins = Math.round(preview.coins * (1 + Math.min(0.8, outfitAdvBonus)));
         const finalGems = Math.round(preview.gems * (1 + Math.min(0.5, outfitAdvBonus * 0.5)));
         const c = this.dailyCandidate();
@@ -6808,7 +7030,8 @@ export class Main extends Component {
                 const poopPenalty = poopCount >= 3 ? poopCount * 1.15 : poopCount * 0.6;
                 p.clean = Math.max(0, p.clean - (0.7 + poopPenalty) * (tr.cleanDecayMult ?? 1));
                 const outfitDef = PET_OUTFITS.find(o => o.id === p.outfit);
-                const outfitDecay = outfitDef?.decayMult ?? 1;
+                const coatDef = PET_COATS.find(co => co.id === p.coat);
+                const outfitDecay = (outfitDef?.decayMult ?? 1) * (coatDef?.decayMult ?? 1);
                 p.joy = Math.max(0, p.joy - (0.5 + (p.hunger < 20 ? 0.5 : 0) + (p.clean < 30 ? 0.4 : 0)) * (tr.joyDecayMult ?? 1) * outfitDecay);
                 p.energy = Math.max(0, p.energy - 0.35 * (tr.energyDecayMult ?? 1));
                 if (p.hunger < 20 || p.clean < 30) {
@@ -7366,6 +7589,7 @@ export class Main extends Component {
                         rig.shadow.setPosition(0, 0.02 - a.node.position.y / this.petNodeScale, -0.02);
                         rig.shadow.setScale(shadowScale, 1, shadowScale);
                     }
+                    this.animateOutfitVfx(rig.outfitNode, this.socialTime);
                 }
             });
             if (this.page === 'adventure') {
