@@ -3215,6 +3215,8 @@ export class Main extends Component {
             this.refreshMemorialEntry();
         this.refreshTaskRedDots();
             this.renderHeader(); this.updateRecruit();
+            const hasHighRarity = added.length > 0 || ids.some(id => BREEDS[id]?.rarity === 'epic' || BREEDS[id]?.rarity === 'legend');
+            SoundManager.playSfx(hasHighRarity ? 'recruit_ssr' : 'recruit_draw');
             if (this.ui && isValid(this.ui, true) && (mode !== 'reward' || !this.dialog)) {
                 this.showRecruitResultDialog(mode, ids, new Set(added.map(p => p.id)), claimed);
             } else {

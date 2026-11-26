@@ -10,6 +10,8 @@ export type SfxName =
     | 'click'
     | 'reward'
     | 'place'
+    | 'recruit_draw'
+    | 'recruit_ssr'
     | 'cat_meow'
     | 'dog_bark'
     | 'bath'
@@ -61,6 +63,7 @@ class SoundManagerImpl {
     private bgmEnabled = true;
     private sfxEnabled = true;
     private bgmMode: BgmMode = 'home';
+    private bgmRunningMode: BgmMode = 'none';
     private bgmTimer: ReturnType<typeof setInterval> | null = null;
     private bgmStep = 0;
     private unlocked = false;
@@ -111,17 +114,27 @@ class SoundManagerImpl {
     private bindUnlockListeners() {
         if (this.unlockBound || typeof window === 'undefined') return;
         this.unlockBound = true;
+        const cleanup = () => {
+            window.removeEventListener('pointerdown', unlock);
+            window.removeEventListener('touchstart', unlock);
+            window.removeEventListener('keydown', unlock);
+        };
         const unlock = () => {
+            if (this.unlocked) { cleanup(); return; }
             const ctx = this.getCtx();
             if (!ctx) return;
-            if (ctx.state === 'suspended') {
-                ctx.resume().then(() => {
-                    this.unlocked = true;
-                    if (this.bgmEnabled && this.bgmMode !== 'none') this.startBgmLoop();
-                }).catch(() => {});
-            } else {
+            const finishUnlock = () => {
+                if (this.unlocked) return;
                 this.unlocked = true;
-                if (this.bgmEnabled && this.bgmMode !== 'none') this.startBgmLoop();
+                cleanup();
+                if (this.bgmEnabled && this.bgmMode !== 'none' && this.bgmTimer === null) {
+                    this.startBgmLoop();
+                }
+            };
+            if (ctx.state === 'suspended') {
+                ctx.resume().then(finishUnlock).catch(() => {});
+            } else {
+                finishUnlock();
             }
         };
         window.addEventListener('pointerdown', unlock, { passive: true });
@@ -171,11 +184,18 @@ class SoundManagerImpl {
             clearInterval(this.bgmTimer);
             this.bgmTimer = null;
         }
+        this.bgmRunningMode = 'none';
     }
 
     private startBgmLoop() {
+        if (!this.bgmEnabled || this.bgmMode === 'none') {
+            this.stopBgmLoop();
+            return;
+        }
+        // 已在播放同一首 BGM 时禁止重复重启与额外步进，彻底杜绝点击加速
+        if (this.bgmTimer !== null && this.bgmRunningMode === this.bgmMode) return;
         this.stopBgmLoop();
-        if (!this.bgmEnabled || this.bgmMode === 'none') return;
+        this.bgmRunningMode = this.bgmMode;
         const isAdv = this.bgmMode === 'adventure';
         const stepMs = isAdv ? 245 : 370; // 冒险更轻快，主城更舒缓治愈
         const tick = () => {
@@ -300,6 +320,24 @@ class SoundManagerImpl {
                 this.playFilteredNoise(ctx, t, 0.055, 520, 'lowpass', 0.09);
                 this.playTone(ctx, 523.25, t + 0.06, 0.12, 'triangle', 0.09, 2600);
                 this.playTone(ctx, 783.99, t + 0.11, 0.16, 'sine', 0.09, 2800);
+                break;
+            }
+            case 'recruit_draw': {
+                // 招募摇铃与魔法竖琴琶音
+                const notes = [392.00, 493.88, 587.33, 783.99, 987.77];
+                notes.forEach((f, i) => {
+                    this.playTone(ctx, f, t + i * 0.055, 0.24, 'sine', 0.11, 3200);
+                    this.playTone(ctx, f * 2, t + i * 0.055, 0.10, 'triangle', 0.03, 3800);
+                });
+                break;
+            }
+            case 'recruit_ssr': {
+                // 招募到新伙伴/高稀有度伙伴：璀璨铃铛大礼花和弦
+                const notes = [523.25, 659.25, 783.99, 987.77, 1046.50, 1318.51];
+                notes.forEach((f, i) => {
+                    this.playTone(ctx, f, t + i * 0.06, 0.30, 'sine', 0.13, 3600);
+                    this.playTone(ctx, f * 1.5, t + i * 0.06, 0.16, 'triangle', 0.045, 4000);
+                });
                 break;
             }
             case 'cat_meow': {
