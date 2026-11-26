@@ -872,6 +872,58 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
     await page.waitForTimeout(450);
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-shop-outfits.png') });
 
+    // Switch to Shop Furniture tab -> verify 16 furniture cards, buy deco_fountain, open Layout mode, place & recall, and test Sleep Zzz VFX!
+    const furnTabRes = await page.evaluate(() => {
+      const tabBtn = walk(main.sheet).find(n => n.name === '商店页签-家具');
+      tabBtn.emit('touch-end', {});
+      const cards = walk(main.sheet).filter(n => n.name.startsWith('家具商品卡-')).length;
+      main.data.coins += 500;
+      const bought = main.buyFurniture('deco_fountain');
+      const bagCnt = main.data.furnitureInventory?.deco_fountain || 0;
+      return { cards, bought, bagCnt };
+    });
+    console.log('shop furniture tab check:', JSON.stringify(furnTabRes));
+    assert.deepEqual(furnTabRes, { cards: 16, bought: true, bagCnt: 1 });
+    await page.waitForTimeout(450);
+    await page.screenshot({ path: path.join(OUT_DIR, 'verify-shop-furniture.png') });
+
+    // Open Yard Layout mode -> verify 5 starter furniture placed, place deco_fountain from bag, verify hidden on Adventure!
+    const layoutRes = await page.evaluate(() => {
+      main.open('layout');
+      const starterCount = (main.data.placedFurniture || []).length;
+      const placedOk = main.placeFurnitureFromBag('deco_fountain');
+      const afterPlace = (main.data.placedFurniture || []).length;
+      const hasLayoutPanel = !!main.sheet && main.sheet.name === '庭院布置面板';
+      return { starterCount, placedOk, afterPlace, hasLayoutPanel };
+    });
+    console.log('yard layout mode check:', JSON.stringify(layoutRes));
+    assert.deepEqual(layoutRes, { starterCount: 5, placedOk: true, afterPlace: 6, hasLayoutPanel: true });
+    await page.waitForTimeout(500);
+    await page.screenshot({ path: path.join(OUT_DIR, 'verify-yard-layout-mode.png') });
+
+    // Verify Sleep Zzz VFX + energy recovery in cat bed!
+    await page.evaluate(() => {
+      main.open('home');
+      const p0 = main.data.pets.find(p => p.id === 0);
+      const a0 = main.actors.find(a => a.pet.id === 0);
+      const bed = main.data.placedFurniture.find(f => f.id === 'cat_bed_basic');
+      if (p0 && a0 && bed) {
+        p0.dead = false; p0.lost = false; p0.adventuring = false; p0.energy = 15;
+        a0.pet = p0;
+        a0.node.setPosition(bed.x, 0, bed.z + 0.10);
+        a0.target.set(bed.x, 0, bed.z + 0.10);
+        a0.activity = { type: 'sleep', furnitureUid: bed.uid, until: main.socialTime + 20, tickAcc: 0, zzzTimer: 0.05, arrived: true };
+      }
+    });
+    await page.waitForTimeout(1300);
+    const sleepCheck = await page.evaluate(() => ({
+      energyAfter: Math.round(main.data.pets.find(p => p.id === 0)?.energy || 0),
+      zzzCount: main.zzzBubbles.length,
+    }));
+    console.log('pet sleep Zzz check:', JSON.stringify(sleepCheck));
+    assert.ok(sleepCheck.energyAfter > 15 && sleepCheck.zzzCount >= 1, 'sleeping pet in bed must recover energy and emit Zzz VFX');
+    await page.screenshot({ path: path.join(OUT_DIR, 'verify-yard-clean-sleep-zzz.png') });
+
     // Open Memorial Corner -> erect tombstone for dead pet #1 with custom epitaph -> verify!
     await page.evaluate(() => {
       main.open('memorial');

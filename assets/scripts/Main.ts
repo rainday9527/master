@@ -17,13 +17,17 @@ import {
     calcIdleRewardPreview, rollIdleBonusItems, eventBadgeMeta, itemCategoryTag,
     makeDepartOutcome, makeLostOutcome, makeTraffickerDeathOutcome, rollAdventureEvent, RolledAdventureOutcome,
 } from './AdventureSystem';
+import {
+    FURNITURE_CATALOG, FurnitureDef, FurnitureId, PlacedFurniture,
+    findFurniture, isFurnitureId, defaultPlacedFurniture, furnitureMatchesPet,
+} from './FurnitureCatalog';
 
 const { ccclass } = _decorator;
 type Kind = 'cat' | 'dog';
 type Currency = 'gems' | 'coins';
 // 金币广告奖励暂与钻石一致；后续数值调整只改此处。
 const VIDEO_REWARDS: Record<Currency, number> = { gems: 200, coins: 200 };
-type Page = 'home' | 'recruit' | 'adventure' | 'album' | 'profile' | 'shop' | 'pet' | 'bag' | 'daily' | 'diary' | 'memorial';
+type Page = 'home' | 'recruit' | 'adventure' | 'album' | 'profile' | 'shop' | 'pet' | 'bag' | 'daily' | 'diary' | 'memorial' | 'layout';
 export type RewardedVideoResult = 'completed' | 'cancelled' | 'failed';
 export interface RewardedVideoProvider {
     // 可信边界：仅由宿主注入的平台适配器调用终态回调，并在游戏主线程执行。
@@ -83,6 +87,8 @@ interface Save {
     outfitInventory?: Record<string, number>;
     coatInventory?: Record<string, number>;
     memorials?: MemorialRecord[];
+    placedFurniture?: PlacedFurniture[];
+    furnitureInventory?: Record<string, number>;
 }
 type RigPartName = 'body' | 'head' | 'face' | 'earL' | 'earR' | 'legFL' | 'legFR' | 'legBL' | 'legBR' | 'tail';
 interface PetRigAsset {
@@ -131,6 +137,15 @@ interface Actor {
     rig?: ActorRig;
     dying?: number;
     ghostSpawned?: boolean;
+    activity?: {
+        type: 'sleep' | 'eat' | 'play';
+        furnitureUid: number;
+        until: number;
+        tickAcc: number;
+        zzzTimer: number;
+        arrived: boolean;
+        consumed?: boolean;
+    };
 }
 interface SocialBubble { node: Node; actor: Actor; until: number; side: number; }
 interface PoopVisual {
@@ -199,7 +214,12 @@ export class Main extends Component {
     private advScrollY = 0;
     private advChestOpenUntil = 0;
     private advLogNextId = 1;
-    private shopTab: 'items' | 'outfits' | 'tombstones' = 'items';
+    private shopTab: 'items' | 'outfits' | 'furniture' | 'tombstones' = 'items';
+    private furnitureLayer: Node | null = null;
+    private furnitureVisuals = new Map<number, { node: Node; id: FurnitureId; ring: Node }>();
+    private furnitureNextUid = 10;
+    private selectedFurnitureUid: number | null = null;
+    private zzzBubbles: Array<{ node: Node; x: number; y: number; age: number; duration: number; driftX: number }> = [];
     private pendingAlerts: { kind: 'lost' | 'dead'; petId: number; reason: string }[] = [];
     private allDeadPrompted = false;
     private socialBubbles: SocialBubble[] = [];
@@ -292,6 +312,7 @@ export class Main extends Component {
         this.makeBackground();
         this.makeCamera();
         this.makeLighting();
+        this.syncYardFurniture();
         this.data.pets.forEach(p => this.spawnPet(p));
         this.scheduleOnce(() => { if (isValid(this, true)) this.checkMainCityAlerts(); }, 0.35);
         this.makeUI();
@@ -343,7 +364,8 @@ export class Main extends Component {
                 type: 'depart', title: '独自出门冒险',
                 text: `「${BREEDS[0].name}」摇着尾巴悄悄钻过庭院木门，踏上了阳光花径的冒险之旅！`,
             }],
-            tombstoneInventory: {}, outfitInventory: {}, coatInventory: {}, memorials: [] };
+            tombstoneInventory: {}, outfitInventory: {}, coatInventory: {}, memorials: [],
+            placedFurniture: defaultPlacedFurniture(), furnitureInventory: {} };
     }
 
     private load(): Save {
@@ -447,6 +469,24 @@ export class Main extends Component {
             });
             s.coatInventory = coatInv;
             s.memorials = Array.isArray((s as any).memorials) ? ((s as any).memorials as MemorialRecord[]).slice(0, BREEDS.length) : [];
+            const furnInv: Record<string, number> = {};
+            FURNITURE_CATALOG.forEach(f => {
+                const cnt = (s as any).furnitureInventory && (s as any).furnitureInventory[f.id];
+                if (validInt(cnt)) furnInv[f.id] = cnt;
+            });
+            s.furnitureInventory = furnInv;
+            if (Array.isArray((s as any).placedFurniture)) {
+                const validPlaced: PlacedFurniture[] = [];
+                ((s as any).placedFurniture as any[]).slice(0, 40).forEach((pf, idx) => {
+                    if (pf && isFurnitureId(pf.id) && typeof pf.x === 'number' && typeof pf.z === 'number' && Number.isFinite(pf.x) && Number.isFinite(pf.z)) {
+                        validPlaced.push({ uid: validInt(pf.uid) ? pf.uid : idx + 1, id: pf.id, x: pf.x, z: pf.z });
+                    }
+                });
+                s.placedFurniture = validPlaced;
+            } else {
+                s.placedFurniture = defaultPlacedFurniture();
+            }
+            this.furnitureNextUid = s.placedFurniture.reduce((m, f) => Math.max(m, f.uid || 0), 10);
             const inventory: Record<string, number> = {};
             ITEM_CATALOG.forEach(item => {
                 const count = s.itemInventory && s.itemInventory[item.id];
@@ -1735,6 +1775,15 @@ export class Main extends Component {
         memorial.on(Node.EventType.TOUCH_END, () => this.open('memorial'), this);
         this.refreshMemorialEntry();
 
+        // 庭院布置入口：位于纪念角下方，支持自由摆放/移动/收回猫窝狗窝食盆乐园与装饰
+        const layoutBtn = this.uiNode(this.ui, '庭院布置入口', 390, 170, 190, 174);
+        this.intercept(layoutBtn); this.pressFeedback(layoutBtn);
+        const layIcon = this.uiNode(layoutBtn, '布置入口图标', 0, 26, 98, 98).addComponent(Sprite);
+        layIcon.sizeMode = Sprite.SizeMode.CUSTOM;
+        resources.load('art/furniture/cat_bed_basic/spriteFrame', SpriteFrame, (e, f) => { if (!e && f && isValid(layIcon, true)) layIcon.spriteFrame = f; });
+        this.navCaption(layoutBtn, '布置', 3);
+        layoutBtn.on(Node.EventType.TOUCH_END, () => this.open('layout'), this);
+
         // GM 预览调试悬浮入口（位于左上头像栏下方，不遮挡顶栏/底栏与主操作区）
         const gm = this.uiNode(this.ui, 'GM调试入口', -440, 730, 104, 46);
         const gmg = gm.addComponent(Graphics);
@@ -1838,6 +1887,7 @@ export class Main extends Component {
         this.ui.getChildByName('每日任务入口')?.setPosition(this.width / 2 - 4 - 190 / 2, this.height / 2 - 295, 0);
         this.ui.getChildByName('冒险日记入口')?.setPosition(this.width / 2 - 4 - 190 / 2, this.height / 2 - 458, 0);
         this.ui.getChildByName('后院纪念角入口')?.setPosition(this.width / 2 - 4 - 190 / 2, this.height / 2 - 620, 0);
+        this.ui.getChildByName('庭院布置入口')?.setPosition(this.width / 2 - 4 - 190 / 2, this.height / 2 - 780, 0);
         this.ui.getChildByName('GM调试入口')?.setPosition(-Math.min(this.width / 2 - 72, 416), this.height / 2 - 226, 0);
         this.bottom.setPosition(0, -this.height / 2 + 90, 0);
         this.layoutGmPanel();
@@ -2676,17 +2726,27 @@ export class Main extends Component {
         if (dailyEntry) dailyEntry.active = page === 'home';
         const diaryEntry = this.ui.getChildByName('冒险日记入口');
         if (diaryEntry) diaryEntry.active = page === 'home';
+        const layoutEntry = this.ui.getChildByName('庭院布置入口');
+        if (layoutEntry) layoutEntry.active = page === 'home';
         this.refreshMemorialEntry();
         const gmEntry = this.ui.getChildByName('GM调试入口');
-        if (gmEntry) gmEntry.active = page !== 'album' && page !== 'profile';
+        if (gmEntry) gmEntry.active = page !== 'album' && page !== 'profile' && page !== 'layout';
         if (this.top) this.top.active = page !== 'album' && page !== 'profile';
-        if (this.bottom) this.bottom.active = page !== 'profile';
+        if (this.bottom) this.bottom.active = page !== 'profile' && page !== 'layout';
+        if (page !== 'layout') this.selectedFurnitureUid = null;
+        this.syncYardFurniture();
         if (page !== 'adventure') {
             this.clearAdventureBackground();
             this.advChestAura = null; this.advChestSprite = null; this.advChestBadge = null;
             this.advTimerLabel = null;
         }
         if (page === 'home') { this.checkMainCityAlerts(); return; }
+        if (page === 'layout') {
+            this.sheet = this.uiNode(this.ui, '庭院布置面板', 0, -this.height / 2 + 185, 1020, 350);
+            this.intercept(this.sheet);
+            this.renderLayoutPanel();
+            return;
+        }
         if (page === 'adventure') {
             this.sheet = this.uiNode(this.ui, '冒险挂机全屏层', 0, 0, this.width, this.height);
             this.renderAdventure(); this.layout();
@@ -4987,6 +5047,7 @@ export class Main extends Component {
 
         let tabItemsLbl!: Label;
         let tabOutfitsLbl!: Label;
+        let tabFurnLbl!: Label;
         let tabTombLbl!: Label;
         const renderTabBody = () => {
             this.shopCards = [];
@@ -4999,6 +5060,7 @@ export class Main extends Component {
 
             tabItemsLbl.color = this.color(this.shopTab === 'items' ? '#4E2C15' : '#8A6B4F');
             tabOutfitsLbl.color = this.color(this.shopTab === 'outfits' ? '#4E2C15' : '#8A6B4F');
+            tabFurnLbl.color = this.color(this.shopTab === 'furniture' ? '#4E2C15' : '#8A6B4F');
             tabTombLbl.color = this.color(this.shopTab === 'tombstones' ? '#4E2C15' : '#8A6B4F');
 
             const body = this.uiNode(panel, '商店页签内容层', 0, 0, 960, 1260);
@@ -5006,6 +5068,10 @@ export class Main extends Component {
 
             if (this.shopTab === 'outfits') {
                 this.renderShopOutfits(body, content);
+                return;
+            }
+            if (this.shopTab === 'furniture') {
+                this.renderShopFurniture(body, content);
                 return;
             }
             if (this.shopTab === 'tombstones') {
@@ -5056,31 +5122,508 @@ export class Main extends Component {
             this.updateShopCards();
         };
 
-        const switchShopTab = (next: 'items' | 'outfits' | 'tombstones') => {
+        const switchShopTab = (next: 'items' | 'outfits' | 'furniture' | 'tombstones') => {
             if (this.shopTab === next) return;
             this.shopTab = next;
             // 原地切换页签内容层，不重建外框面板，彻底消除切页跳动
             renderTabBody();
         };
-        const tabItems = this.shopArt(panel, 'tab', -254, 214, 178, 66);
+        const tabItems = this.shopArt(panel, 'tab', -276, 214, 174, 64);
         tabItems.name = '商店页签-道具';
-        tabItemsLbl = this.headerText(tabItems, '道具', 0, 0, 144, 42, 28);
+        tabItemsLbl = this.headerText(tabItems, '道具', 0, 0, 140, 40, 26);
         this.shopButton(tabItems, () => switchShopTab('items'));
 
-        const tabOutfits = this.shopArt(panel, 'tab', -64, 214, 178, 66);
+        const tabOutfits = this.shopArt(panel, 'tab', -92, 214, 174, 64);
         tabOutfits.name = '商店页签-装扮';
-        tabOutfitsLbl = this.headerText(tabOutfits, '装扮', 0, 0, 144, 42, 28);
+        tabOutfitsLbl = this.headerText(tabOutfits, '装扮', 0, 0, 140, 40, 26);
         this.shopButton(tabOutfits, () => switchShopTab('outfits'));
 
-        const tabTomb = this.shopArt(panel, 'tab', 126, 214, 178, 66);
+        const tabFurn = this.shopArt(panel, 'tab', 92, 214, 174, 64);
+        tabFurn.name = '商店页签-家具';
+        tabFurnLbl = this.headerText(tabFurn, '家具', 0, 0, 140, 40, 26);
+        this.shopButton(tabFurn, () => switchShopTab('furniture'));
+
+        const tabTomb = this.shopArt(panel, 'tab', 276, 214, 174, 64);
         tabTomb.name = '商店页签-墓碑';
-        tabTombLbl = this.headerText(tabTomb, '墓碑', 0, 0, 144, 42, 28);
+        tabTombLbl = this.headerText(tabTomb, '墓碑', 0, 0, 140, 40, 26);
         this.shopButton(tabTomb, () => switchShopTab('tombstones'));
 
         const close = this.shopArt(panel, 'close', 392, 278, 82, 83);
         this.shopButton(close, () => this.open('home'));
 
         renderTabBody();
+    }
+
+    private renderShopFurniture(_body: Node, content: Node) {
+        const tip = this.text(content, '购买猫窝、狗窝、食盆、游玩乐园与庭院装饰，前往「布置」自由摆放', 0, 326, 750, 28, 19, '#6E4B2F');
+        tip.isBold = true; tip.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+
+        const vp = this.uiNode(content, '家具商品滚动视口', 0, -22, 760, 648);
+        vp.addComponent(Mask).type = Mask.Type.GRAPHICS_RECT;
+        const rows = Math.ceil(FURNITURE_CATALOG.length / 3);
+        const cardW = 240, cardH = 316, gapX = 12, gapY = 12;
+        const totalH = Math.max(648, rows * (cardH + gapY) + 24);
+        const grid = this.uiNode(vp, '家具商品网格', 0, 324, 760, totalH);
+        grid.getComponent(UITransform)!.setAnchorPoint(0.5, 1);
+        const scroll = vp.addComponent(ScrollView);
+        scroll.content = grid; scroll.horizontal = false; scroll.vertical = true;
+        scroll.cancelInnerEvents = true; scroll.elastic = true;
+
+        const updaters: Array<() => void> = [];
+        const refreshAll = () => updaters.forEach(fn => fn());
+
+        FURNITURE_CATALOG.forEach((f, idx) => {
+            const col = idx % 3, row = Math.floor(idx / 3);
+            const x = (col - 1) * (cardW + gapX);
+            const y = -12 - cardH / 2 - row * (cardH + gapY);
+            const card = this.shopArt(grid, 'card', x, y, cardW, cardH);
+            card.name = '家具商品卡-' + f.id;
+            const title = this.headerText(card, f.name, 0, 128, 224, 30, 22);
+            title.overflow = Label.Overflow.SHRINK; title.enableWrapText = false;
+
+            const slotBox = this.uiNode(card, '家具图标槽', 0, 52, 114, 114);
+            this.itemSlotBg(slotBox, f.slotTheme, 114, 114, '家具槽底图');
+            const sp = this.uiNode(slotBox, '家具商品图标', 0, 2, 92, 92).addComponent(Sprite);
+            sp.sizeMode = Sprite.SizeMode.CUSTOM;
+            resources.load('art/furniture/' + f.id + '/spriteFrame', SpriteFrame, (e, frame) => {
+                if (!e && frame && isValid(sp, true)) sp.spriteFrame = frame;
+            });
+            if (f.limited) this.pillBadge(card, '限定', 76, 98, 62, 24, '#D94343', C.white, 15);
+
+            const effLbl = this.text(card, f.effectTag, 0, -24, 224, 24, 17, '#B85A18');
+            effLbl.isBold = true; effLbl.overflow = Label.Overflow.SHRINK; effLbl.enableWrapText = false;
+
+            const ownedLbl = this.text(card, '', 0, -52, 210, 24, 18, '#6E533C');
+            ownedLbl.isBold = true;
+
+            const buyBtn = this.shopArt(card, 'buy', 0, -108, 190, 66);
+            buyBtn.name = '家具购买按钮-' + f.id;
+            this.addPriceTag(buyBtn, f.currency, f.price, 8, 0, 30, '#FFFFFF');
+            this.shopButton(buyBtn, () => {
+                if (this.buyFurniture(f.id)) refreshAll();
+            });
+
+            updaters.push(() => {
+                const bag = (this.data.furnitureInventory || {})[f.id] || 0;
+                const placed = (this.data.placedFurniture || []).filter(p => p.id === f.id).length;
+                ownedLbl.string = `已摆 ${placed} · 仓库 ${bag}`;
+                ownedLbl.color = this.color(bag + placed > 0 ? '#228B3C' : '#6E533C');
+            });
+        });
+        refreshAll();
+    }
+
+    public buyFurniture(id: FurnitureId): boolean {
+        const def = findFurniture(id);
+        if (!def) return false;
+        if (def.currency === 'coins' && this.data.coins < def.price) { this.showCoinDialog(); return false; }
+        if (def.currency === 'gems' && this.data.gems < def.price) { this.showGemDialog(); return false; }
+        const c = this.dailyCandidate();
+        if (def.currency === 'coins') c.coins -= def.price; else c.gems -= def.price;
+        c.furnitureInventory = { ...(c.furnitureInventory || {}), [id]: ((c.furnitureInventory || {})[id] || 0) + 1 };
+        if (!this.commitShop(c)) return false;
+        this.renderHeader();
+        if (def.price > 0) this.showRewardToast([{ kind: def.currency, amount: -def.price }], '消耗');
+        this.toast(`已购入「${def.name}」存入家具仓库，点击主城「布置」即可摆放！`);
+        return true;
+    }
+
+    /** 同步庭院 3D 手绘家具模型与选中光环（仅主城/照顾/布置页显示，绝不泄漏到冒险页） */
+    public syncYardFurniture() {
+        if (!this.world || !isValid(this.world, true)) return;
+        const showYard = this.page === 'home' || this.page === 'pet' || this.page === 'layout';
+        if (!this.furnitureLayer || !isValid(this.furnitureLayer, true)) {
+            this.furnitureLayer = new Node('庭院家具层');
+            this.furnitureLayer.layer = Layers.Enum.DEFAULT;
+            this.world.addChild(this.furnitureLayer);
+        }
+        this.furnitureLayer.active = showYard;
+        const placed = this.data?.placedFurniture || [];
+        const activeUids = new Set(placed.map(p => p.uid));
+
+        this.furnitureVisuals.forEach((v, uid) => {
+            if (!activeUids.has(uid) || !isValid(v.node, true)) {
+                if (isValid(v.node, true)) { v.node.active = false; v.node.destroy(); }
+                this.furnitureVisuals.delete(uid);
+            }
+        });
+
+        let quadMesh = this.meshes.get('furn:plane');
+        if (!quadMesh) {
+            const geom = primitives.plane({ width: 1, length: 1, widthSegments: 1, lengthSegments: 1 });
+            if (geom.uvs) {
+                for (let i = 1; i < geom.uvs.length; i += 2) geom.uvs[i] = 1 - geom.uvs[i];
+            }
+            quadMesh = utils.createMesh(geom);
+            this.meshes.set('furn:plane', quadMesh);
+        }
+        let shadowMesh = this.meshes.get('furn:shadow');
+        if (!shadowMesh) {
+            shadowMesh = utils.createMesh(primitives.plane({ width: 1.5, length: 1.5, widthSegments: 1, lengthSegments: 1 }));
+            this.meshes.set('furn:shadow', shadowMesh);
+        }
+
+        placed.forEach(pf => {
+            const def = findFurniture(pf.id);
+            if (!def) return;
+            let vis = this.furnitureVisuals.get(pf.uid);
+            if (!vis) {
+                const root = new Node('庭院家具-' + pf.id + '-' + pf.uid);
+                root.layer = Layers.Enum.DEFAULT;
+                this.furnitureLayer!.addChild(root);
+
+                const sz = def.radius * 2.45;
+                // 地面柔和投影
+                const sh = new Node('家具阴影');
+                sh.layer = Layers.Enum.DEFAULT;
+                root.addChild(sh);
+                sh.setPosition(0, 0.015, 0.05);
+                sh.setScale(sz * 0.62, 1, sz * 0.48);
+                const sr = sh.addComponent(MeshRenderer);
+                sr.mesh = shadowMesh!;
+                void this.loadShadowTexture().then(stex => {
+                    if (!stex || !isValid(sr, true)) return;
+                    let smat = this.materials.get('pet:shadow');
+                    if (!smat) {
+                        smat = new Material();
+                        smat.initialize({ effectName: 'builtin-unlit', technique: 1, defines: { USE_TEXTURE: true } });
+                        smat.setProperty('mainTexture', stex);
+                        smat.setProperty('mainColor', this.color(C.white));
+                        this.materials.set('pet:shadow', smat);
+                    }
+                    sr.setSharedMaterial(smat, 0);
+                });
+
+                // 面向庭院正交相机的手绘 2.5D 家具立牌（plane 沿 X 轴旋转 +36° 朝向相机且贴图正向不倒置）
+                const card = new Node('家具画面');
+                card.layer = Layers.Enum.DEFAULT;
+                root.addChild(card);
+                card.setPosition(0, sz * 0.34, 0);
+                card.setRotationFromEuler(36, 0, 0);
+                card.setScale(sz, 1, sz);
+                const mr = card.addComponent(MeshRenderer);
+                mr.mesh = quadMesh!;
+                mr.shadowCastingMode = 0; mr.receiveShadow = 0;
+                const matKey = 'furn:mat:' + def.id;
+                const existingMat = this.materials.get(matKey);
+                if (existingMat) {
+                    mr.setSharedMaterial(existingMat, 0);
+                } else {
+                    resources.load('art/furniture/' + def.id + '/texture', Texture2D, (err, tex) => {
+                        if (err || !tex || !isValid(mr, true)) return;
+                        let mat = this.materials.get(matKey);
+                        if (!mat) {
+                            mat = new Material();
+                            mat.initialize({ effectName: 'builtin-unlit', technique: 1, defines: { USE_TEXTURE: true } });
+                            mat.setProperty('mainTexture', tex);
+                            mat.setProperty('mainColor', this.color(C.white));
+                            this.materials.set(matKey, mat);
+                        }
+                        mr.setSharedMaterial(mat, 0);
+                    });
+                }
+
+                // 布置模式高亮选中圈
+                const ring = this.shape(root, 'torus', '#44D672', [0, 0.05, 0], [sz * 0.85, 0.05, sz * 0.85]);
+                ring.name = '家具选中圈';
+                ring.active = false;
+
+                vis = { node: root, id: pf.id, ring };
+                this.furnitureVisuals.set(pf.uid, vis);
+            }
+            vis.node.setPosition(pf.x, 0, pf.z);
+            vis.ring.active = this.page === 'layout' && this.selectedFurnitureUid === pf.uid;
+        });
+    }
+
+    public placeFurnitureFromBag(id: FurnitureId): boolean {
+        const def = findFurniture(id);
+        if (!def) return false;
+        const bag = this.data.furnitureInventory || {};
+        if ((bag[id] || 0) <= 0) {
+            this.toast(`仓库中没有闲置的「${def.name}」，可前往商店「家具」页签购买`);
+            return false;
+        }
+        const uid = ++this.furnitureNextUid;
+        const x = Math.max(this.yardMinX + 0.5, Math.min(this.yardMaxX - 0.5, (Math.random() - 0.5) * 3.6));
+        const z = Math.max(this.yardMinZ + 0.5, Math.min(this.yardMaxZ - 0.5, (Math.random() - 0.5) * 3.2));
+        const c = this.dailyCandidate();
+        c.furnitureInventory = { ...(c.furnitureInventory || {}), [id]: (bag[id] || 1) - 1 };
+        c.placedFurniture = [...(c.placedFurniture || []), { uid, id, x, z }];
+        if (!this.commitShop(c)) return false;
+        this.selectedFurnitureUid = uid;
+        this.syncYardFurniture();
+        if (this.page === 'layout') this.renderLayoutPanel();
+        this.toast(`已摆放「${def.name}」，点击草坪任意位置可调整摆放位置`);
+        return true;
+    }
+
+    public movePlacedFurniture(uid: number, x: number, z: number): boolean {
+        const list = this.data.placedFurniture || [];
+        const idx = list.findIndex(f => f.uid === uid);
+        if (idx < 0) return false;
+        const next = list.map(f => f.uid === uid ? { ...f, x, z } : f);
+        this.data.placedFurniture = next;
+        this.dirty = true;
+        this.persist();
+        this.syncYardFurniture();
+        return true;
+    }
+
+    public recallSelectedFurniture(): boolean {
+        if (this.selectedFurnitureUid === null) return false;
+        const list = this.data.placedFurniture || [];
+        const target = list.find(f => f.uid === this.selectedFurnitureUid);
+        if (!target) return false;
+        const def = findFurniture(target.id);
+        const c = this.dailyCandidate();
+        c.placedFurniture = list.filter(f => f.uid !== target.uid);
+        c.furnitureInventory = { ...(c.furnitureInventory || {}), [target.id]: ((c.furnitureInventory || {})[target.id] || 0) + 1 };
+        if (!this.commitShop(c)) return false;
+        // 若有宠物正在该家具中活动，温柔结束活动
+        this.actors.forEach(a => { if (a.activity?.furnitureUid === target.uid) a.activity = undefined; });
+        this.selectedFurnitureUid = null;
+        this.syncYardFurniture();
+        if (this.page === 'layout') this.renderLayoutPanel();
+        this.toast(`已将「${def?.name || target.id}」收回家具仓库`);
+        return true;
+    }
+
+    private renderLayoutPanel() {
+        if (!this.sheet || !isValid(this.sheet, true)) return;
+        this.sheet.removeAllChildren();
+        const panel = this.sheet;
+        const bg = panel.addComponent(Graphics);
+        bg.clear();
+        bg.fillColor = this.color('#FFF8E8'); bg.strokeColor = this.color('#8B5A34'); bg.lineWidth = 5;
+        bg.roundRect(-510, -175, 1020, 350, 28); bg.fill(); bg.stroke();
+
+        const title = this.text(panel, '庭院布置 · 点草坪移动选中家具', -215, 134, 520, 36, 22, '#5A361C');
+        title.isBold = true; title.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+
+        // 快捷去家具商店按钮
+        const shopBtn = this.uiNode(panel, '布置去商店按钮', 148, 134, 128, 48);
+        const sbg = shopBtn.addComponent(Graphics);
+        sbg.fillColor = this.color('#F5B841'); sbg.strokeColor = this.color('#7A481E'); sbg.lineWidth = 3;
+        sbg.roundRect(-64, -24, 128, 48, 22); sbg.fill(); sbg.stroke();
+        const sLbl = this.text(shopBtn, '买家具', 0, 0, 116, 30, 21, '#5A3214');
+        sLbl.isBold = true; sLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+        this.intercept(shopBtn); this.pressVisualFeedback(shopBtn);
+        shopBtn.on(Node.EventType.TOUCH_END, () => { this.shopTab = 'furniture'; this.open('shop'); }, this);
+
+        // 收回按钮（仅选中已摆放家具时高亮可点）
+        const hasSel = this.selectedFurnitureUid !== null;
+        const recBtn = this.uiNode(panel, '收回家具按钮', 284, 134, 114, 48);
+        const rbg = recBtn.addComponent(Graphics);
+        rbg.fillColor = this.color(hasSel ? '#E05B4F' : '#C8BEB2'); rbg.strokeColor = this.color('#6E3228'); rbg.lineWidth = 2.5;
+        rbg.roundRect(-57, -24, 114, 48, 22); rbg.fill(); rbg.stroke();
+        const rLbl = this.text(recBtn, '收回', 0, 0, 100, 30, 21, '#FFFDF5');
+        rLbl.isBold = true; rLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+        this.intercept(recBtn); this.pressVisualFeedback(recBtn);
+        recBtn.on(Node.EventType.TOUCH_END, () => this.recallSelectedFurniture(), this);
+
+        // 完成布置按钮
+        const doneBtn = this.uiNode(panel, '完成布置按钮', 408, 134, 108, 48);
+        const dbg = doneBtn.addComponent(Graphics);
+        dbg.fillColor = this.color('#42A858'); dbg.strokeColor = this.color('#236634'); dbg.lineWidth = 2.5;
+        dbg.roundRect(-54, -24, 108, 48, 22); dbg.fill(); dbg.stroke();
+        const dLbl = this.text(doneBtn, '完成', 0, 0, 92, 30, 22, '#FFFDF5');
+        dLbl.isBold = true; dLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+        this.intercept(doneBtn); this.pressVisualFeedback(doneBtn);
+        doneBtn.on(Node.EventType.TOUCH_END, () => this.open('home'), this);
+
+        // 横向可滑动家具栏（优先展示仓库有货或已摆放的家具）
+        const viewW = 968, viewH = 236;
+        const vp = this.uiNode(panel, '布置家具视口', 0, -28, viewW, viewH);
+        vp.addComponent(Mask).type = Mask.Type.GRAPHICS_RECT;
+        const strip = this.uiNode(vp, '布置家具条', -viewW / 2, 0, viewW, viewH);
+        strip.getComponent(UITransform)!.setAnchorPoint(0, 0.5);
+        const sv = vp.addComponent(ScrollView);
+        sv.content = strip; sv.horizontal = true; sv.vertical = false;
+        sv.cancelInnerEvents = true; sv.elastic = true;
+
+        const bag = this.data.furnitureInventory || {};
+        const placed = this.data.placedFurniture || [];
+        const sorted = [...FURNITURE_CATALOG].sort((a, b) => {
+            const sa = (bag[a.id] || 0) * 10 + placed.filter(p => p.id === a.id).length;
+            const sb = (bag[b.id] || 0) * 10 + placed.filter(p => p.id === b.id).length;
+            return sb - sa;
+        });
+        const cardW = 196, cardH = 216, gap = 14, pad = 10;
+        const totalW = Math.max(viewW, pad * 2 + sorted.length * cardW + (sorted.length - 1) * gap);
+        strip.getComponent(UITransform)!.setContentSize(totalW, viewH);
+
+        sorted.forEach((f, idx) => {
+            const x = pad + cardW / 2 + idx * (cardW + gap);
+            const bagCnt = bag[f.id] || 0;
+            const placedCnt = placed.filter(p => p.id === f.id).length;
+            const tile = this.uiNode(strip, '布置家具项-' + f.id, x, 0, cardW, cardH);
+            const tg = tile.addComponent(Graphics);
+            tg.fillColor = this.color(bagCnt > 0 ? '#EAF7E6' : '#FFFDF6');
+            tg.strokeColor = this.color(bagCnt > 0 ? '#469A50' : '#C9AE8B');
+            tg.lineWidth = bagCnt > 0 ? 3.5 : 2.5;
+            tg.roundRect(-cardW / 2, -cardH / 2, cardW, cardH, 20); tg.fill(); tg.stroke();
+
+            const sp = this.uiNode(tile, '布置图标', 0, 32, 102, 102).addComponent(Sprite);
+            sp.sizeMode = Sprite.SizeMode.CUSTOM;
+            resources.load('art/furniture/' + f.id + '/spriteFrame', SpriteFrame, (e, frame) => {
+                if (!e && frame && isValid(sp, true)) sp.spriteFrame = frame;
+            });
+
+            const nm = this.text(tile, f.name, 0, -40, 184, 28, 20, '#4E2F1A');
+            nm.isBold = true; nm.overflow = Label.Overflow.SHRINK; nm.enableWrapText = false;
+            nm.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+
+            const st = this.text(tile, bagCnt > 0 ? `点击摆放 (存${bagCnt})` : placedCnt > 0 ? `已摆 ×${placedCnt}` : '商店购买', 0, -76, 180, 28, 17, bagCnt > 0 ? '#228B3C' : placedCnt > 0 ? '#3A74B8' : '#8A6D52');
+            st.isBold = true; st.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+
+            this.pressVisualFeedback(tile, tile.children.slice());
+            this.scrollTap(tile, () => {
+                if (bagCnt > 0) {
+                    this.placeFurnitureFromBag(f.id);
+                } else if (placedCnt > 0) {
+                    const first = placed.find(p => p.id === f.id);
+                    if (first) {
+                        this.selectedFurnitureUid = first.uid;
+                        this.syncYardFurniture();
+                        this.renderLayoutPanel();
+                        this.toast(`已选中庭院中的「${f.name}」，点击草坪任意位置即可移动`);
+                    }
+                } else {
+                    this.shopTab = 'furniture';
+                    this.open('shop');
+                }
+            });
+        });
+    }
+
+    /** 宠物自动消耗 1 个匹配的照顾道具（食物或玩具），供猫盆/狗盆/乐园自主互动使用 */
+    private autoConsumeCareItem(pet: Pet, category: 'food' | 'toy', bonusMult = 0): boolean {
+        const kind = BREEDS[pet.id].kind;
+        const legacyCount = this.data[category] || 0;
+        let chosenItem: ItemDefinition | null = null;
+        let chosenLegacy: 'food' | 'toy' | null = null;
+        if (legacyCount > 0) {
+            chosenItem = this.legacyItem(category);
+            chosenLegacy = category;
+        } else {
+            chosenItem = ITEM_CATALOG.find(it => it.category === category && itemApplies(it, kind) && (this.data.itemInventory[it.id] || 0) > 0) || null;
+        }
+        if (!chosenItem) return false;
+        const c = this.dailyCandidate();
+        const target = c.pets.find(p => p.id === pet.id);
+        if (!target) return false;
+        if (chosenLegacy) c[chosenLegacy] = Math.max(0, c[chosenLegacy] - 1);
+        else c.itemInventory = { ...c.itemInventory, [chosenItem.id]: Math.max(0, (c.itemInventory[chosenItem.id] || 1) - 1) };
+
+        (Object.keys(chosenItem.effects) as PetStat[]).forEach(stat => {
+            let d = chosenItem!.effects[stat]!;
+            if (d > 0 && bonusMult > 0) d = Math.round(d * (1 + bonusMult));
+            target[stat] = Math.max(0, Math.min(100, target[stat] + d));
+        });
+        c.xp = Math.min(100000000, c.xp + 12);
+        if (!this.commitShop(c)) return false;
+        const act = this.actors.find(a => a.pet.id === pet.id);
+        if (act) act.pet = target;
+        this.renderHeader();
+        if (this.page === 'home' || this.page === 'pet') {
+            if (chosenLegacy) this.showRewardToast([{ kind: 'care', careType: chosenLegacy, amount: -1 }], this.petDisplayName(pet.id) + ' 自动使用');
+            else this.showRewardToast([{ kind: 'item', itemId: chosenItem.id, amount: -1 }], this.petDisplayName(pet.id) + ' 自动使用');
+        }
+        return true;
+    }
+
+    /** 检查是否应走向庭院家具（睡觉回体 / 吃盆 / 进乐园） */
+    private tryStartFurnitureActivity(a: Actor): boolean {
+        const placed = this.data?.placedFurniture || [];
+        if (!placed.length) return false;
+        const kind = BREEDS[a.pet.id].kind;
+        const occupied = new Set(this.actors.filter(o => o !== a && o.activity).map(o => o.activity!.furnitureUid));
+        const pickFurn = (cat: 'bed' | 'bowl' | 'park') => {
+            const list = placed.filter(pf => {
+                if (occupied.has(pf.uid)) return false;
+                const def = findFurniture(pf.id);
+                return !!def && def.category === cat && furnitureMatchesPet(def, kind);
+            });
+            return list.length ? list[Math.floor(Math.random() * list.length)] : null;
+        };
+
+        // 1) 没体力（<38）优先去猫窝/狗窝睡觉恢复，或体力 <70 偶发打盹
+        if (a.pet.energy < 38 || (a.pet.energy < 70 && Math.random() < 0.22)) {
+            const bed = pickFurn('bed');
+            if (bed) {
+                a.activity = { type: 'sleep', furnitureUid: bed.uid, until: this.socialTime + 26, tickAcc: 0, zzzTimer: 0.2, arrived: false };
+                a.target.set(bed.x, 0, bed.z + 0.10);
+                a.walkAge = 0;
+                return true;
+            }
+        }
+        // 2) 饥饿（<62）且有食物库存 -> 自主去猫盆/狗盆吃饭
+        const hasFood = (this.data.food || 0) > 0 || ITEM_CATALOG.some(it => it.category === 'food' && itemApplies(it, kind) && (this.data.itemInventory[it.id] || 0) > 0);
+        if (a.pet.hunger < 62 && hasFood) {
+            const bowl = pickFurn('bowl');
+            if (bowl) {
+                a.activity = { type: 'eat', furnitureUid: bowl.uid, until: this.socialTime + 12, tickAcc: 0, zzzTimer: 0, arrived: false };
+                a.target.set(bowl.x, 0, bowl.z + 0.34);
+                a.walkAge = 0;
+                return true;
+            }
+        }
+        // 3) 心情 <68 且体力充足 -> 自主进游玩乐园玩耍
+        if (a.pet.joy < 68 && a.pet.energy >= 28 && Math.random() < 0.45) {
+            const park = pickFurn('park');
+            if (park) {
+                a.activity = { type: 'play', furnitureUid: park.uid, until: this.socialTime + 12, tickAcc: 0, zzzTimer: 0, arrived: false };
+                a.target.set(park.x, 0, park.z + 0.20);
+                a.walkAge = 0;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 生成睡眠飘浮 Zzz 特效气泡 */
+    private spawnZzzBubble(actor: Actor) {
+        if (this.page !== 'home' && this.page !== 'pet' && this.page !== 'layout') return;
+        if (!isValid(this.ui, true) || !isValid(actor.node, true)) return;
+        if (!this.bubbleLayer || !isValid(this.bubbleLayer, true)) {
+            this.bubbleLayer = this.uiNode(this.ui, '伙伴相遇气泡层', 0, 0, this.width, this.height);
+            this.bubbleLayer.setSiblingIndex(0);
+        }
+        const world = actor.node.worldPosition.clone(); world.y += 1.05;
+        const screen = this.worldCamera.worldToScreen(world, new Vec3());
+        if (screen.z < 0 || screen.z > 1) return;
+        const uiWorld = this.uiCamera.screenToWorld(screen, new Vec3());
+        const local = this.bubbleLayer.getComponent(UITransform)!.convertToNodeSpaceAR(uiWorld);
+
+        const node = this.uiNode(this.bubbleLayer, '睡眠ZZZ特效', local.x, local.y + 18, 96, 48);
+        const lbl = this.text(node, 'Zzz', 0, 0, 92, 44, 30, '#5B76C9');
+        lbl.isBold = true; lbl.enableOutline = true; lbl.outlineColor = this.color('#FFFDF5'); lbl.outlineWidth = 3;
+        lbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+        node.addComponent(UIOpacity).opacity = 255;
+        this.zzzBubbles.push({ node, x: local.x, y: local.y + 18, age: 0, duration: 1.75, driftX: 28 + Math.random() * 20 });
+    }
+
+    private updateZzzBubbles(dt: number) {
+        if (!this.zzzBubbles.length) return;
+        const show = this.page === 'home' || this.page === 'pet' || this.page === 'layout';
+        const keep: typeof this.zzzBubbles = [];
+        for (const z of this.zzzBubbles) {
+            z.age += dt;
+            if (z.age >= z.duration || !isValid(z.node, true)) {
+                if (isValid(z.node, true)) { z.node.active = false; z.node.destroy(); }
+                continue;
+            }
+            z.node.active = show;
+            const p = z.age / z.duration;
+            z.node.setPosition(z.x + Math.sin(p * Math.PI * 1.5) * 14 + z.driftX * p, z.y + p * 92, 0);
+            const sc = 0.65 + p * 0.55;
+            z.node.setScale(sc, sc, 1);
+            const op = z.node.getComponent(UIOpacity);
+            if (op) op.opacity = Math.round(255 * (p < 0.2 ? p / 0.2 : Math.max(0, 1 - (p - 0.2) / 0.8)));
+            keep.push(z);
+        }
+        this.zzzBubbles = keep;
     }
     private speciesText(item: ItemDefinition) {
         return item.appliesTo === 'both' ? '猫狗通用' : item.appliesTo === 'cat' ? '猫咪专用' : '狗狗专用';
@@ -6933,7 +7476,37 @@ export class Main extends Component {
             const size = n.getComponent(UITransform)!.contentSize;
             return Math.abs(point.x - n.position.x) <= size.width / 2 && Math.abs(point.y - n.position.y) <= size.height / 2;
         };
-        if (hits(this.top) || hits(this.bottom) || (this.sheet && hits(this.sheet))) return;
+        if (hits(this.top) || (this.bottom && this.bottom.active && hits(this.bottom)) || (this.sheet && hits(this.sheet))) return;
+        // 布置模式：点击已有家具选中，点击草坪空地将选中家具平滑移动到该位置
+        if (this.page === 'layout') {
+            let hitFurn: PlacedFurniture | null = null, bestD = 78;
+            (this.data.placedFurniture || []).forEach(pf => {
+                const proj = new Vec3();
+                this.worldCamera.worldToScreen(new Vec3(pf.x, 0.45, pf.z), proj);
+                const d = Vec2.distance(location, new Vec2(proj.x, proj.y));
+                if (proj.z >= 0 && proj.z <= 1 && d < bestD) { bestD = d; hitFurn = pf; }
+            });
+            if (hitFurn) {
+                this.selectedFurnitureUid = (hitFurn as PlacedFurniture).uid;
+                this.syncYardFurniture();
+                this.renderLayoutPanel();
+                const def = findFurniture((hitFurn as PlacedFurniture).id);
+                if (def) this.toast(`已选中「${def.name}」，点击草坪任意位置即可移动或点击收回`);
+                return;
+            }
+            if (this.selectedFurnitureUid !== null) {
+                const ray = this.worldCamera.screenPointToRay(location.x, location.y);
+                if (Math.abs(ray.d.y) > 0.001) {
+                    const t = -ray.o.y / ray.d.y;
+                    if (t > 0) {
+                        const wx = Math.max(this.yardMinX + 0.3, Math.min(this.yardMaxX - 0.3, ray.o.x + ray.d.x * t));
+                        const wz = Math.max(this.yardMinZ + 0.3, Math.min(this.yardMaxZ - 0.3, ray.o.z + ray.d.z * t));
+                        this.movePlacedFurniture(this.selectedFurnitureUid, wx, wz);
+                    }
+                }
+            }
+            return;
+        }
         // 优先检测是否点中庭院 3D 便便，点击即可清理。
         if (this.page === 'home' || this.page === 'pet') {
             let closestPoop: YardPoop | null = null, poopDist = 56;
@@ -7336,7 +7909,7 @@ export class Main extends Component {
     };
     public resolvePetCollisions(dt: number) {
         this.socialTime += Math.max(0, Math.min(dt, 0.1));
-        const actors = this.actors.filter(a => isValid(a.node, true) && a.node.active && !a.pet.adventuring);
+        const actors = this.actors.filter(a => isValid(a.node, true) && a.node.active && !a.pet.adventuring && !(a.activity?.type === 'sleep' && a.activity.arrived));
         const clampX = (x: number) => Math.max(this.yardMinX, Math.min(this.yardMaxX, x));
         const clampZ = (z: number) => Math.max(this.yardMinZ, Math.min(this.yardMaxZ, z));
         const diameter = this.petCollisionRadius * 2;
@@ -7840,12 +8413,67 @@ export class Main extends Component {
                     };
                     if (distance <= 0.16) {
                         a.walkAge = 0;
-                        a.timer -= step;
-                        if (a.timer <= 0) pickNewTarget();
+                        if (a.activity && !a.activity.arrived) {
+                            a.activity.arrived = true;
+                            const pf = (this.data.placedFurniture || []).find(f => f.uid === a.activity!.furnitureUid);
+                            const fdef = pf ? findFurniture(pf.id) : undefined;
+                            if (a.activity.type === 'eat') {
+                                a.activity.until = this.socialTime + 2.4;
+                                if (!a.activity.consumed) {
+                                    a.activity.consumed = true;
+                                    this.autoConsumeCareItem(a.pet, 'food', fdef?.feedBonus || 0);
+                                }
+                            } else if (a.activity.type === 'play') {
+                                a.activity.until = this.socialTime + 3.2;
+                                if (!a.activity.consumed) {
+                                    a.activity.consumed = true;
+                                    if (!this.autoConsumeCareItem(a.pet, 'toy', fdef?.playBonus || 0)) {
+                                        a.pet.joy = Math.min(100, a.pet.joy + 4);
+                                        this.dirty = true;
+                                    }
+                                }
+                            } else if (a.activity.type === 'sleep') {
+                                a.activity.zzzTimer = 0.05;
+                            }
+                        } else if (a.activity && a.activity.arrived) {
+                            const pf = (this.data.placedFurniture || []).find(f => f.uid === a.activity!.furnitureUid);
+                            const fdef = pf ? findFurniture(pf.id) : undefined;
+                            if (!pf) {
+                                a.activity = undefined;
+                            } else if (a.activity.type === 'sleep') {
+                                a.activity.tickAcc += step;
+                                if (a.activity.tickAcc >= 1.0) {
+                                    a.activity.tickAcc -= 1.0;
+                                    a.pet.energy = Math.min(100, a.pet.energy + (fdef?.sleepRate || 6));
+                                    this.dirty = true;
+                                }
+                                a.activity.zzzTimer -= step;
+                                if (a.activity.zzzTimer <= 0) {
+                                    a.activity.zzzTimer = 1.05;
+                                    this.spawnZzzBubble(a);
+                                }
+                                if (a.pet.energy >= 98) {
+                                    a.activity = undefined;
+                                    a.timer = 0.5;
+                                }
+                            } else if (this.socialTime >= a.activity.until) {
+                                a.activity = undefined;
+                                a.timer = 0.6;
+                            }
+                        } else {
+                            a.timer -= step;
+                            if (a.timer <= 0) {
+                                if (!this.tryStartFurnitureActivity(a)) pickNewTarget();
+                            }
+                        }
                     } else {
                         a.walkAge = (a.walkAge || 0) + step;
                         // 防止被同伴或边界阻挡导致一直走不到目标而原地僵住。
-                        if (a.walkAge > 6.5) pickNewTarget();
+                        if (a.walkAge > 6.5) { a.activity = undefined; pickNewTarget(); }
+                    }
+                    // 没体力且未在活动中时，立即主动去猫窝/狗窝休息
+                    if (!a.activity && a.pet.energy < 30 && distance > 0.16) {
+                        this.tryStartFurnitureActivity(a);
                     }
                     if (distance > 0.16) {
                         a.facing = Math.atan2(dx, dz) * 180 / Math.PI;
@@ -7894,7 +8522,8 @@ export class Main extends Component {
                     }
                 }
                 const settle = 1 - Math.exp(-step * 14);
-                const gait = celebrating ? 0 : gaitRaw;
+                const sleeping = a.activity?.type === 'sleep' && a.activity.arrived;
+                const gait = celebrating || sleeping ? 0 : gaitRaw;
                 const t = a.idleTime;
                 const breath = Math.sin(t * (isCat ? 2.2 : 2.8)) * 0.018 * (1 - gait * 0.7);
                 const bounce = gait * Math.abs(Math.sin(a.phase)) * (isCat ? 0.052 : 0.064);
@@ -7938,9 +8567,9 @@ export class Main extends Component {
 
                     // 头部：转向先行引导 + 迈步轻点 + 社交点头 + 闲置歪头张望
                     const diffYaw = a.facing !== undefined ? ((a.facing - a.node.eulerAngles.y + 540) % 360) - 180 : 0;
-                    const targetHeadYaw = gait > 0.1 ? Math.max(-22, Math.min(22, diffYaw * 0.4)) : (socializing ? Math.sin(t * 5) * 6 : (a.lookYaw || 0));
-                    const targetHeadPitch = celebrating ? -10 : socializing ? Math.sin(t * 7.5) * 8 : gait * Math.cos(a.phase * 2) * 3.8 + breath * 95;
-                    const targetHeadRoll = celebrating ? Math.sin(t * 9) * 10 : gait > 0.1 ? -Math.sin(a.phase) * 3.0 * gait : (a.lookTilt || 0);
+                    const targetHeadYaw = sleeping ? 0 : gait > 0.1 ? Math.max(-22, Math.min(22, diffYaw * 0.4)) : (socializing ? Math.sin(t * 5) * 6 : (a.lookYaw || 0));
+                    const targetHeadPitch = sleeping ? 18 + Math.sin(t * 1.4) * 2.5 : celebrating ? -10 : socializing ? Math.sin(t * 7.5) * 8 : gait * Math.cos(a.phase * 2) * 3.8 + breath * 95;
+                    const targetHeadRoll = sleeping ? 8 : celebrating ? Math.sin(t * 9) * 10 : gait > 0.1 ? -Math.sin(a.phase) * 3.0 * gait : (a.lookTilt || 0);
                     const headEase = 1 - Math.exp(-step * 8);
                     rig.head.setRotationFromEuler(
                         rig.head.eulerAngles.x + (targetHeadPitch - rig.head.eulerAngles.x) * headEase,
@@ -8023,6 +8652,7 @@ export class Main extends Component {
         this.updateGhosts(delta);
         this.updateBrooms(delta);
         this.updateFightClouds(delta);
+        this.updateZzzBubbles(delta);
         this.updateAdventureScene(delta);
         this.updateProfilePreview(delta);
         if (Date.now() < this.noticeUntil) this.layoutNotice();
@@ -8049,6 +8679,12 @@ export class Main extends Component {
         this.brooms = [];
         this.fightClouds.forEach(fc => { if (isValid(fc.node, true)) fc.node.destroy(); });
         this.fightClouds = [];
+        this.zzzBubbles.forEach(z => { if (isValid(z.node, true)) z.node.destroy(); });
+        this.zzzBubbles = [];
+        this.furnitureVisuals.forEach(v => { if (isValid(v.node, true)) v.node.destroy(); });
+        this.furnitureVisuals.clear();
+        if (this.furnitureLayer && isValid(this.furnitureLayer, true)) this.furnitureLayer.destroy();
+        this.furnitureLayer = null;
         if (this.bubbleLayer && isValid(this.bubbleLayer, true)) this.bubbleLayer.destroy();
         this.bubbleLayer = null;
         if (this.selectionRing && isValid(this.selectionRing, true)) this.selectionRing.destroy();
