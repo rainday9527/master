@@ -1649,7 +1649,7 @@ export class Main extends Component {
         // 标题独立落在猫狗中间的木牌（源图中央 y=260..300），不占正文内区。
         // 内容整体上移35设计单位；金币、钻石及其他通用弹窗共用布局。
         const content = this.uiNode(panel, '弹窗安全内容', 0, (452 - 572.5) * ratio + 35, 896 * ratio, 395 * ratio);
-        const heading = this.headerText(panel, title, 0, (452 - 240) * ratio, 460 * ratio, 62 * ratio, 40);
+        const heading = this.headerText(panel, title, 0, (452 - 226) * ratio, 460 * ratio, 62 * ratio, 40);
         heading.node.name = '弹窗独立标题';
         const bodyLabel = this.text(content, body, 0, reward ? 47 : 22 * ratio, 840 * ratio, reward ? 30 : 110 * ratio, 28, C.muted);
         bodyLabel.node.name = '弹窗正文';
@@ -2641,9 +2641,10 @@ export class Main extends Component {
         if (!this.dialog) return;
 
         const panel = this.dialog.getChildByName('通用弹窗面板')!;
-        const ratio = 900 / 1116;
-        const panelH = isTen ? 1140 : 1080;
-        panel.getComponent(UITransform)!.setContentSize(900, panelH);
+        const panelW = isTen ? 980 : 900;
+        const ratio = panelW / 1116;
+        const panelH = isTen ? 1360 : 1080;
+        panel.getComponent(UITransform)!.setContentSize(panelW, panelH);
         const art = panel.getChildByName('弹窗底板')!;
         const sprite = art.getComponent(Sprite)!;
         resources.load('art/dialog/panel/spriteFrame', SpriteFrame, (error, frame) => {
@@ -2655,12 +2656,12 @@ export class Main extends Component {
             art.getComponent(UITransform)!.setContentSize(1116, panelH / ratio);
             art.setScale(ratio, ratio, 1);
         });
-        panel.getChildByName('弹窗独立标题')!.setPosition(0, panelH / 2 - 280 * ratio);
-        panel.getChildByName('商店素材-close')?.setPosition(480 * ratio, panelH / 2 - 335 * ratio);
+        panel.getChildByName('弹窗独立标题')!.setPosition(0, panelH / 2 - 226 * ratio);
+        panel.getChildByName('商店素材-close')?.setPosition(480 * ratio, panelH / 2 - 310 * ratio);
 
         const content = panel.getChildByName('弹窗安全内容')!;
         content.setPosition(0, 0);
-        content.getComponent(UITransform)!.setContentSize(750, panelH - 380);
+        content.getComponent(UITransform)!.setContentSize(isTen ? 840 : 750, panelH - 360);
         content.getChildByName('弹窗正文')!.active = false;
 
         const state = this.data.recruit;
@@ -2706,46 +2707,49 @@ export class Main extends Component {
             const srCount = ids.filter(id => BREEDS[id].rarity === 'SR').length;
             const rCount = ids.length - ssrCount - srCount;
             const summary = '共获 ' + ids.length + ' 位伙伴' + (newIds.size > 0 ? ' · 新解锁 ' + newIds.size + ' 位' : '') + ' · SSR×' + ssrCount + '  SR×' + srCount + '  R×' + rCount;
-            this.dailyText(content, summary, 0, 240, 720, 38, 23);
+            this.dailyText(content, summary, 0, 354, 800, 40, 26);
 
-            const cols = 5, cardW = 136, cardH = 148, gapX = 12, gapY = 18;
+            // 4+4+2 舒展大卡排布（192×212），稀有度徽章、NEW/+1 标、头像与名称全部清晰易读
+            const cardW = 192, cardH = 212, gapX = 14, gapY = 16;
             const seenNew = new Set<number>();
             ids.forEach((id, idx) => {
                 const b = BREEDS[id];
-                const col = idx % cols, row = Math.floor(idx / cols);
-                const x = (col - 2) * (cardW + gapX);
-                const y = 112 - row * (cardH + gapY);
+                const row = idx < 4 ? 0 : idx < 8 ? 1 : 2;
+                const rowCols = row < 2 ? 4 : 2;
+                const col = row === 0 ? idx : row === 1 ? idx - 4 : idx - 8;
+                const x = (col - (rowCols - 1) / 2) * (cardW + gapX);
+                const y = 210 - row * (cardH + gapY);
                 const isFirstNew = newIds.has(id) && !seenNew.has(id);
                 if (isFirstNew) seenNew.add(id);
 
                 const card = this.uiNode(content, '招募结果卡片-' + idx + '-' + id, x, y, cardW, cardH);
                 this.albumArt(card, 'card-' + b.rarity.toLowerCase(), 0, 0, cardW, cardH, '图鉴卡片底框', false);
-                const badgeH = b.rarity === 'SSR' ? 36 : 32;
-                this.albumArt(card, 'rarity-' + b.rarity.toLowerCase(), -45, 51, 30, badgeH, '稀有度徽章-' + b.rarity);
+                const badgeH = b.rarity === 'SSR' ? 50 : 44;
+                this.albumArt(card, 'rarity-' + b.rarity.toLowerCase(), -63, 73, 42, badgeH, '稀有度徽章-' + b.rarity);
 
-                const pillW = isFirstNew ? 48 : 38;
-                const tag = this.uiNode(card, '招募结果状态标', 10, 52, pillW, 20);
+                const pillW = isFirstNew ? 68 : 54;
+                const tag = this.uiNode(card, '招募结果状态标', 14, 75, pillW, 26);
                 const tg = tag.addComponent(Graphics);
                 tg.fillColor = this.color(isFirstNew ? '#E55243' : '#4F9B58');
-                tg.roundRect(-pillW / 2, -10, pillW, 20, 10); tg.fill();
-                const tagLbl = this.text(tag, isFirstNew ? 'NEW' : '+1', 0, 0, pillW - 4, 18, 12, '#FFFDF5');
+                tg.roundRect(-pillW / 2, -13, pillW, 26, 13); tg.fill();
+                const tagLbl = this.text(tag, isFirstNew ? 'NEW' : '+1', 0, 0, pillW - 6, 22, 16, '#FFFDF5');
                 tagLbl.isBold = true; tagLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
 
-                this.petAvatar(card, id, 0, 6, 68, false);
-                const nameLbl = this.dailyText(card, b.name, 0, -51, 94, 22, 14);
+                this.petAvatar(card, id, 0, 10, 98, false);
+                const nameLbl = this.dailyText(card, b.name, 0, -73, 134, 28, 20);
                 nameLbl.color = this.color('#49301E');
                 card.setScale(0.75, 0.75, 1);
                 tween(card).delay(idx * 0.035).to(0.15, { scale: new Vec3(1.05, 1.05, 1) }, { easing: 'quadOut' }).to(0.09, { scale: new Vec3(1, 1, 1) }).start();
             });
 
-            const foot = this.text(content, newIds.size > 0 ? '新解锁伙伴已入驻庭院，前往图鉴可领取钻石奖励！' : '所有重复伙伴已自动保留为升星本体', 0, -206, 700, 30, 20, '#7C5A3E');
+            const foot = this.text(content, newIds.size > 0 ? '新解锁伙伴已入驻庭院，前往图鉴可领取钻石奖励！' : '所有重复伙伴已自动保留为升星本体', 0, -384, 780, 32, 22, '#7C5A3E');
             foot.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
         }
 
-        const btnY = isTen ? -342 : -314;
+        const btnY = isTen ? -468 : -314;
         actions.forEach((action, i) => {
             const btn = content.getChildByName('弹窗按钮-' + action.title)!;
-            btn.setPosition(actions.length === 1 ? 0 : (i === 0 ? -186 : 186), btnY);
+            btn.setPosition(actions.length === 1 ? 0 : (i === 0 ? -206 : 206), btnY);
             btn.off(Node.EventType.TOUCH_START); btn.off(Node.EventType.TOUCH_CANCEL); btn.off(Node.EventType.TOUCH_END);
             const btnArt = this.shopArt(btn, 'buy', 0, 0, 380 * ratio, 380 * ratio * 120 / 321);
             btnArt.setSiblingIndex(0);
@@ -2778,8 +2782,8 @@ export class Main extends Component {
             art.getComponent(UITransform)!.setContentSize(1116, 1100 / ratio);
             art.setScale(ratio, ratio, 1);
         });
-        panel.getChildByName('弹窗独立标题')!.setPosition(0, 550 - 280 * ratio);
-        panel.getChildByName('商店素材-close')?.setPosition(480 * ratio, 550 - 335 * ratio);
+        panel.getChildByName('弹窗独立标题')!.setPosition(0, 550 - 226 * ratio);
+        panel.getChildByName('商店素材-close')?.setPosition(480 * ratio, 550 - 310 * ratio);
         const content = panel.getChildByName('弹窗安全内容')!;
         content.setPosition(0, 0);
         content.getComponent(UITransform)!.setContentSize(720, 690);
@@ -2900,8 +2904,8 @@ export class Main extends Component {
             art.getComponent(UITransform)!.setContentSize(1116, 1120 / ratio);
             art.setScale(ratio, ratio, 1);
         });
-        panel.getChildByName('弹窗独立标题')!.setPosition(0, 560 - 280 * ratio);
-        panel.getChildByName('商店素材-close')?.setPosition(480 * ratio, 560 - 335 * ratio);
+        panel.getChildByName('弹窗独立标题')!.setPosition(0, 560 - 226 * ratio);
+        panel.getChildByName('商店素材-close')?.setPosition(480 * ratio, 560 - 310 * ratio);
 
         const content = panel.getChildByName('弹窗安全内容')!;
         content.setPosition(0, 0);
