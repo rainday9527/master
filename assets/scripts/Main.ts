@@ -2878,7 +2878,7 @@ export class Main extends Component {
         const panel = this.sheet!;
         this.albumArt(panel, 'panel', 0, 0, 1024, 1440, '图鉴正式大底板');
         // 标题居中落在顶部猫耳黄色标题牌内（1024×1440 源图标题牌中心 y_px=132 -> +588）
-        this.dailyText(panel, '伙伴图鉴', 0, 588, 420, 66, 46, false, true);
+        this.dailyText(panel, '宠物图鉴', 0, 588, 420, 66, 46, false, true);
         const close = this.uiNode(panel, '收起图鉴', 436, 610, 104, 104);
         this.dailySprite(close, 'close', 0, 0, 92, 92, false, '关闭图标');
         this.shopButton(close, () => this.open('home'));
