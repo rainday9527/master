@@ -6147,16 +6147,64 @@ export class Main extends Component {
         const c = this.dailyCandidate();
         const info = achievementTierInfo(c.achievements!, def);
         if (!info.claimable) return false;
-        c.gems = Math.min(100000000, c.gems + info.rewardGems);
+        if (c.gems > 100000000 - info.rewardGems) { this.toast('货币接近存储上限，暂时无法领取'); return false; }
+        c.gems += info.rewardGems;
         c.achievements!.claimedTier[id] = info.tier + 1;
         if (!this.commitShop(c)) return false;
         this.renderHeader();
-        this.showRewardToast([{ kind: 'gems', amount: info.rewardGems }], `成就 Lv.${info.level} 达成`);
         if (this.page === 'daily' && this.sheet && isValid(this.sheet, true)) {
             this.sheet.removeAllChildren();
             this.renderDaily();
+        } else {
+            this.refreshTaskRedDots();
         }
+        this.showRewardGrantDialog('成就任务奖励', [{ kind: 'gems', amount: info.rewardGems }], `达成「${def.title}」Lv.${info.level}！`);
         return true;
+    }
+
+    public watchAchievementRewardedVideo(id: AchievementId) {
+        if (this.rewardedVideoPending) { this.toast('广告播放中，请勿重复请求'); return; }
+        const def = ACHIEVEMENTS.find(a => a.id === id);
+        if (!def) return;
+        const initInfo = achievementTierInfo(this.dailyCandidate().achievements!, def);
+        if (!initInfo.claimable) return;
+        const provider = this.rewardedVideoProvider;
+        if (!provider) { this.toast('激励视频暂未接入'); return; }
+        this.rewardedVideoPending = true;
+        let settled = false;
+        const finish = (result: RewardedVideoResult) => {
+            if (settled) return;
+            settled = true;
+            this.rewardedVideoPending = false;
+            if (!isValid(this, true)) return;
+            if (result !== 'completed') {
+                this.toast(result === 'cancelled' ? '未完整观看广告，仍可普通领取' : '广告播放失败，仍可普通领取');
+                return;
+            }
+            const c = this.dailyCandidate();
+            const info = achievementTierInfo(c.achievements!, def);
+            if (!info.claimable || info.tier !== initInfo.tier) {
+                if (this.page === 'daily' && this.sheet && isValid(this.sheet, true)) {
+                    this.sheet.removeAllChildren();
+                    this.renderDaily();
+                }
+                return;
+            }
+            const amount = info.rewardGems * 2;
+            if (c.gems > 100000000 - amount) { this.toast('货币接近存储上限，暂时无法领取'); return; }
+            c.gems += amount;
+            c.achievements!.claimedTier[id] = info.tier + 1;
+            if (!this.commitShop(c)) return;
+            this.renderHeader();
+            if (this.page === 'daily' && this.sheet && isValid(this.sheet, true)) {
+                this.sheet.removeAllChildren();
+                this.renderDaily();
+            } else {
+                this.refreshTaskRedDots();
+            }
+            this.showRewardGrantDialog('成就双倍奖励', [{ kind: 'gems', amount }], `达成「${def.title}」Lv.${info.level} 双倍领取！`);
+        };
+        try { provider.show(finish); } catch { finish('failed'); }
     }
 
     private renderDaily() {
@@ -6261,7 +6309,7 @@ export class Main extends Component {
             });
             const pack = this.uiNode(content, '每日免费照顾包', 0, -56 - DAILY_TASKS.length * 110, 740, 102);
             this.dailySprite(pack, 'row-clean', 0, 0, 740, 102, true);
-            this.dailySprite(pack, 'adventure', -315, 6, 64, 64, false, '每日礼包图标');
+            this.dailySprite(pack, 'shop', -315, 6, 64, 64, false, '每日礼包图标');
             this.dailyText(pack, '每日免费照顾包', -50, 22, 430, 38, 28, true);
             this.dailyText(pack, '食物×2  清洁×1  球×1', -50, -14, 430, 32, 24, true);
             const button = this.dailyButton(pack, '免费领取', 282, 6, 150, 68, () => this.claimDaily('pack'));
@@ -6295,30 +6343,40 @@ export class Main extends Component {
                 const row = this.uiNode(content, '成就任务-' + def.id, 0, -58 - index * 114, 740, 106);
                 this.dailySprite(row, 'row-clean', 0, 0, 740, 106, true);
                 this.dailySprite(row, def.icon, -315, 6, 62, 62, false, '成就图标');
-                this.pillBadge(row, 'Lv.' + info.level, -238, 22, 68, 28, info.maxed ? '#D99124' : '#5882B8', C.white, 17);
-                this.dailyText(row, def.title, -104, 22, 186, 36, 24, true);
-                const progLbl = this.dailyText(row, `${def.verb} ${info.count}/${info.target}`, -148, -16, 272, 30, 20, true);
+                this.pillBadge(row, 'Lv.' + info.level, -242, 22, 64, 28, info.maxed ? '#D99124' : '#5882B8', C.white, 17);
+                this.dailyText(row, def.title, -126, 22, 156, 36, 23, true);
+                const progLbl = this.dailyText(row, `${def.verb} ${info.count}/${info.target}`, -158, -16, 228, 30, 20, true);
                 progLbl.color = this.statusColor(info.claimable || info.maxed);
 
                 if (!info.maxed) {
-                    this.dailyText(row, String(info.rewardGems), 86, 6, 68, 38, 26);
-                    const gemNode = this.uiNode(row, '成就钻石图标', 138, 6, 34, 34);
+                    this.dailyText(row, String(info.rewardGems), 4, 6, 68, 38, 26);
+                    const gemNode = this.uiNode(row, '成就钻石图标', 54, 6, 34, 34);
                     const gsp = gemNode.addComponent(Sprite); gsp.sizeMode = Sprite.SizeMode.CUSTOM;
                     resources.load('art/header/diamond-icon/spriteFrame', SpriteFrame, (e, f) => {
                         if (!e && f && isValid(gsp, true)) gsp.spriteFrame = f;
                     });
                 }
 
-                const btnText = info.maxed ? '已满阶' : info.claimable ? '领取钻石' : '进行中';
-                const btn = this.dailyButton(row, btnText, 268, 6, 152, 68, () => {
-                    if (info.claimable) this.claimAchievement(def.id);
-                    else if (!info.maxed) this.toast(`还需 ${Math.max(0, info.target - info.count)} 次即可领取 Lv.${info.level} 钻石奖励！`);
-                }, 22);
-                btn.name = '成就按钮-' + def.id;
-                const bl = btn.getChildByName('文字')?.getComponent(Label);
-                if (bl) bl.color = this.statusColor(info.claimable || info.maxed);
-                const bbg = btn.getChildByName('每日任务底图');
-                if (bbg) bbg.active = info.claimable;
+                if (info.claimable) {
+                    const btn = this.dailyButton(row, '领取', 182, 6, 100, 68, () => this.claimAchievement(def.id), 22);
+                    btn.name = '成就按钮-' + def.id;
+                    const bl = btn.getChildByName('文字')?.getComponent(Label);
+                    if (bl) bl.color = this.statusColor(true);
+                    const adBtn = this.dailyButton(row, '广告双倍', 300, 6, 108, 68, () => this.watchAchievementRewardedVideo(def.id), 20);
+                    adBtn.name = '成就双倍按钮-' + def.id;
+                    const adl = adBtn.getChildByName('文字')?.getComponent(Label);
+                    if (adl) adl.color = this.statusColor(false);
+                } else {
+                    const btnText = info.maxed ? '已满阶' : '进行中';
+                    const btn = this.dailyButton(row, btnText, 240, 6, 152, 68, () => {
+                        if (!info.maxed) this.toast(`还需 ${Math.max(0, info.target - info.count)} 次即可领取 Lv.${info.level} 钻石奖励！`);
+                    }, 22);
+                    btn.name = '成就按钮-' + def.id;
+                    const bl = btn.getChildByName('文字')?.getComponent(Label);
+                    if (bl) bl.color = this.statusColor(info.maxed);
+                    const bbg = btn.getChildByName('每日任务底图');
+                    if (bbg) bbg.active = false;
+                }
             });
             this.dailyText(panel, '所有操作次数永久保存 · 每阶完成自动解锁更高钻石奖励', -12, -530, 680, 36, 22);
         }
