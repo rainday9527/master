@@ -1176,10 +1176,10 @@ export class Main extends Component {
             if (this.page === 'daily' || this.page === 'bag' || this.page === 'album' || this.page === 'profile') this.sheet.setPosition(0, -10, 0);
             if (this.page === 'shop' || this.page === 'daily' || this.page === 'bag' || this.page === 'album' || this.page === 'profile') {
                 const pw = this.page === 'daily' || this.page === 'album' || this.page === 'profile' ? 1024 : this.page === 'bag' ? 921 : 900;
-                const ph = this.page === 'daily' ? 1400 : this.page === 'bag' ? 1390 : (this.page === 'album' || this.page === 'profile') ? 1372 : 1300;
+                const ph = this.page === 'album' ? 1440 : this.page === 'daily' ? 1400 : this.page === 'bag' ? 1390 : this.page === 'profile' ? 1372 : 1300;
                 const maxScale = this.page === 'shop' ? 1.08 : 1;
-                const padW = this.page === 'shop' ? 28 : 40;
-                const padH = this.page === 'shop' ? 370 : 420;
+                const padW = this.page === 'shop' ? 28 : this.page === 'album' ? 28 : 40;
+                const padH = this.page === 'shop' ? 370 : this.page === 'album' ? 380 : 420;
                 const scale = Math.min(maxScale, (this.width - padW) / pw, (this.height - padH) / ph);
                 this.sheet.setScale(scale, scale, 1);
             }
@@ -2876,32 +2876,32 @@ export class Main extends Component {
 
     private renderAlbum() {
         const panel = this.sheet!;
-        this.albumArt(panel, 'panel', 0, 0, 1024, 1372, '图鉴正式大底板');
-        // 标题居中落在顶部木纹横幅内（源图 banner 中心 y=239/1170 -> +406）
-        this.dailyText(panel, '伙伴图鉴', 0, 406, 420, 62, 42, false, true);
-        const close = this.uiNode(panel, '收起图鉴', 386, 364, 128, 128);
-        this.dailySprite(close, 'close', 0, 0, 112, 112, false, '关闭图标');
+        this.albumArt(panel, 'panel', 0, 0, 1024, 1440, '图鉴正式大底板');
+        // 标题居中落在顶部猫耳黄色标题牌内（1024×1440 源图标题牌中心 y_px=132 -> +588）
+        this.dailyText(panel, '伙伴图鉴', 0, 588, 420, 66, 46, false, true);
+        const close = this.uiNode(panel, '收起图鉴', 436, 610, 104, 104);
+        this.dailySprite(close, 'close', 0, 0, 92, 92, false, '关闭图标');
         this.shopButton(close, () => this.open('home'));
 
-        // 顶部收集进度 + 待领解锁钻汇总（复用通用钻石图标）
-        const summaryRow = this.uiNode(panel, '图鉴收集统计行', 0, 232, 720, 40);
-        const summary = this.dailyText(summaryRow, '', 0, 0, 720, 38, 24);
+        // 顶部奶油条内展示收集进度 + 待领解锁钻汇总（避开左侧手绘小猫爪印与右侧逗猫棒）
+        const summaryRow = this.uiNode(panel, '图鉴收集统计行', 64, 434, 660, 42);
+        const summary = this.dailyText(summaryRow, '', 0, 0, 660, 38, 24);
         summary.node.name = '图鉴收集统计';
-        const summaryGem = this.currencyIcon(summaryRow, 'gems', 132, 0, 28);
+        const summaryGem = this.currencyIcon(summaryRow, 'gems', 116, 0, 28);
         summaryGem.name = '图鉴汇总钻石图标';
         summaryGem.active = false;
 
-        // 分类筛选页签：全部 / 猫咪 / 狗狗（配手绘爪子/猫头/狗头图标 + 无变形九宫格页签）
+        // 分类筛选页签：全部 / 猫咪 / 狗狗（位于内框顶部 y=+334）
         const tabs: [string, 'all' | Kind, string][] = [
             ['全部(' + BREEDS.length + ')', 'all', 'icon-all'],
             ['猫咪(' + BREEDS.filter(b => b.kind === 'cat').length + ')', 'cat', 'icon-cat'],
             ['狗狗(' + BREEDS.filter(b => b.kind === 'dog').length + ')', 'dog', 'icon-dog'],
         ];
         tabs.forEach(([title, filter, iconKey], i) => {
-            const tab = this.uiNode(panel, '图鉴筛选-' + filter, -240 + i * 240, 174, 214, 58);
-            this.albumArt(tab, this.albumFilter === filter ? 'tab-active' : 'tab-normal', 0, 0, 214, 58, '页签底图', false);
-            this.albumArt(tab, iconKey, -64, 0, 34, 30, '页签图标-' + filter);
-            const label = this.dailyText(tab, title, 18, 0, 140, 38, 22);
+            const tab = this.uiNode(panel, '图鉴筛选-' + filter, -248 + i * 248, 334, 224, 58);
+            this.albumArt(tab, this.albumFilter === filter ? 'tab-active' : 'tab-normal', 0, 0, 224, 58, '页签底图', false);
+            this.albumArt(tab, iconKey, -68, 0, 34, 30, '页签图标-' + filter);
+            const label = this.dailyText(tab, title, 18, 0, 144, 38, 23);
             label.node.name = '页签文字';
             this.intercept(tab); this.pressVisualFeedback(tab, tab.children.slice());
             tab.on(Node.EventType.TOUCH_END, () => {
@@ -2911,10 +2911,10 @@ export class Main extends Component {
             }, this);
         });
 
-        // 奶油内区滚动网格（源图内区 y=-606..+273）
-        const viewport = this.uiNode(panel, '图鉴可视窗口', 2, -220, 748, 704);
+        // 内层圆角奶油区滚动网格（严格位于 y=-335..+295，完整保留底部小猫简笔画与猫砂盆装饰）
+        const viewport = this.uiNode(panel, '图鉴可视窗口', 0, -20, 836, 630);
         viewport.addComponent(Mask).type = Mask.Type.GRAPHICS_RECT;
-        const content = this.uiNode(viewport, '图鉴滚动内容', 0, 352, 748, 704);
+        const content = this.uiNode(viewport, '图鉴滚动内容', 0, 315, 836, 630);
         content.getComponent(UITransform)!.setAnchorPoint(0.5, 1);
         const scroll = viewport.addComponent(ScrollView);
         scroll.content = content; scroll.horizontal = false; scroll.vertical = true;
@@ -2953,16 +2953,16 @@ export class Main extends Component {
         content.children.slice().forEach(child => { child.active = false; child.removeFromParent(); child.destroy(); });
 
         const list = BREEDS.filter(b => this.albumFilter === 'all' || b.kind === this.albumFilter);
-        const cols = 3, cardW = 230, cardH = 224, gapX = 18, gapY = 12;
+        const cols = 3, cardW = 248, cardH = 240, gapX = 20, gapY = 16;
         const rows = Math.max(1, Math.ceil(list.length / cols));
-        const totalH = Math.max(704, rows * (cardH + gapY) + 8);
-        content.getComponent(UITransform)!.setContentSize(748, totalH);
+        const totalH = Math.max(630, rows * (cardH + gapY) + 12);
+        content.getComponent(UITransform)!.setContentSize(836, totalH);
         viewport!.getComponent(ScrollView)!.scrollToTop(0);
 
         list.forEach((b, idx) => {
             const col = idx % cols, row = Math.floor(idx / cols);
             const x = (col - 1) * (cardW + gapX);
-            const y = -(cardH / 2 + 4 + row * (cardH + gapY));
+            const y = -(cardH / 2 + 6 + row * (cardH + gapY));
             const pet = this.data.pets.find(p => p.id === b.id);
             const owned = !!pet;
             const rarity = RARITY_INFO[b.rarity];
@@ -2975,21 +2975,21 @@ export class Main extends Component {
             if (!owned) cardSprite.color = new Color(216, 220, 226, 255);
 
             // 左上角：手绘立体稀有度徽章（按真实比例：普通/稀有 172:182、传说 172:206）
-            const badgeH = b.rarity === 'SSR' ? 58 : 52;
-            this.albumArt(card, 'rarity-' + b.rarity.toLowerCase(), -78, 78, 49, badgeH, '稀有度徽章-' + b.rarity);
+            const badgeH = b.rarity === 'SSR' ? 60 : 54;
+            this.albumArt(card, 'rarity-' + b.rarity.toLowerCase(), -84, 84, 52, badgeH, '稀有度徽章-' + b.rarity);
             // 右上方（紧贴右上星星左侧）：未领显示通用钻石奖励，已领显示分级星级图标
             if (canClaim) {
-                this.diamondBadge(card, b.unlockGems, 20, 82, 92, 26, '#E05744', '#FFFDF5', 15);
+                this.diamondBadge(card, b.unlockGems, 20, 88, 94, 27, '#E05744', '#FFFDF5', 15);
             } else if (owned) {
-                this.starTierBadge(card, pet!.star, 36, 82, 34);
+                this.starTierBadge(card, pet!.star, 38, 88, 36);
             } else {
-                this.diamondBadge(card, b.unlockGems, 20, 82, 92, 26, '#8E8B86', '#FFF8EC', 14);
+                this.diamondBadge(card, b.unlockGems, 20, 88, 94, 27, '#8E8B86', '#FFF8EC', 14);
             }
 
             // 中央头像（未解锁采用清晰可见的柔和灰雾+小锁）
-            this.petAvatar(card, b.id, 0, 10, 106, !owned);
+            this.petAvatar(card, b.id, 0, 11, 112, !owned);
             // 底部骨头框正中仅显示伙伴名称（不堆叠性格或跳转字样）
-            const nameLabel = this.dailyText(card, owned ? this.petDisplayName(b.id) : b.name, 0, -78, 136, 30, 21);
+            const nameLabel = this.dailyText(card, owned ? this.petDisplayName(b.id) : b.name, 0, -84, 146, 32, 22);
             nameLabel.color = this.color(owned ? '#49301E' : '#6A6762');
 
             this.pressVisualFeedback(card, card.children.slice());
@@ -3004,7 +3004,7 @@ export class Main extends Component {
         const panel = this.sheet!;
         const pet = this.data.pets.find(p => p.id === this.profilePetId);
         if (!pet) { this.open('album'); return; }
-        this.albumArt(panel, 'panel', 0, 0, 1024, 1372, '宠物主页底板');
+        this.albumArt(panel, 'profile-panel', 0, 0, 1024, 1372, '宠物主页底板');
         this.dailyText(panel, '宠物主页', 0, 406, 420, 62, 42, false, true);
         const back = this.bagButton(panel, '‹ 图鉴', -312, 232, 136, 46, () => this.open('album'));
         back.name = '返回图鉴按钮';
