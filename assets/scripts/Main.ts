@@ -5380,8 +5380,13 @@ export class Main extends Component {
         c.placedFurniture = list.filter(f => f.uid !== target.uid);
         c.furnitureInventory = { ...(c.furnitureInventory || {}), [target.id]: ((c.furnitureInventory || {})[target.id] || 0) + 1 };
         if (!this.commitShop(c)) return false;
-        // 若有宠物正在该家具中活动，温柔结束活动
-        this.actors.forEach(a => { if (a.activity?.furnitureUid === target.uid) a.activity = undefined; });
+        // 若有宠物正在该家具中活动，温柔结束活动并恢复可见
+        this.actors.forEach(a => {
+            if (a.activity?.furnitureUid === target.uid) {
+                a.activity = undefined;
+                if (isValid(a.visual, true)) a.visual.active = true;
+            }
+        });
         this.selectedFurnitureUid = null;
         this.syncYardFurniture();
         if (this.page === 'layout') this.renderLayoutPanel();
@@ -5548,23 +5553,25 @@ export class Main extends Component {
             return list.length ? list[Math.floor(Math.random() * list.length)] : null;
         };
 
-        // 1) 没体力（<38）优先去猫窝/狗窝睡觉恢复，或体力 <70 偶发打盹
+        // 1) 没体力（<38）优先去猫窝/狗窝睡觉恢复，或体力 <70 偶发打盹（精确对准门洞/软垫前方，零穿模）
         if (a.pet.energy < 38 || (a.pet.energy < 70 && Math.random() < 0.22)) {
             const bed = pickFurn('bed');
             if (bed) {
+                const off = findFurniture(bed.id)?.entryOffset || [0, 0.32];
                 a.activity = { type: 'sleep', furnitureUid: bed.uid, until: this.socialTime + 26, tickAcc: 0, zzzTimer: 0.2, arrived: false };
-                a.target.set(bed.x, 0, bed.z + 0.10);
+                a.target.set(bed.x + off[0], 0, bed.z + off[1]);
                 a.walkAge = 0;
                 return true;
             }
         }
-        // 2) 饥饿（<62）且有食物库存 -> 自主去猫盆/狗盆吃饭
+        // 2) 饥饿（<62）且有食物库存 -> 自主去猫盆/狗盆前吃饭
         const hasFood = (this.data.food || 0) > 0 || ITEM_CATALOG.some(it => it.category === 'food' && itemApplies(it, kind) && (this.data.itemInventory[it.id] || 0) > 0);
         if (a.pet.hunger < 62 && hasFood) {
             const bowl = pickFurn('bowl');
             if (bowl) {
+                const off = findFurniture(bowl.id)?.entryOffset || [0, 0.56];
                 a.activity = { type: 'eat', furnitureUid: bowl.uid, until: this.socialTime + 12, tickAcc: 0, zzzTimer: 0, arrived: false };
-                a.target.set(bowl.x, 0, bowl.z + 0.34);
+                a.target.set(bowl.x + off[0], 0, bowl.z + off[1]);
                 a.walkAge = 0;
                 return true;
             }
@@ -5573,8 +5580,9 @@ export class Main extends Component {
         if (a.pet.joy < 68 && a.pet.energy >= 28 && Math.random() < 0.45) {
             const park = pickFurn('park');
             if (park) {
+                const off = findFurniture(park.id)?.entryOffset || [0, 0.58];
                 a.activity = { type: 'play', furnitureUid: park.uid, until: this.socialTime + 12, tickAcc: 0, zzzTimer: 0, arrived: false };
-                a.target.set(park.x, 0, park.z + 0.20);
+                a.target.set(park.x + off[0], 0, park.z + off[1]);
                 a.walkAge = 0;
                 return true;
             }
@@ -8434,13 +8442,22 @@ export class Main extends Component {
                                 }
                             } else if (a.activity.type === 'sleep') {
                                 a.activity.zzzTimer = 0.05;
+                                // 有屋顶门洞的狗屋：走到门洞后钻进屋内隐藏身形，仅冒 Zzz，绝不穿墙穿屋顶
+                                if (fdef?.hideInside && isValid(a.visual, true)) {
+                                    a.visual.active = false;
+                                } else if (pf) {
+                                    // 敞口猫窝/云朵床：端正朝前窝在软垫上，零穿模
+                                    a.facing = 0;
+                                }
                             }
                         } else if (a.activity && a.activity.arrived) {
                             const pf = (this.data.placedFurniture || []).find(f => f.uid === a.activity!.furnitureUid);
                             const fdef = pf ? findFurniture(pf.id) : undefined;
                             if (!pf) {
                                 a.activity = undefined;
+                                if (isValid(a.visual, true)) a.visual.active = true;
                             } else if (a.activity.type === 'sleep') {
+                                if (fdef?.hideInside && isValid(a.visual, true)) a.visual.active = false;
                                 a.activity.tickAcc += step;
                                 if (a.activity.tickAcc >= 1.0) {
                                     a.activity.tickAcc -= 1.0;
@@ -8454,13 +8471,16 @@ export class Main extends Component {
                                 }
                                 if (a.pet.energy >= 98) {
                                     a.activity = undefined;
+                                    if (isValid(a.visual, true)) a.visual.active = true;
                                     a.timer = 0.5;
                                 }
                             } else if (this.socialTime >= a.activity.until) {
                                 a.activity = undefined;
+                                if (isValid(a.visual, true)) a.visual.active = true;
                                 a.timer = 0.6;
                             }
                         } else {
+                            if (isValid(a.visual, true) && !a.visual.active) a.visual.active = true;
                             a.timer -= step;
                             if (a.timer <= 0) {
                                 if (!this.tryStartFurnitureActivity(a)) pickNewTarget();
