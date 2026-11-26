@@ -95,7 +95,8 @@ export function calcIdleRewardPreview(elapsedMs: number, alivePetCount: number):
     const minutes = Math.floor(cappedMs / 60000);
     const petMult = 1 + Math.min(6, Math.max(1, alivePetCount) - 1) * 0.14;
     const coins = minutes >= 1 ? Math.max(15, Math.round(minutes * 3.2 * petMult)) : 0;
-    const gems = minutes >= 1 ? Math.max(1, Math.floor(minutes / 15) + Math.floor(minutes / 60) * 2) : 0;
+    // 挂机钻石产出大幅提升：每分钟随存活伙伴数成长，每小时约 45~75 钻，24 小时满挂机可达 900~1500+ 钻
+    const gems = minutes >= 1 ? Math.max(3, Math.round(minutes * 0.65 * petMult) + Math.floor(minutes / 60) * 10) : 0;
     const itemCount = minutes >= 30 ? Math.min(6, Math.floor(minutes / 30)) : (minutes >= 5 ? 1 : 0);
     return { cappedMs, minutes, ready: minutes >= 1, coins, gems, itemCount };
 }

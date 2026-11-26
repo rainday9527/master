@@ -3173,7 +3173,7 @@ export class Main extends Component {
             }
             if (total > RECRUIT_CONFIG.maxTotal) { this.toast('招募次数已达安全上限'); return; }
             const ids = drawRecruit(BREEDS.map((_, id) => id), count);
-            const recruit = grantRecruit(state, ids, total, claimed);
+            const recruit = grantRecruit(state, ids, total, claimed, mode, now);
             if (!recruit) { this.toast('本体库存已达安全上限，本次未扣费'); return; }
             const pets = this.data.pets.slice();
             const added: Pet[] = [];
@@ -3358,6 +3358,71 @@ export class Main extends Component {
             btn.on(Node.EventType.TOUCH_END, action.run, this);
         });
         this.layoutDialog();
+    }
+
+    public showRecruitHistoryDialog() {
+        const list = (this.data.recruit.history || []).slice(0, 50);
+        if (this.dialog) this.closeDialog();
+        this.showDialog('招募记录（最近50条）', '', [{ title: '我知道了', run: () => this.closeDialog() }]);
+        const panel = this.dialog?.getChildByName('通用弹窗面板');
+        const content = panel?.getChildByName('弹窗安全内容');
+        if (!content) return;
+        const bodyNode = content.getChildByName('弹窗正文');
+        if (bodyNode) bodyNode.active = false;
+
+        if (!list.length) {
+            const empty = this.text(content, '暂无招募记录，快去招募可爱毛孩子吧！', 0, 20, 620, 80, 26, '#7A5434');
+            empty.isBold = true; empty.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+            return;
+        }
+
+        const vpW = 660, vpH = 296;
+        const rowH = 54, gap = 8;
+        const totalH = Math.max(vpH, list.length * (rowH + gap) + 12);
+        const vp = this.uiNode(content, '招募记录可视窗口', 0, 48, vpW, vpH);
+        const vbg = vp.addComponent(Graphics);
+        vbg.fillColor = this.color('#F5E8CE');
+        vbg.strokeColor = this.color('#D8B886');
+        vbg.lineWidth = 2.5;
+        vbg.roundRect(-vpW / 2, -vpH / 2, vpW, vpH, 18); vbg.fill(); vbg.stroke();
+        vp.addComponent(Mask).type = Mask.Type.GRAPHICS_RECT;
+
+        const scNode = this.uiNode(vp, '招募记录滚动内容', 0, vpH / 2, vpW, totalH);
+        scNode.getComponent(UITransform)!.setAnchorPoint(0.5, 1);
+        const scroll = vp.addComponent(ScrollView);
+        scroll.content = scNode; scroll.horizontal = false; scroll.vertical = true;
+        scroll.cancelInnerEvents = true; scroll.elastic = true; scroll.inertia = true;
+
+        const pad2 = (n: number) => ('0' + n).slice(-2);
+        const srcName: Record<'single' | 'ten' | 'reward', string> = { single: '单抽', ten: '十连', reward: '累计奖励' };
+
+        list.forEach((entry, idx) => {
+            const b = BREEDS[entry.id];
+            const ry = -rowH / 2 - 6 - idx * (rowH + gap);
+            const row = this.uiNode(scNode, '记录行-' + idx, 0, ry, vpW - 20, rowH);
+            const rg = row.addComponent(Graphics);
+            rg.fillColor = this.color(idx % 2 === 0 ? '#FFFDF6' : '#FAF0DC');
+            rg.roundRect(-(vpW - 20) / 2, -rowH / 2, vpW - 20, rowH, 12); rg.fill();
+
+            const d = new Date(entry.time);
+            const timeStr = `${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+            const idxLbl = this.text(row, `#${idx + 1}`, -284, 0, 56, 32, 20, '#8C6B4E');
+            idxLbl.isBold = true; idxLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+
+            const timeLbl = this.text(row, timeStr, -182, 0, 148, 32, 19, '#7A5B40');
+            timeLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+
+            const srcColor = entry.source === 'ten' ? '#D97B1E' : entry.source === 'reward' ? '#3C8C52' : '#6A83B5';
+            this.pillBadge(row, srcName[entry.source], -52, 0, 94, 30, srcColor, C.white, 17);
+
+            const rarityInfo = b ? RARITY_INFO[b.rarity] : null;
+            const nameColor = b?.rarity === 'SSSR' ? '#C96A0E' : b?.rarity === 'SSR' ? '#8C3EC9' : b?.rarity === 'SR' ? '#2E72C4' : '#4E2912';
+            const petTxt = b ? `${b.name} (${rarityInfo?.label || b.rarity})` : `伙伴 #${entry.id}`;
+            const petLbl = this.text(row, petTxt, 152, 0, 290, 36, 22, nameColor);
+            petLbl.isBold = true; petLbl.horizontalAlign = Label.HorizontalAlign.LEFT;
+            petLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+        });
+        scroll.scrollToTop(0);
     }
 
     private showRecruitRewards() {
@@ -3681,6 +3746,10 @@ export class Main extends Component {
         this.recruitArt(search, 'search', 0, 0, 42, 42);
         this.intercept(search); this.pressVisualFeedback(search);
         search.on(Node.EventType.TOUCH_END, () => this.showRecruitRewards(), this);
+
+        // 招募记录通用按钮：位于「招募奖励」正下方，点击弹窗查看最近 50 条招募历史
+        const historyBtn = this.dailyButton(panel, '招募记录', 388, 438, 224, 62, () => this.showRecruitHistoryDialog(), 24);
+        historyBtn.name = '查看招募记录按钮';
         // 两个固定热区只缩放内部美术，价格使用原有钻石图标。
         const single = this.recruitButton(panel, '', 'normal', -240, -334, 460, 216, () => this.recruitTransaction('single'));
         single.name = '招募按钮-普通招募 · 300钻 / 1次';
@@ -3747,8 +3816,8 @@ export class Main extends Component {
         });
         previewScroll.scrollToLeft(0);
 
-        this.recruitResult = this.dailyText(panel, '', 0, -756, 900, 32, 18);
-        this.recruitResult.node.name = '招募最近结果'; this.recruitResult.enableWrapText = true;
+        // 最近招募记录已迁至「招募记录」弹窗（展示最近 50 条），避免底部文字溢出遮挡画面
+        this.recruitResult = null;
         // 招募页局部减弱浅色描边，其他界面保持原样。
         const soften = (node: Node) => {
             if (node.name === '招募本体数标签' || node.name === '招募预览滑动提示') return;

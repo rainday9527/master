@@ -1,5 +1,16 @@
 // copies 是每种伙伴的本体总数，包含庭院中的一只；不包含升星或碎片。
-export interface RecruitState { total: number; claimed: number; copies: Record<string, number>; recent: number[]; }
+export interface RecruitHistoryEntry {
+    time: number;
+    id: number;
+    source: 'single' | 'ten' | 'reward';
+}
+export interface RecruitState {
+    total: number;
+    claimed: number;
+    copies: Record<string, number>;
+    recent: number[];
+    history?: RecruitHistoryEntry[];
+}
 export const RECRUIT_CONFIG = {
     single: { count: 1, cost: 300 }, ten: { count: 10, cost: 2700 },
     milestones: [10, 30, 50, 100], repeat: 100, rewardCopies: 1,
@@ -27,7 +38,18 @@ export function restoreRecruit(value: unknown, owned: readonly number[], pool: r
         if (!owned.includes(id)) copies[id] = 0;
     });
     const recent = v && Array.isArray(v.recent) && v.recent.length <= 10 && v.recent.every(id => pool.includes(id) && owned.includes(id)) ? v.recent.slice() : [];
-    return { total: safeTotal, claimed, copies, recent };
+    const history: RecruitHistoryEntry[] = [];
+    if (v && Array.isArray(v.history)) {
+        for (const item of v.history) {
+            if (history.length >= 50) break;
+            if (item && typeof item.id === 'number' && pool.includes(item.id) &&
+                typeof item.time === 'number' && Number.isFinite(item.time) &&
+                (item.source === 'single' || item.source === 'ten' || item.source === 'reward')) {
+                history.push({ time: item.time, id: item.id, source: item.source });
+            }
+        }
+    }
+    return { total: safeTotal, claimed, copies, recent, history };
 }
 export function drawRecruit(pool: readonly number[], count: number, random = Math.random): number[] {
     if (!pool.length || !int(count, 20000)) throw Error('招募配置无效');
@@ -37,12 +59,21 @@ export function drawRecruit(pool: readonly number[], count: number, random = Mat
         return pool[Math.floor(r * pool.length)];
     });
 }
-export function grantRecruit(state: RecruitState, ids: readonly number[], total: number, claimed = state.claimed): RecruitState | null {
+export function grantRecruit(
+    state: RecruitState,
+    ids: readonly number[],
+    total: number,
+    claimed = state.claimed,
+    source: 'single' | 'ten' | 'reward' = 'single',
+    now = Date.now()
+): RecruitState | null {
     if (!int(total, RECRUIT_CONFIG.maxTotal) || total < state.total || claimed < state.claimed) return null;
     const copies = { ...state.copies };
     for (const id of ids) {
         if (!Object.prototype.hasOwnProperty.call(copies, id) || copies[id] >= RECRUIT_CONFIG.maxCopies) return null;
         copies[id]++;
     }
-    return { total, claimed, copies, recent: ids.slice(-10) };
+    const newEntries: RecruitHistoryEntry[] = ids.slice().reverse().map(id => ({ time: now, id, source }));
+    const history = [...newEntries, ...(state.history || [])].slice(0, 50);
+    return { total, claimed, copies, recent: ids.slice(-10), history };
 }
