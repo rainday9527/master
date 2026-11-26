@@ -1,7 +1,7 @@
 // 宠物核心图鉴目录：12 品种、R(普通)/SR(稀有)/SSR(史诗)/SSSR(传说) 四阶品质、解锁钻石奖励、性格词条、升星规则、装扮与毛色换肤。
 export type PetKind = 'cat' | 'dog';
 export type PetRarity = 'R' | 'SR' | 'SSR' | 'SSSR';
-export type TraitId = 'glutton' | 'bold' | 'tidy' | 'energetic' | 'playful' | 'lucky' | 'gentle' | 'explorer';
+export type TraitId = 'glutton' | 'bold' | 'tidy' | 'energetic' | 'playful' | 'lucky' | 'gentle' | 'explorer' | 'hothead' | 'peacemaker';
 export type OutfitId =
     | 'none'
     | 'bell_collar'
@@ -66,6 +66,8 @@ export interface TraitDefinition {
     adventureRiskChance?: number;  // 寻宝小遇险概率加成（胆大词条特征）
     adventureCoinMult?: number;    // 寻宝金币倍率
     adventureItemChance?: number;  // 寻宝额外带回补给道具概率
+    fightChance?: number;          // 庭院触发打架滚烟云事件概率加成
+    peaceChance?: number;          // 庭院劝架/贴贴安抚概率加成
 }
 
 export const PET_TRAITS: Record<TraitId, TraitDefinition> = {
@@ -123,9 +125,52 @@ export const PET_TRAITS: Record<TraitId, TraitDefinition> = {
         adventureItemChance: 0.30,
         adventureBonusChance: 0.15,
     },
+    hothead: {
+        id: 'hothead', name: '小暴脾气', tagColor: '#E05248',
+        summary: '庭院爱打闹 · 寻宝奇遇 +20%',
+        detail: '一言不合就在庭院滚烟云打闹，但胆大心细寻宝奇遇 +20%。',
+        adventureBonusChance: 0.20,
+        fightChance: 0.42,
+    },
+    peacemaker: {
+        id: 'peacemaker', name: '和事佬', tagColor: '#4BAE78',
+        summary: '庭院劝架贴贴 · 心情下降 -25%',
+        detail: '庭院里的暖心调解员，遇到小摩擦会主动贴贴劝架，心情缓降 25%。',
+        joyDecayMult: 0.75,
+        peaceChance: 0.65,
+    },
 };
 
 export const TRAIT_IDS: TraitId[] = Object.keys(PET_TRAITS) as TraitId[];
+
+/** 为每个品种生成 2~3 条不重复的性格词条（主词条固定为 defaultTrait，稀有度越高词条越丰富） */
+export function defaultTraitsForBreed(breedId: number): TraitId[] {
+    const breed = PET_BREEDS[breedId];
+    if (!breed) return ['gentle', 'peacemaker'];
+    const secondaryPool: Record<number, TraitId[]> = {
+        0: ['peacemaker'],
+        1: ['hothead'],
+        2: ['gentle'],
+        3: ['playful'],
+        4: ['hothead'],
+        5: ['peacemaker', 'energetic'],
+        6: ['tidy', 'lucky'],
+        7: ['peacemaker', 'lucky'],
+        8: ['playful'],
+        9: ['hothead', 'playful'],
+        10: ['hothead', 'explorer'],
+        11: ['peacemaker', 'gentle'],
+        12: ['hothead'],
+        13: ['bold', 'tidy'],
+        14: ['peacemaker', 'tidy'],
+        15: ['gentle'],
+        16: ['hothead', 'energetic'],
+        17: ['peacemaker', 'lucky'],
+    };
+    const out: TraitId[] = [breed.defaultTrait];
+    (secondaryPool[breedId] || []).forEach(t => { if (!out.includes(t)) out.push(t); });
+    return out;
+}
 
 export interface BreedDefinition {
     id: number;

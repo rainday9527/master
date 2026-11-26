@@ -9,7 +9,7 @@ import { RecruitState, RECRUIT_CONFIG, restoreRecruit, drawRecruit, grantRecruit
 import {
     PET_BREEDS, RARITY_INFO, PET_TRAITS, PET_OUTFITS, PET_COATS, PET_NICKNAME_PRESETS,
     MAX_PET_STAR, STAR_REQUIREMENTS, starXpBonus, starAdventureBonus, sanitizeNickname,
-    isTraitId, isOutfitId, isCoatId, TraitId, OutfitId, CoatId,
+    isTraitId, isOutfitId, isCoatId, defaultTraitsForBreed, TraitId, OutfitId, CoatId, TraitDefinition,
 } from './PetCatalog';
 
 import {
@@ -41,6 +41,7 @@ interface Pet {
     health: number;
     dead?: boolean;
     lost?: boolean;
+    injured?: boolean;
     deathReason?: string;
     diedAt?: number;
     adventuring?: boolean;
@@ -49,6 +50,7 @@ interface Pet {
     nickname: string;
     renameCount?: number;
     trait: TraitId;
+    traits?: TraitId[];
     outfit: OutfitId;
     coat: CoatId;
     ownedOutfits: OutfitId[];
@@ -104,6 +106,7 @@ interface ActorRig {
     shadow: Node | null;
     outfitNode: Node | null;
     coatVfxNode: Node | null;
+    injuryNode: Node | null;
     renderers: MeshRenderer[];
     pivots: Record<string, [number, number, number]>;
 }
@@ -200,6 +203,7 @@ export class Main extends Component {
     private pendingAlerts: { kind: 'lost' | 'dead'; petId: number; reason: string }[] = [];
     private allDeadPrompted = false;
     private socialBubbles: SocialBubble[] = [];
+    private fightClouds: Array<{ node: Node; a: Actor; b: Actor; x: number; z: number; age: number; duration: number; puffs: Node[]; sparks: Node[] }> = [];
     private needBubbles = new Map<number, { node: Node; icon: string; until: number; urgent: boolean }>();
     private needHistory = new Map<number, number[]>();
     private needQueue = new Map<number, { icon: string; threshold: number }[]>();
@@ -296,11 +300,28 @@ export class Main extends Component {
     }
 
     private makePet(id: number, hunger = 70, clean = 80, energy = 85, joy = 75, health = 100): Pet {
+        const traits = defaultTraitsForBreed(id);
         return {
-            id, hunger, clean, energy, joy, health, dead: false, star: 1, nickname: '', renameCount: 0,
-            trait: BREEDS[id].defaultTrait, outfit: 'none', coat: 'original',
+            id, hunger, clean, energy, joy, health, dead: false, injured: false, star: 1, nickname: '', renameCount: 0,
+            trait: traits[0], traits, outfit: 'none', coat: 'original',
             ownedOutfits: ['none'], ownedCoats: ['original'],
         };
+    }
+
+    public getPetTraits(pet: Pet): TraitDefinition[] {
+        const ids: TraitId[] = [];
+        if (isTraitId(pet.trait)) ids.push(pet.trait);
+        if (Array.isArray(pet.traits)) {
+            pet.traits.forEach(t => { if (isTraitId(t) && !ids.includes(t)) ids.push(t); });
+        }
+        if (ids.length < 2) {
+            defaultTraitsForBreed(pet.id).forEach(t => { if (!ids.includes(t)) ids.push(t); });
+        }
+        return ids.map(id => PET_TRAITS[id]);
+    }
+
+    public isPetInjured(pet: Pet): boolean {
+        return !pet.dead && !pet.lost && (Boolean(pet.injured) || pet.health < 55);
     }
 
     private petDisplayName(id: number): string {
@@ -364,10 +385,18 @@ export class Main extends Component {
                 const rawReturnAt = validInt((p as any).adventureReturnAt, 9000000000000000) ? (p as any).adventureReturnAt : undefined;
                 const adventuring = Boolean((p as any).adventuring) && !dead && !lost && (!rawReturnAt || rawReturnAt > Date.now());
                 const adventureReturnAt = adventuring ? rawReturnAt : undefined;
+                const injured = Boolean((p as any).injured) && !dead && health < 85;
+                const rawTraits: TraitId[] = [trait];
+                if (Array.isArray((p as any).traits)) {
+                    ((p as any).traits as unknown[]).forEach(t => { if (isTraitId(t) && !rawTraits.includes(t)) rawTraits.push(t); });
+                }
+                if (rawTraits.length < 2) {
+                    defaultTraitsForBreed(p.id).forEach(t => { if (!rawTraits.includes(t)) rawTraits.push(t); });
+                }
                 return {
-                    id: p.id, hunger: p.hunger, clean: p.clean, energy: p.energy, joy: p.joy, health, dead, lost, deathReason, diedAt,
+                    id: p.id, hunger: p.hunger, clean: p.clean, energy: p.energy, joy: p.joy, health, dead, lost, injured, deathReason, diedAt,
                     adventuring, adventureReturnAt,
-                    star, nickname, renameCount, trait, outfit, coat,
+                    star, nickname, renameCount, trait, traits: rawTraits, outfit, coat,
                     ownedOutfits: Array.from(petOutfits), ownedCoats: Array.from(petCoats),
                 };
             });
@@ -1265,6 +1294,55 @@ export class Main extends Component {
         }
     }
 
+    /** 受伤 3D 外观：额头交叉创可贴 + 卡通红肿小包 + 头顶旋转头晕小星星，让庭院与主页一眼看出受伤需要治疗 */
+    private buildInjuryNode(injured: boolean, rig: ActorRig): Node | null {
+        if (!injured || !isValid(rig.head, true)) return null;
+        const root = new Node('宠物受伤外观');
+        root.layer = Layers.Enum.DEFAULT;
+        rig.head.addChild(root);
+
+        // 1) 左额头交叉白色创可贴
+        const band = new Node('受伤创可贴');
+        band.layer = Layers.Enum.DEFAULT;
+        root.addChild(band);
+        band.setPosition(-0.24, 0.34, 0.74);
+        band.setRotationFromEuler(-14, -18, 12);
+        this.shape(band, 'box', '#FFF8E8', [0, 0, 0], [0.34, 0.11, 0.04], [0, 0, 32]);
+        this.shape(band, 'box', '#FFF8E8', [0, 0, 0.005], [0.34, 0.11, 0.04], [0, 0, -32]);
+        this.shape(band, 'box', '#F0C596', [0, 0, 0.014], [0.12, 0.12, 0.03]);
+        this.shape(band, 'box', '#E04D48', [0, 0, 0.022], [0.075, 0.024, 0.02]);
+        this.shape(band, 'box', '#E04D48', [0, 0, 0.022], [0.024, 0.075, 0.02]);
+
+        // 2) 右侧卡通红肿小包
+        this.shape(root, 'sphere', '#F26464', [0.28, 0.56, 0.36], [0.24, 0.20, 0.22]);
+        this.shape(root, 'sphere', '#FFA4A4', [0.25, 0.62, 0.42], [0.09, 0.07, 0.07]);
+
+        // 3) 头顶旋转头晕小星星环（即使庭院宠物众多也能一眼识别）
+        const dizzy = new Node('头晕星环');
+        dizzy.layer = Layers.Enum.DEFAULT;
+        root.addChild(dizzy);
+        dizzy.setPosition(0, 0.94, 0.04);
+        for (let i = 0; i < 4; i++) {
+            const rad = (i / 4) * Math.PI * 2;
+            const st = new Node('晕星-' + i);
+            st.layer = Layers.Enum.DEFAULT;
+            dizzy.addChild(st);
+            st.setPosition(Math.cos(rad) * 0.52, Math.sin(rad * 2) * 0.06, Math.sin(rad) * 0.52);
+            const col = i % 2 === 0 ? '#FFE04D' : '#FF8A5C';
+            this.shape(st, 'box', col, [0, 0, 0], [0.16, 0.042, 0.042]);
+            this.shape(st, 'box', col, [0, 0, 0], [0.042, 0.16, 0.042]);
+        }
+        return root;
+    }
+
+    private animateInjuryNode(injuryNode: Node | null | undefined, t: number) {
+        if (!injuryNode || !isValid(injuryNode, true)) return;
+        const dizzy = injuryNode.getChildByName('头晕星环');
+        if (dizzy && isValid(dizzy, true)) {
+            dizzy.setRotationFromEuler(8, (t * 145) % 360, Math.sin(t * 3.5) * 8);
+        }
+    }
+
     private setLayerRecursive(node: Node, layer: number) {
         node.layer = layer;
         node.children.forEach(child => this.setLayerRecursive(child, layer));
@@ -1286,7 +1364,7 @@ export class Main extends Component {
     private async syncProfilePreview(petId: number, force = false) {
         const pet = this.data.pets.find(p => p.id === petId);
         if (!pet || this.page !== 'profile') { this.clearProfilePreview(); return; }
-        const key = pet.id + ':' + pet.outfit + ':' + pet.coat;
+        const key = pet.id + ':' + pet.outfit + ':' + pet.coat + ':' + (this.isPetInjured(pet) ? '1' : '0');
         if (!force && this.previewLoadedKey === key && this.previewRig && isValid(this.previewRig.modelNode, true)) return;
         // 同一只伙伴仅切换装扮或毛色时，直接原位更新装扮与材质，绝不销毁重建舞台，杜绝闪烁与跳动。
         if (!force && this.previewLoadedKey.startsWith(pet.id + ':') && this.previewRig && isValid(this.previewRig.modelNode, true)) {
@@ -1305,6 +1383,13 @@ export class Main extends Component {
             }
             pRig.coatVfxNode = this.buildCoatVfxNode(pet.coat, pRig);
             if (pRig.coatVfxNode) this.setLayerRecursive(pRig.coatVfxNode, this.previewLayer);
+            if (pRig.injuryNode && isValid(pRig.injuryNode, true)) {
+                pRig.injuryNode.active = false;
+                pRig.injuryNode.removeFromParent();
+                pRig.injuryNode.destroy();
+            }
+            pRig.injuryNode = this.buildInjuryNode(this.isPetInjured(pet), pRig);
+            if (pRig.injuryNode) this.setLayerRecursive(pRig.injuryNode, this.previewLayer);
             this.previewLoadedKey = key;
             const skinTex = await this.loadPetSkin(BREEDS[pet.id].skin);
             if (skinTex && isValid(this, true) && this.previewRig === pRig && isValid(pRig.modelNode, true)) {
@@ -1381,10 +1466,11 @@ export class Main extends Component {
         }
         const actorRig: ActorRig = {
             kind: breed.kind, uprightEars: rigKey !== 'dog', modelNode, head, earL, earR, legFL, legFR, legBL, legBR, tail,
-            shadow, outfitNode: null, coatVfxNode: null, renderers, pivots: rig.pivots,
+            shadow, outfitNode: null, coatVfxNode: null, injuryNode: null, renderers, pivots: rig.pivots,
         };
         actorRig.outfitNode = this.buildOutfitNode(pet.outfit, actorRig);
         actorRig.coatVfxNode = this.buildCoatVfxNode(pet.coat, actorRig);
+        actorRig.injuryNode = this.buildInjuryNode(this.isPetInjured(pet), actorRig);
         this.setLayerRecursive(stage, this.previewLayer);
         this.previewStage = stage;
         this.previewVisual = visual;
@@ -1446,6 +1532,7 @@ export class Main extends Component {
             }
             this.animateOutfitVfx(rig.outfitNode, t);
             this.animateCoatVfx(rig.coatVfxNode, t);
+            this.animateInjuryNode(rig.injuryNode, t);
         }
     }
 
@@ -1473,6 +1560,12 @@ export class Main extends Component {
                     rig.coatVfxNode.destroy();
                 }
                 rig.coatVfxNode = this.buildCoatVfxNode(pet.coat, rig);
+                if (rig.injuryNode && isValid(rig.injuryNode, true)) {
+                    rig.injuryNode.active = false;
+                    rig.injuryNode.removeFromParent();
+                    rig.injuryNode.destroy();
+                }
+                rig.injuryNode = this.buildInjuryNode(this.isPetInjured(pet), rig);
                 if (mat) rig.renderers.forEach(r => { if (isValid(r, true)) r.setSharedMaterial(mat, 0); });
             }
         }
@@ -1494,8 +1587,15 @@ export class Main extends Component {
                 }
                 pRig.coatVfxNode = this.buildCoatVfxNode(pet.coat, pRig);
                 if (pRig.coatVfxNode) this.setLayerRecursive(pRig.coatVfxNode, this.previewLayer);
+                if (pRig.injuryNode && isValid(pRig.injuryNode, true)) {
+                    pRig.injuryNode.active = false;
+                    pRig.injuryNode.removeFromParent();
+                    pRig.injuryNode.destroy();
+                }
+                pRig.injuryNode = this.buildInjuryNode(this.isPetInjured(pet), pRig);
+                if (pRig.injuryNode) this.setLayerRecursive(pRig.injuryNode, this.previewLayer);
                 if (mat) pRig.renderers.forEach(r => { if (isValid(r, true)) r.setSharedMaterial(mat, 0); });
-                this.previewLoadedKey = pet.id + ':' + pet.outfit + ':' + pet.coat;
+                this.previewLoadedKey = pet.id + ':' + pet.outfit + ':' + pet.coat + ':' + (this.isPetInjured(pet) ? '1' : '0');
             } else {
                 void this.syncProfilePreview(petId, true);
             }
@@ -1542,10 +1642,11 @@ export class Main extends Component {
             const shadow = this.attachPetShadow(actor, shadowTex);
             const actorRig: ActorRig = {
                 kind: b.kind, uprightEars: rigKey !== 'dog', modelNode, head, earL, earR, legFL, legFR, legBL, legBR, tail,
-                shadow, outfitNode: null, coatVfxNode: null, renderers, pivots: rig.pivots,
+                shadow, outfitNode: null, coatVfxNode: null, injuryNode: null, renderers, pivots: rig.pivots,
             };
             actorRig.outfitNode = this.buildOutfitNode(actor.pet.outfit, actorRig);
             actorRig.coatVfxNode = this.buildCoatVfxNode(actor.pet.coat, actorRig);
+            actorRig.injuryNode = this.buildInjuryNode(this.isPetInjured(actor.pet), actorRig);
             actor.rig = actorRig;
             fallback.active = false;
             fallback.destroy();
@@ -2812,24 +2913,30 @@ export class Main extends Component {
             this.toast('相关状态已满，本次未消耗道具'); return;
         }
         const wasSick = p.health < 30;
+        const wasInjured = this.isPetInjured(p);
         const nextPet = { ...p };
-        const trait = PET_TRAITS[p.trait];
+        const traits = this.getPetTraits(p);
+        const foodBonus = traits.reduce((a, t) => a + (t.foodBonus || 0), 0);
+        const restBonus = traits.reduce((a, t) => a + (t.restBonus || 0), 0);
+        const playBonus = traits.reduce((a, t) => a + (t.playBonus || 0), 0);
+        const traitXpBonus = traits.reduce((a, t) => a + (t.xpBonus || 0), 0);
         stats.forEach(stat => {
             let delta = effects[stat]!;
             if (delta > 0) {
-                if (stat === 'hunger' && (legacy === 'food' || item?.category === 'food') && trait.foodBonus) {
-                    delta = Math.round(delta * (1 + trait.foodBonus));
-                } else if (stat === 'energy' && legacy === 'rest' && trait.restBonus) {
-                    delta = Math.round(delta * (1 + trait.restBonus));
-                } else if (stat === 'joy' && (legacy === 'toy' || item?.category === 'toy') && trait.playBonus) {
-                    delta = Math.round(delta * (1 + trait.playBonus));
+                if (stat === 'hunger' && (legacy === 'food' || item?.category === 'food') && foodBonus) {
+                    delta = Math.round(delta * (1 + foodBonus));
+                } else if (stat === 'energy' && legacy === 'rest' && restBonus) {
+                    delta = Math.round(delta * (1 + restBonus));
+                } else if (stat === 'joy' && (legacy === 'toy' || item?.category === 'toy') && playBonus) {
+                    delta = Math.round(delta * (1 + playBonus));
                 }
             }
             nextPet[stat] = Math.max(0, Math.min(100, p[stat] + delta));
         });
+        if (catCheck === 'medicine' || nextPet.health >= 70) nextPet.injured = false;
         const outfitXp = PET_OUTFITS.find(o => o.id === p.outfit)?.xpBonus || 0;
         const coatXp = PET_COATS.find(co => co.id === p.coat)?.xpBonus || 0;
-        const xpGain = Math.round(15 * (1 + starXpBonus(p.star) + (trait.xpBonus || 0) + outfitXp + coatXp));
+        const xpGain = Math.round(15 * (1 + starXpBonus(p.star) + traitXpBonus + outfitXp + coatXp));
         const xp = Math.min(100000000, this.data.xp + xpGain);
         const levels = Math.floor(xp / 100) - Math.floor(this.data.xp / 100);
         const candidate: Save = { ...this.dailyCandidate(), xp,
@@ -2844,6 +2951,7 @@ export class Main extends Component {
         if (!this.commitShop(candidate)) return;
         const actor = this.actors.find(a => a.pet.id === p.id);
         if (actor) { actor.pet = nextPet; actor.timer = -1.2; actor.tailExcite = 1; }
+        if (wasInjured !== this.isPetInjured(nextPet)) void this.refreshPetAppearance(p.id);
         this.renderHeader();
         if (this.page === 'bag') this.updateBag(); else if (this.page === 'pet') this.open('pet');
         if (legacy && legacy !== 'rest' && legacy !== 'medicine') {
@@ -4469,15 +4577,34 @@ export class Main extends Component {
             claimBtn.on(Node.EventType.TOUCH_END, () => this.claimAlbumReward(pet.id), this);
         }
 
-        // 3) 右侧独立「性格词条」浮卡（严格保留参考图右侧性格卡，去掉右侧装扮卡）
-        const traitCard = drawCard(layer, '性格词条浮卡', 392, 542, 206, 224, '#FFF9EA', '#6E4226', 4, 24);
-        const traitHead = drawCard(traitCard, '性格词条卡头', 0, 82, 198, 52, '#F7CC6B', '#6E4226', 0, 20);
-        const thLbl = this.dailyText(traitHead, '性格词条', 0, 0, 180, 36, 25);
+        // 3) 右侧独立「性格词条」浮卡（支持多条性格词条展示，2~3 条彩色徽章 + 汇总效果）
+        const petTraits = this.getPetTraits(pet);
+        const traitCardH = petTraits.length >= 3 ? 286 : 254;
+        const traitCard = drawCard(layer, '性格词条浮卡', 392, 526, 212, traitCardH, '#FFF9EA', '#6E4226', 4, 24);
+        const traitHead = drawCard(traitCard, '性格词条卡头', 0, traitCardH / 2 - 28, 204, 50, '#F7CC6B', '#6E4226', 0, 20);
+        const thLbl = this.dailyText(traitHead, '性格词条', 0, 0, 180, 34, 24);
         thLbl.color = this.color('#573218');
-        this.pillBadge(traitCard, trait.name, 0, 22, 166, 40, trait.tagColor, '#FFFDF5', 22);
-        const trSum = this.text(traitCard, trait.summary, 0, -48, 176, 86, 20, '#6A4426');
-        trSum.enableWrapText = true; trSum.lineHeight = 27; trSum.isBold = true;
+        petTraits.forEach((trDef, ti) => {
+            const py = traitCardH / 2 - 76 - ti * 40;
+            const pill = this.pillBadge(traitCard, trDef.name, 0, py, 174, 34, trDef.tagColor, '#FFFDF5', 19);
+            pill.name = '性格词条-' + ti;
+        });
+        const sumY = traitCardH / 2 - 76 - petTraits.length * 40 - 20;
+        const trSum = this.text(traitCard, petTraits.map(t => t.summary).join('\n'), 0, sumY, 188, 92, 16, '#6A4426');
+        trSum.enableWrapText = true; trSum.lineHeight = 22; trSum.isBold = true;
         trSum.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+
+        // 3b) 左侧状态徽章：外出冒险中 / 受伤中醒目标识
+        if (pet.adventuring) {
+            const remainSec = pet.adventureReturnAt ? Math.max(1, Math.ceil((pet.adventureReturnAt - Date.now()) / 1000)) : 0;
+            const advBadge = drawCard(layer, '宠物状态徽章-冒险中', -404, claimed ? 586 : 522, 168, 48, '#2C8EA8', '#175466', 2.5, 24);
+            const abLbl = this.text(advBadge, remainSec > 0 ? '冒险中 ' + remainSec + 's' : '冒险中', 0, 0, 156, 30, 20, '#FFFDF5');
+            abLbl.isBold = true; abLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+        } else if (this.isPetInjured(pet)) {
+            const injBadge = drawCard(layer, '宠物状态徽章-受伤中', -404, claimed ? 586 : 522, 168, 48, '#E04D48', '#7A201C', 2.5, 24);
+            const ijLbl = this.text(injBadge, '受伤中 · 需治疗', 0, 0, 158, 30, 19, '#FFFDF5');
+            ijLbl.isBold = true; ijLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+        }
 
         // 4) 地毯下方宠物快捷切换条（◀ 宠物名 ▶，支持直接左右切已解锁伙伴）
         const ownedPets = this.data.pets;
@@ -4684,20 +4811,35 @@ export class Main extends Component {
                 this.scrollTap(tile, () => this.selectPetCoat(pet.id, c.id));
             });
         }
-        wScroll.scrollToLeft(0);
+        // 自动定位到当前穿戴的装扮/皮肤，点击穿戴或打开衣帽间都不会跳回最左侧！
+        const activeIdx = this.profileWardrobeTab === 'outfit'
+            ? Math.max(0, PET_OUTFITS.findIndex(o => o.id === pet.outfit))
+            : Math.max(0, PET_COATS.findIndex(c => c.id === pet.coat));
+        const itemCount = this.profileWardrobeTab === 'outfit' ? PET_OUTFITS.length : PET_COATS.length;
+        const stripW = Math.max(viewW, pad * 2 + itemCount * cardW + (itemCount - 1) * gap);
+        const maxOffsetX = Math.max(0, stripW - viewW);
+        const targetOffsetX = Math.max(0, Math.min(maxOffsetX, pad + activeIdx * (cardW + gap) + cardW / 2 - viewW / 2));
+        wScroll.scrollToOffset(new Vec2(targetOffsetX, 0), 0);
 
-        // 7) 最底部状态汇总与照顾快捷条（居中落在左下粉色食盆与右下橙色背包之间，呼应参考图底部条）
+        // 7) 最底部状态汇总与照顾快捷条（冒险中显示冒险状态与跳转按钮，受伤中醒目标红）
         const footBar = drawCard(layer, '底部状态条', 0, -764, 580, 82, '#FFF8E8', '#6E4226', 4, 28);
+        const injuredNow = this.isPetInjured(pet);
+        const advRemain = pet.adventuring && pet.adventureReturnAt ? Math.max(1, Math.ceil((pet.adventureReturnAt - Date.now()) / 1000)) : 0;
         const statText = pet.dead
-            ? '该伙伴已离开庭院（可在GM面板复活）'
-            : '饱腹 ' + Math.round(pet.hunger) + ' · 洁净 ' + Math.round(pet.clean) + ' · 体力 ' + Math.round(pet.energy) + ' · 心情 ' + Math.round(pet.joy) + ' · 健康 ' + Math.round(pet.health);
-        const sLbl = this.text(footBar, statText, -74, 0, 410, 34, 18, pet.health < 30 || pet.dead ? '#C93832' : '#5E3A1E');
+            ? '该伙伴已离开庭院（可在纪念角复活）'
+            : pet.adventuring
+                ? '正在外出冒险中' + (advRemain > 0 ? ' · 约 ' + advRemain + ' 秒归来' : '') + ' · 健康 ' + Math.round(pet.health)
+                : (injuredNow ? '【受伤中】' : '') + '饱腹 ' + Math.round(pet.hunger) + ' · 洁净 ' + Math.round(pet.clean) + ' · 体力 ' + Math.round(pet.energy) + ' · 心情 ' + Math.round(pet.joy) + ' · 健康 ' + Math.round(pet.health);
+        const sLbl = this.text(footBar, statText, -74, 0, 410, 34, 18, pet.dead || injuredNow || pet.health < 30 ? '#C93832' : pet.adventuring ? '#1D748E' : '#5E3A1E');
         sLbl.isBold = true; sLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
-        const careBtn = drawCard(footBar, '主页前往照顾', 206, 0, 134, 52, '#FFD25A', '#6E4226', 3, 20);
-        const cbLbl = this.text(careBtn, '去照顾 ›', 0, 0, 120, 32, 22, '#5B3418');
+        const careBtn = drawCard(footBar, '主页前往照顾', 206, 0, 134, 52, pet.adventuring ? '#74CFE8' : '#FFD25A', '#6E4226', 3, 20);
+        const cbLbl = this.text(careBtn, pet.adventuring ? '看冒险 ›' : '去照顾 ›', 0, 0, 120, 32, 22, pet.adventuring ? '#10495C' : '#5B3418');
         cbLbl.isBold = true; cbLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
         this.intercept(careBtn); this.pressVisualFeedback(careBtn);
-        careBtn.on(Node.EventType.TOUCH_END, () => { this.selected = pet.id; this.open('pet'); }, this);
+        careBtn.on(Node.EventType.TOUCH_END, () => {
+            if (pet.adventuring) { this.open('adventure'); return; }
+            this.selected = pet.id; this.open('pet');
+        }, this);
     }
     private shopArt(parent: Node, key: string, x: number, y: number, w: number, h: number) {
         const node = this.uiNode(parent, '商店素材-' + key, x, y, w, h);
@@ -6206,6 +6348,7 @@ export class Main extends Component {
         if (outcome.cleanSetMax !== undefined) target.clean = Math.min(target.clean, outcome.cleanSetMax);
         if (outcome.cleanDelta) target.clean = Math.max(0, Math.min(100, target.clean + outcome.cleanDelta));
         if (outcome.healthDelta) target.health = Math.max(0, Math.min(100, target.health + outcome.healthDelta));
+        if (outcome.type === 'injured' || (outcome.healthDelta || 0) < 0) target.injured = true;
         if (outcome.joyDelta) target.joy = Math.max(0, Math.min(100, target.joy + outcome.joyDelta));
         if (outcome.setLost) { target.lost = true; target.adventuring = false; target.adventureReturnAt = undefined; }
         if (outcome.setDead) {
@@ -6223,6 +6366,7 @@ export class Main extends Component {
             else { if (isValid(actor.node, true)) { actor.node.active = false; actor.node.destroy(); } this.actors = this.actors.filter(a => a !== actor); }
         } else if (actor) {
             actor.pet = target;
+            if (target.injured) void this.refreshPetAppearance(pet.id);
         }
         this.recordAdventureLog({
             petId: pet.id, petName: name, type: outcome.type, title: outcome.title, text: outcome.text,
@@ -7118,16 +7262,19 @@ export class Main extends Component {
             const toDie: Pet[] = [];
             this.data.pets.forEach(p => {
                 if (p.dead) return;
-                const tr = PET_TRAITS[p.trait];
+                const trs = this.getPetTraits(p);
+                const cleanMult = trs.reduce((acc, t) => acc * (t.cleanDecayMult ?? 1), 1);
+                const joyMult = trs.reduce((acc, t) => acc * (t.joyDecayMult ?? 1), 1);
+                const energyMult = trs.reduce((acc, t) => acc * (t.energyDecayMult ?? 1), 1);
                 p.hunger = Math.max(0, p.hunger - 1);
                 // 小院便便越多，清洁度下降越快（3坨及以上触发加速惩罚）。
                 const poopPenalty = poopCount >= 3 ? poopCount * 1.15 : poopCount * 0.6;
-                p.clean = Math.max(0, p.clean - (0.7 + poopPenalty) * (tr.cleanDecayMult ?? 1));
+                p.clean = Math.max(0, p.clean - (0.7 + poopPenalty) * cleanMult);
                 const outfitDef = PET_OUTFITS.find(o => o.id === p.outfit);
                 const coatDef = PET_COATS.find(co => co.id === p.coat);
                 const outfitDecay = (outfitDef?.decayMult ?? 1) * (coatDef?.decayMult ?? 1);
-                p.joy = Math.max(0, p.joy - (0.5 + (p.hunger < 20 ? 0.5 : 0) + (p.clean < 30 ? 0.4 : 0)) * (tr.joyDecayMult ?? 1) * outfitDecay);
-                p.energy = Math.max(0, p.energy - 0.35 * (tr.energyDecayMult ?? 1));
+                p.joy = Math.max(0, p.joy - (0.5 + (p.hunger < 20 ? 0.5 : 0) + (p.clean < 30 ? 0.4 : 0)) * joyMult * outfitDecay);
+                p.energy = Math.max(0, p.energy - 0.35 * energyMult);
                 if (p.hunger < 20 || p.clean < 30) {
                     const hDrop = ((p.hunger < 20 ? 1.6 : 0) + (p.clean < 30 ? 1.8 : 0) + (poopCount >= 3 ? 0.6 : 0)) * outfitDecay;
                     p.health = Math.max(0, p.health - hDrop);
@@ -7235,7 +7382,7 @@ export class Main extends Component {
                     if (a.timer >= 0) a.timer = Math.min(a.timer, 1.0);
                     if (b.timer >= 0) b.timer = Math.min(b.timer, 1.0);
                     a.walkAge = 0; b.walkAge = 0;
-                    this.showSocialBubble(a, -1); this.showSocialBubble(b, 1);
+                    this.handleYardTraitEncounter(a, b);
                 } else if ((a.socialUntil || 0) <= this.socialTime && (b.socialUntil || 0) <= this.socialTime) {
                     // 冷却期直接顺滑错身绕开继续散步
                     const pushDist = 1.4;
@@ -7246,6 +7393,159 @@ export class Main extends Component {
             }
             if (!overlapping) break;
         }
+    }
+
+    /** 根据双方性格词条触发庭院趣味事件：打架滚烟云、和事佬劝架贴贴、草丛捡金币、开心追逐等 */
+    private handleYardTraitEncounter(a: Actor, b: Actor) {
+        const ta = this.getPetTraits(a.pet);
+        const tb = this.getPetTraits(b.pet);
+        const has = (list: TraitDefinition[], id: TraitId) => list.some(t => t.id === id);
+
+        // 1) 和事佬 / 温顺乖巧优先化解矛盾并触发暖心贴贴
+        if ((has(ta, 'peacemaker') || has(tb, 'peacemaker')) && Math.random() < 0.45) {
+            a.pet.joy = Math.min(100, a.pet.joy + 6);
+            b.pet.joy = Math.min(100, b.pet.joy + 6);
+            this.dirty = true;
+            this.showSocialBubble(a, -1, '和和气气贴贴~');
+            this.showSocialBubble(b, 1, '好舒服呀♪');
+            return;
+        }
+        // 2) 小暴脾气 / 胆大 / 双贪吃抢零食 -> 触发庭院打架与 3D 滚烟云特效！
+        const fightProb =
+            (has(ta, 'hothead') || has(tb, 'hothead') ? 0.36 : 0) +
+            (has(ta, 'bold') || has(tb, 'bold') ? 0.14 : 0) +
+            (has(ta, 'glutton') && has(tb, 'glutton') ? 0.22 : 0) +
+            0.04;
+        if (this.fightClouds.length < 1 && Math.random() < fightProb) {
+            this.triggerYardFight(a, b);
+            return;
+        }
+        // 3) 招财锦鲤 / 探险家 -> 草丛里刨出小金币
+        if ((has(ta, 'lucky') || has(tb, 'lucky') || has(ta, 'explorer') || has(tb, 'explorer')) && Math.random() < 0.22) {
+            this.data.coins = Math.min(100000000, this.data.coins + 12);
+            this.dirty = true;
+            this.renderHeader();
+            this.showSocialBubble(a, -1, '草丛刨出金币啦！');
+            this.showSocialBubble(b, 1, '哇分我一半~');
+            if (this.page === 'home') this.showRewardToast([{ kind: 'coins', amount: 12 }], '庭院奇遇');
+            return;
+        }
+        // 4) 粘人爱玩 / 元气满满 -> 开心追逐加心情
+        if ((has(ta, 'playful') || has(tb, 'playful') || has(ta, 'energetic') || has(tb, 'energetic')) && Math.random() < 0.25) {
+            a.pet.joy = Math.min(100, a.pet.joy + 5);
+            b.pet.joy = Math.min(100, b.pet.joy + 5);
+            this.dirty = true;
+            this.showSocialBubble(a, -1, '来追我呀~');
+            this.showSocialBubble(b, 1, '哈哈别跑！');
+            return;
+        }
+        this.showSocialBubble(a, -1);
+        this.showSocialBubble(b, 1);
+    }
+
+    /** 触发庭院打架事件并生成 3D 卡通滚烟云特效（团团翻滚云球 + 闪烁冲击星芒），打完有一方轻微挂彩显示受伤创可贴 */
+    public triggerYardFight(a: Actor, b: Actor) {
+        if (!this.world || !isValid(a.node, true) || !isValid(b.node, true)) return;
+        const mx = (a.node.position.x + b.node.position.x) * 0.5;
+        const mz = (a.node.position.z + b.node.position.z) * 0.5;
+        const duration = 3.0;
+        a.socialUntil = b.socialUntil = this.socialTime + duration;
+        a.socialCooldownUntil = b.socialCooldownUntil = this.socialTime + 18;
+
+        const cloud = new Node('打架滚烟云');
+        cloud.layer = Layers.Enum.DEFAULT;
+        this.world.addChild(cloud);
+        cloud.setPosition(mx, 0.52, mz);
+
+        const puffs: Node[] = [];
+        const puffCols = ['#FFFFFF', '#F7F3EA', '#EDE7DC', '#FFFDF8', '#E5DED0', '#FFFFFF', '#F5EFE2', '#FFF9EE'];
+        for (let i = 0; i < 8; i++) {
+            const rad = (i / 8) * Math.PI * 2;
+            const r = i % 2 === 0 ? 0.58 : 0.36;
+            const py = (i % 3 - 1) * 0.22;
+            const pf = new Node('烟云球-' + i);
+            pf.layer = Layers.Enum.DEFAULT;
+            cloud.addChild(pf);
+            pf.setPosition(Math.cos(rad) * r, py, Math.sin(rad) * r);
+            const sz = 0.62 + (i % 3) * 0.14;
+            this.shape(pf, 'sphere', puffCols[i], [0, 0, 0], [sz, sz * 0.92, sz]);
+            puffs.push(pf);
+        }
+        // 中心大云核
+        this.shape(cloud, 'sphere', '#FFFDF6', [0, 0.05, 0], [0.95, 0.82, 0.95]);
+
+        // 卡通打斗冲击星芒（黄/橙/红爆闪）
+        const sparks: Node[] = [];
+        const spCols = ['#FFE04D', '#FF7B38', '#FF4D4D', '#FFF078', '#FF944D', '#FFE04D'];
+        for (let i = 0; i < 6; i++) {
+            const rad = (i / 6) * Math.PI * 2 + 0.3;
+            const sp = new Node('打架火花-' + i);
+            sp.layer = Layers.Enum.DEFAULT;
+            cloud.addChild(sp);
+            sp.setPosition(Math.cos(rad) * 0.92, 0.18 + (i % 2) * 0.36, Math.sin(rad) * 0.92);
+            this.shape(sp, 'box', spCols[i], [0, 0, 0], [0.28, 0.065, 0.065]);
+            this.shape(sp, 'box', spCols[i], [0, 0, 0], [0.065, 0.28, 0.065]);
+            this.shape(sp, 'box', spCols[i], [0, 0, 0], [0.065, 0.065, 0.28]);
+            sparks.push(sp);
+        }
+
+        this.fightClouds.push({ node: cloud, a, b, x: mx, z: mz, age: 0, duration, puffs, sparks });
+        this.showSocialBubble(a, -1, '别抢我的零食！');
+        this.showSocialBubble(b, 1, '哼，来比划一下！');
+
+        // 结算轻伤（不致死，最低留 25 血，贴上创可贴与头晕星提醒主人照顾）
+        const loserActor = Math.random() < 0.5 ? a : b;
+        const winnerActor = loserActor === a ? b : a;
+        const lp = this.data.pets.find(p => p.id === loserActor.pet.id);
+        if (lp && !lp.dead) {
+            lp.health = Math.max(25, lp.health - 12);
+            lp.joy = Math.max(10, lp.joy - 6);
+            lp.injured = true;
+            loserActor.pet = lp;
+            this.dirty = true;
+            void this.refreshPetAppearance(lp.id);
+            const nameA = this.petDisplayName(winnerActor.pet.id);
+            const nameB = this.petDisplayName(lp.id);
+            this.recordAdventureLog({
+                petId: lp.id, petName: nameB, type: 'injured', title: '庭院小打闹',
+                text: `「${nameA}」和「${nameB}」在庭院里拌嘴滚成一团烟云，「${nameB}」额头蹭了个小包，快去哄哄并贴创可贴吧！`,
+                resolved: true,
+            });
+            if (this.page === 'home') this.toast(`「${nameA}」和「${nameB}」在庭院滚烟云打闹起来啦！`);
+        }
+    }
+
+    private updateFightClouds(dt: number) {
+        if (!this.fightClouds.length) return;
+        const keep: typeof this.fightClouds = [];
+        for (const fc of this.fightClouds) {
+            fc.age += dt;
+            if (fc.age >= fc.duration || !isValid(fc.node, true)) {
+                if (isValid(fc.node, true)) { fc.node.active = false; fc.node.destroy(); }
+                continue;
+            }
+            const t = fc.age;
+            const prog = t / fc.duration;
+            const env = prog < 0.15 ? prog / 0.15 : prog > 0.8 ? Math.max(0, (1 - prog) / 0.2) : 1;
+            const sc = (0.85 + Math.sin(t * 16) * 0.16) * env;
+            fc.node.setScale(sc, sc, sc);
+            fc.node.setPosition(fc.x + Math.sin(t * 22) * 0.14, 0.52 + Math.abs(Math.sin(t * 14)) * 0.18, fc.z + Math.cos(t * 19) * 0.14);
+            fc.node.setRotationFromEuler(Math.sin(t * 9) * 18, (t * 260) % 360, Math.cos(t * 11) * 18);
+            fc.puffs.forEach((pf, idx) => {
+                const ps = 0.82 + Math.sin(t * 14 + idx * 1.1) * 0.28;
+                pf.setScale(ps, ps, ps);
+            });
+            fc.sparks.forEach((sp, idx) => {
+                const pop = Math.max(0.01, Math.sin(t * 18 + idx * 1.4));
+                sp.setScale(pop * 1.25, pop * 1.25, pop * 1.25);
+                sp.setRotationFromEuler(t * 320, t * 240, idx * 45);
+            });
+            // 两只宠物在烟云内轻微晃动翻滚感
+            if (isValid(fc.a.node, true)) fc.a.node.setPosition(fc.x - 0.35 + Math.sin(t * 26) * 0.16, 0, fc.z + Math.cos(t * 24) * 0.14);
+            if (isValid(fc.b.node, true)) fc.b.node.setPosition(fc.x + 0.35 - Math.sin(t * 26) * 0.16, 0, fc.z - Math.cos(t * 24) * 0.14);
+            keep.push(fc);
+        }
+        this.fightClouds = keep;
     }
 
     public pickSocialSpeech(pet: Pet): { text: string; level: 'zero' | 'low' | 'normal'; stat?: PetStat } {
@@ -7290,13 +7590,13 @@ export class Main extends Component {
         return { text: pool[Math.floor(Math.random() * pool.length)], level: 'normal' };
     }
 
-    private showSocialBubble(actor: Actor, side: number) {
+    private showSocialBubble(actor: Actor, side: number, customText?: string) {
         if (!isValid(this.ui, true)) return;
         if (!this.bubbleLayer || !isValid(this.bubbleLayer, true)) {
             this.bubbleLayer = this.uiNode(this.ui, '伙伴相遇气泡层', 0, 0, this.width, this.height);
             this.bubbleLayer.setSiblingIndex(0);
         }
-        const speech = this.pickSocialSpeech(actor.pet);
+        const speech = customText ? { text: customText, level: 'normal' as const } : this.pickSocialSpeech(actor.pet);
         const node = this.uiNode(this.bubbleLayer, '友好相遇', 0, 0, 186, 52);
         const bgHex = speech.level === 'zero' ? '#FFF0EC' : speech.level === 'low' ? '#FFF6E2' : C.cream;
         const borderHex = speech.level === 'zero' ? '#D96B52' : speech.level === 'low' ? '#D9A15B' : '';
@@ -7685,6 +7985,7 @@ export class Main extends Component {
                     }
                     this.animateOutfitVfx(rig.outfitNode, this.socialTime);
                     this.animateCoatVfx(rig.coatVfxNode, this.socialTime);
+                    this.animateInjuryNode(rig.injuryNode, this.socialTime);
                 }
             });
             if (this.page === 'adventure') {
@@ -7706,6 +8007,7 @@ export class Main extends Component {
         this.syncYardPoops(delta);
         this.updateGhosts(delta);
         this.updateBrooms(delta);
+        this.updateFightClouds(delta);
         this.updateAdventureScene(delta);
         this.updateProfilePreview(delta);
         if (Date.now() < this.noticeUntil) this.layoutNotice();
@@ -7730,6 +8032,8 @@ export class Main extends Component {
         this.ghosts = [];
         this.brooms.forEach(b => { if (isValid(b.node, true)) b.node.destroy(); });
         this.brooms = [];
+        this.fightClouds.forEach(fc => { if (isValid(fc.node, true)) fc.node.destroy(); });
+        this.fightClouds = [];
         if (this.bubbleLayer && isValid(this.bubbleLayer, true)) this.bubbleLayer.destroy();
         this.bubbleLayer = null;
         if (this.selectionRing && isValid(this.selectionRing, true)) this.selectionRing.destroy();

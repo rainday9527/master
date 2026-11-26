@@ -324,7 +324,61 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-new-limited-starwings-samoye.png') });
     await page.evaluate(() => { main.openProfile(12, 'outfit'); const p12 = main.data.pets.find(p => p.id === 12); p12.ownedOutfits = [...new Set([...p12.ownedOutfits, 'rainbow_cloud'])]; main.selectPetOutfit(12, 'rainbow_cloud'); });
     await page.waitForTimeout(300);
+    // Verify wardrobe auto-scrolled to currently equipped rainbow_cloud (did NOT jump back to 0!) & multi-trait pills rendered!
+    const uxCheck = await page.evaluate(() => {
+      const vp = walk(main.sheet).find(n => n.name === '衣帽间可视窗口');
+      const scrollX = vp?.getComponent('cc.ScrollView')?.getScrollOffset()?.x ?? 0;
+      const traitPills = walk(main.sheet).filter(n => n.name.startsWith('性格词条-')).length;
+      return { scrollX: +scrollX.toFixed(1), traitPills };
+    });
+    console.log('wardrobe auto-scroll & multi-trait check:', JSON.stringify(uxCheck));
+    assert.ok(uxCheck.scrollX < -500, 'wardrobe must stay scrolled to currently equipped outfit instead of jumping back to start');
+    assert.ok(uxCheck.traitPills >= 2, 'pet profile must display multiple personality trait pills');
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-new-limited-rainbowcloud-xianluo.png') });
+
+    // 8c) Verify Adventure status badge on Profile + Injured 3D appearance + Yard Fight Rolling Dust-Cloud VFX!
+    await page.evaluate(() => {
+      main.setPetAdventuring(12, true, 120000);
+      main.openProfile(12, 'outfit');
+    });
+    await page.waitForTimeout(300);
+    const advBadgeOk = await page.evaluate(() => !!walk(main.sheet).find(n => n.name === '宠物状态徽章-冒险中'));
+    assert.equal(advBadgeOk, true, 'adventuring pet profile must show 冒险中 status badge');
+    await page.screenshot({ path: path.join(OUT_DIR, 'verify-adventure-badge-profile.png') });
+
+    await page.evaluate(() => {
+      main.setPetAdventuring(12, false);
+      const p12 = main.data.pets.find(p => p.id === 12);
+      main.triggerAdventureOutcome(p12, { type: 'injured', title: '打架挂彩', text: '冒险途中和流浪猫打架擦伤啦！', healthDelta: -25 });
+      main.openProfile(12, 'outfit');
+    });
+    await page.waitForTimeout(350);
+    const injCheck = await page.evaluate(() => ({
+      injuredFlag: !!main.data.pets.find(p => p.id === 12)?.injured,
+      has3DInjury: !!main.previewRig?.injuryNode,
+      hasInjBadge: !!walk(main.sheet).find(n => n.name === '宠物状态徽章-受伤中'),
+    }));
+    console.log('adventure injury 3D appearance check:', JSON.stringify(injCheck));
+    assert.deepEqual(injCheck, { injuredFlag: true, has3DInjury: true, hasInjBadge: true });
+    await page.screenshot({ path: path.join(OUT_DIR, 'verify-injured-pet-profile.png') });
+
+    // Trigger Yard Fight Rolling Dust-Cloud VFX between 2 visible yard pets!
+    await page.evaluate(() => {
+      main.open('home');
+      const a = main.actors.find(x => x.pet.id === 0);
+      const b = main.actors.find(x => x.pet.id === 1);
+      a.node.setPosition(-0.4, 0, 1.4);
+      b.node.setPosition(0.4, 0, 1.4);
+      main.triggerYardFight(a, b);
+    });
+    await page.waitForTimeout(450);
+    const fightCheck = await page.evaluate(() => ({
+      cloudCount: main.fightClouds.length,
+      hasCloudNode: !!main.world?.getChildByName('打架滚烟云'),
+    }));
+    console.log('yard fight rolling dust cloud check:', JSON.stringify(fightCheck));
+    assert.ok(fightCheck.cloudCount >= 1 && fightCheck.hasCloudNode, 'yard fight must spawn rolling dust cloud 3D node');
+    await page.screenshot({ path: path.join(OUT_DIR, 'verify-yard-fight-cloud.png') });
 
     // 9) Verify Recruit page: signboard aligned left with avatar, reward panel shifted right, Album cards in preview strip, and swipeable card details dialog!
     await page.evaluate(() => main.open('recruit'));
