@@ -130,7 +130,7 @@ export const PET_TRAITS: Record<TraitId, TraitDefinition> = {
         summary: '庭院爱打闹 · 寻宝奇遇 +20%',
         detail: '一言不合就在庭院滚烟云打闹，但胆大心细寻宝奇遇 +20%。',
         adventureBonusChance: 0.20,
-        fightChance: 0.42,
+        fightChance: 0.08,
     },
     peacemaker: {
         id: 'peacemaker', name: '和事佬', tagColor: '#4BAE78',

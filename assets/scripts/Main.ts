@@ -204,6 +204,7 @@ export class Main extends Component {
     private allDeadPrompted = false;
     private socialBubbles: SocialBubble[] = [];
     private fightClouds: Array<{ node: Node; a: Actor; b: Actor; x: number; z: number; age: number; duration: number; puffs: Node[]; sparks: Node[] }> = [];
+    private yardFightCooldownUntil = 0;
     private needBubbles = new Map<number, { node: Node; icon: string; until: number; urgent: boolean }>();
     private needHistory = new Map<number, number[]>();
     private needQueue = new Map<number, { icon: string; threshold: number }[]>();
@@ -7410,13 +7411,14 @@ export class Main extends Component {
             this.showSocialBubble(b, 1, '好舒服呀♪');
             return;
         }
-        // 2) 小暴脾气 / 胆大 / 双贪吃抢零食 -> 触发庭院打架与 3D 滚烟云特效！
+        // 2) 小暴脾气 / 胆大 / 双贪吃抢零食 -> 低频趣味触发庭院打架与 3D 滚烟云特效（全局至少间隔 75 秒，避免药品消耗过快）
         const fightProb =
-            (has(ta, 'hothead') || has(tb, 'hothead') ? 0.36 : 0) +
-            (has(ta, 'bold') || has(tb, 'bold') ? 0.14 : 0) +
-            (has(ta, 'glutton') && has(tb, 'glutton') ? 0.22 : 0) +
-            0.04;
-        if (this.fightClouds.length < 1 && Math.random() < fightProb) {
+            (has(ta, 'hothead') || has(tb, 'hothead') ? 0.08 : 0) +
+            (has(ta, 'bold') || has(tb, 'bold') ? 0.04 : 0) +
+            (has(ta, 'glutton') && has(tb, 'glutton') ? 0.05 : 0) +
+            0.01;
+        if (this.fightClouds.length < 1 && this.socialTime >= this.yardFightCooldownUntil && Math.random() < fightProb) {
+            this.yardFightCooldownUntil = this.socialTime + 75;
             this.triggerYardFight(a, b);
             return;
         }
@@ -7493,22 +7495,25 @@ export class Main extends Component {
         this.showSocialBubble(a, -1, '别抢我的零食！');
         this.showSocialBubble(b, 1, '哼，来比划一下！');
 
-        // 结算轻伤（不致死，最低留 25 血，贴上创可贴与头晕星提醒主人照顾）
+        // 结算轻伤（不致死，仅轻微擦伤 -8 健康，且不会频繁触发）
         const loserActor = Math.random() < 0.5 ? a : b;
         const winnerActor = loserActor === a ? b : a;
         const lp = this.data.pets.find(p => p.id === loserActor.pet.id);
         if (lp && !lp.dead) {
-            lp.health = Math.max(25, lp.health - 12);
-            lp.joy = Math.max(10, lp.joy - 6);
-            lp.injured = true;
+            const bruised = Math.random() < 0.5;
+            lp.health = Math.max(30, lp.health - (bruised ? 8 : 3));
+            lp.joy = Math.max(10, lp.joy - 5);
+            if (bruised) lp.injured = true;
             loserActor.pet = lp;
             this.dirty = true;
-            void this.refreshPetAppearance(lp.id);
+            if (bruised) void this.refreshPetAppearance(lp.id);
             const nameA = this.petDisplayName(winnerActor.pet.id);
             const nameB = this.petDisplayName(lp.id);
             this.recordAdventureLog({
                 petId: lp.id, petName: nameB, type: 'injured', title: '庭院小打闹',
-                text: `「${nameA}」和「${nameB}」在庭院里拌嘴滚成一团烟云，「${nameB}」额头蹭了个小包，快去哄哄并贴创可贴吧！`,
+                text: bruised
+                    ? `「${nameA}」和「${nameB}」在庭院里拌嘴滚成一团烟云，「${nameB}」额头蹭了个小包，快去哄哄并贴创可贴吧！`
+                    : `「${nameA}」和「${nameB}」在庭院里滚烟云打闹了一会儿，幸好没受伤，拍拍毛又各自散步去了。`,
                 resolved: true,
             });
             if (this.page === 'home') this.toast(`「${nameA}」和「${nameB}」在庭院滚烟云打闹起来啦！`);
