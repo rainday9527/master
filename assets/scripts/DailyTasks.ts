@@ -206,12 +206,12 @@ export function restoreSignIn(value: unknown, today: number): SignInState {
     return base;
 }
 
-/** 按第 index 次签到（0-based）计算基础钻石：7 天轮次递增，且每完成一轮额外递增 +20 钻石 */
+/** 按第 index 次签到（0-based）计算基础钻石：7 天轮次递增，前 4 轮每轮额外 +20 钻石，第 4 轮起封顶 */
 export function signInGemsForTotalIndex(totalIndex: number): number {
     const safeIdx = Math.max(0, Math.floor(totalIndex));
     const dayInCycle = safeIdx % 7;
-    const cycle = Math.floor(safeIdx / 7);
-    return SIGNIN_BASE_GEMS[dayInCycle] + cycle * 20;
+    const bonusCycle = Math.min(3, Math.floor(safeIdx / 7));
+    return SIGNIN_BASE_GEMS[dayInCycle] + bonusCycle * 20;
 }
 
 export function signInViewInfo(state: SignInState, today: number) {

@@ -6405,7 +6405,7 @@ export class Main extends Component {
         const adbg = adBtn.getChildByName('每日任务底图');
         if (adbg) adbg.active = info.canClaimAd;
 
-        this.dailyText(panel, '每日 00:00 (UTC+8) 刷新 · 每满 7 天进入新一轮，全额奖励再 +20 钻石', 0, -534, 700, 34, 19);
+        this.dailyText(panel, '每日 00:00 (UTC+8) 刷新 · 每满 7 天全额 +20 钻石（第 4 轮起封顶）', 0, -534, 700, 34, 19);
     }
 
     public claimAchievement(id: AchievementId): boolean {
