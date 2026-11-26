@@ -881,27 +881,29 @@ export class Main extends Component {
             this.shape(crown, 'sphere', '#4EA8F0', [-0.13, -0.06, 0.22], [0.065, 0.065, 0.05]);
             this.shape(crown, 'sphere', '#4EA8F0', [0.13, -0.06, 0.22], [0.065, 0.065, 0.05]);
         } else if (outfit === 'flower_wreath') {
-            // 还原 flower_wreath.png：嫩绿藤环+粉/黄/天蓝多瓣小花与嫩叶
+            // 还原 flower_wreath.png：置于头顶耳上且微微前倾(+22°)，8 朵正面朝前的粉/黄/蓝多瓣小花与嫩叶环绕，零穿耳且正面满花清晰可见
             const wreath = new Node('春日花环');
             wreath.layer = Layers.Enum.DEFAULT;
             root.addChild(wreath);
-            wreath.setPosition(0, 0.60, 0.06);
-            wreath.setRotationFromEuler(-10, 0, 0);
-            this.shape(wreath, 'torus', '#7BBF66', [0, 0, 0], [0.96, 0.18, 0.90]);
-            const cols = ['#F79AB5', '#FFE066', '#8CC8F5', '#FFA6C1', '#FFE066', '#8CC8F5', '#F79AB5'];
-            for (let i = 0; i < 7; i++) {
-                const rad = (i * (360 / 7)) * Math.PI / 180;
-                const fx = Math.sin(rad) * 0.45, fz = Math.cos(rad) * 0.42;
+            wreath.setPosition(0, 0.67, 0.12);
+            wreath.setRotationFromEuler(22, 0, 0);
+            this.shape(wreath, 'torus', '#76B862', [0, 0, 0], [0.80, 0.14, 0.76]);
+            const cols = ['#F89DB8', '#FFE066', '#8CC8F5', '#FFA8C4', '#8CC8F5', '#FFE066', '#F89DB8', '#A6D8FA'];
+            for (let i = 0; i < 8; i++) {
+                const deg = i * 45;
+                const rad = deg * Math.PI / 180;
+                const fx = Math.sin(rad) * 0.38, fz = Math.cos(rad) * 0.36;
                 const fl = new Node('花朵-' + i); fl.layer = Layers.Enum.DEFAULT; wreath.addChild(fl);
                 fl.setPosition(fx, 0.03, fz);
-                fl.setRotationFromEuler(0, i * (360 / 7), 0);
-                this.shape(fl, 'sphere', '#FFE46B', [0, 0.02, 0.03], [0.065, 0.065, 0.05]);
+                fl.setRotationFromEuler(-18, deg, 0);
+                // 5 瓣饱满花朵 + 嫩黄花芯 + 两侧绿叶
+                this.shape(fl, 'sphere', '#FFD94A', [0, 0, 0.035], [0.068, 0.068, 0.045]);
                 for (let p = 0; p < 5; p++) {
                     const pr = (p * 72) * Math.PI / 180;
-                    this.shape(fl, 'sphere', cols[i], [Math.cos(pr) * 0.065, 0.02 + Math.sin(pr) * 0.065, 0.01], [0.075, 0.075, 0.045]);
+                    this.shape(fl, 'sphere', cols[i], [Math.cos(pr) * 0.072, Math.sin(pr) * 0.072, 0.01], [0.088, 0.088, 0.045]);
                 }
-                // 侧边嫩叶
-                this.shape(fl, 'sphere', '#8ED174', [0.11, -0.02, 0], [0.09, 0.045, 0.04], [0, 0, 26]);
+                this.shape(fl, 'sphere', '#8ED174', [-0.11, -0.04, -0.01], [0.095, 0.048, 0.035], [0, 0, -28]);
+                this.shape(fl, 'sphere', '#8ED174', [0.11, -0.04, -0.01], [0.095, 0.048, 0.035], [0, 0, 28]);
             }
         } else if (outfit === 'star_glasses') {
             // 还原 star_glasses.png：真正五角星造型金色墨镜（每只镜片由 5 枚星芒组成）+ 金色鼻梁与镜腿
@@ -922,63 +924,98 @@ export class Main extends Component {
             this.shape(root, 'box', '#C47B22', [-0.41, 0.05, 0.62], [0.035, 0.035, 0.36], [0, -14, 0]);
             this.shape(root, 'box', '#C47B22', [0.41, 0.05, 0.62], [0.035, 0.035, 0.36], [0, 14, 0]);
         } else if (outfit === 'wizard_hat') {
-            // 宽檐大巫师帽：比头更宽、盖住双耳，配金色丝带、右侧弯折帽尖与满天金星点缀（还原 wizard_hat.png）
+            // 还原 wizard_hat.png：宽檐深靛蓝巫师帽覆盖头顶双耳 + 亮金帽带 + 顶部柔和圆弯后向右下垂落的帽尖 + 多枚扁平金星徽饰
             const wiz = new Node('魔法巫师帽');
             wiz.layer = Layers.Enum.DEFAULT;
             root.addChild(wiz);
             wiz.setPosition(0, 0.44, 0.02);
             wiz.setRotationFromEuler(-6, 0, 0);
-            this.shape(wiz, 'cylinder', '#455A9C', [0, 0, 0], [1.66, 0.07, 1.60]);
-            this.shape(wiz, 'cylinder', '#F6C648', [0, 0.08, 0], [1.14, 0.11, 1.10]);
-            this.shape(wiz, 'cone', '#405494', [0, 0.42, 0], [1.12, 0.66, 1.08], [-4, 0, -10]);
-            // 右侧优雅弯垂的巫师帽尖
-            this.shape(wiz, 'cone', '#3B4E8C', [0.24, 0.68, -0.02], [0.44, 0.48, 0.42], [0, 0, -58]);
-            // 散落金色小星星点缀（帽身与帽檐）
-            for (const [sx, sy, sz] of [
-                [-0.28, 0.24, 0.36], [0.16, 0.38, 0.30], [-0.06, 0.52, 0.20], [0.34, 0.22, 0.26],
-                [-0.58, 0.05, 0.36], [0.56, 0.05, 0.34], [0.02, 0.05, 0.66],
-            ] as const) {
-                this.shape(wiz, 'sphere', '#FFE169', [sx, sy, sz], [0.085, 0.085, 0.06]);
-            }
+            // 宽大柔和帽檐
+            this.shape(wiz, 'cylinder', '#44589A', [0, 0, 0], [1.66, 0.075, 1.58]);
+            // 金色宽丝带
+            this.shape(wiz, 'cylinder', '#F6C648', [0, 0.085, 0], [1.12, 0.12, 1.08]);
+            // 饱满圆锥帽身（微微朝左起势，再优雅弯向右侧下垂）
+            this.shape(wiz, 'cone', '#435799', [-0.02, 0.42, 0], [1.10, 0.68, 1.06], [0, 0, 6]);
+            // 顶部圆润折弯衔接球
+            this.shape(wiz, 'sphere', '#415596', [0.04, 0.64, 0], [0.44, 0.36, 0.42]);
+            // 向右下方自然垂落的尖帽尾（rotZ = -128° 朝右下垂）
+            this.shape(wiz, 'cone', '#3B4E8D', [0.28, 0.56, 0], [0.34, 0.50, 0.32], [0, 0, -128]);
+            // 贴合帽身与帽檐的金色星星徽饰（交叉双菱形星芒）
+            const addStarPatch = (px: number, py: number, pz: number, sc: number, rx = 0, ry = 0) => {
+                const st = new Node('帽星'); st.layer = Layers.Enum.DEFAULT; wiz.addChild(st);
+                st.setPosition(px, py, pz); st.setRotationFromEuler(rx, ry, 0);
+                this.shape(st, 'box', '#FFE066', [0, 0, 0], [sc, sc * 0.34, 0.03]);
+                this.shape(st, 'box', '#FFE066', [0, 0, 0], [sc * 0.34, sc, 0.03]);
+                this.shape(st, 'box', '#FFE066', [0, 0, 0], [sc * 0.72, sc * 0.72, 0.025], [0, 0, 45]);
+            };
+            addStarPatch(-0.24, 0.28, 0.38, 0.13, -18, -28);
+            addStarPatch(0.14, 0.42, 0.30, 0.12, -20, 18);
+            addStarPatch(-0.04, 0.54, 0.22, 0.11, -18, 0);
+            addStarPatch(0.32, 0.25, 0.28, 0.11, -18, 42);
+            addStarPatch(-0.56, 0.05, 0.38, 0.12, 85, 0);
+            addStarPatch(0.54, 0.05, 0.36, 0.12, 85, 0);
+            addStarPatch(0.02, 0.05, 0.64, 0.11, 85, 0);
         } else if (outfit === 'angel_halo') {
-            // 还原 angel_halo.png：发光金环 + 两侧多层羽翼小翅膀
-            this.shape(root, 'torus', '#FFE066', [0, 1.06, 0.02], [0.78, 0.22, 0.72], [8, 0, 0]);
+            // 还原 angel_halo.png：上方发光金色光环 + 左右两侧向上展翘的洁白羽翼（修正 Z 旋转符号：+side*角度 为向上展翼）
+            this.shape(root, 'torus', '#FFD84D', [0, 1.06, 0.02], [0.80, 0.22, 0.74], [6, 0, 0]);
+            this.shape(root, 'torus', '#FFF5B8', [0, 1.06, 0.02], [0.86, 0.13, 0.80], [6, 0, 0]);
             for (const side of [-1, 1]) {
-                this.shape(root, 'sphere', '#FFFBF0', [side * 0.48, 0.94, -0.02], [0.26, 0.14, 0.09], [0, 0, -side * 34]);
-                this.shape(root, 'sphere', '#FFF4DC', [side * 0.56, 0.86, -0.03], [0.20, 0.11, 0.08], [0, 0, -side * 16]);
-                this.shape(root, 'sphere', '#FFFBF0', [side * 0.40, 0.82, -0.02], [0.16, 0.13, 0.09], [0, 0, -side * 8]);
+                const wing = new Node('天使小翼');
+                wing.layer = Layers.Enum.DEFAULT;
+                root.addChild(wing);
+                wing.setPosition(side * 0.46, 0.82, 0.0);
+                // 内侧圆润羽根卷
+                this.shape(wing, 'sphere', '#FFFDF5', [0, 0, 0], [0.18, 0.16, 0.09]);
+                // 上扬长主羽（+side * 44° 朝外上方舒展）
+                this.shape(wing, 'sphere', '#FFFFFF', [side * 0.16, 0.14, -0.01], [0.34, 0.13, 0.08], [0, 0, side * 44]);
+                // 中层羽
+                this.shape(wing, 'sphere', '#FFF8E8', [side * 0.18, 0.04, -0.015], [0.28, 0.11, 0.075], [0, 0, side * 22]);
+                // 下层短绒羽
+                this.shape(wing, 'sphere', '#FFFDF5', [side * 0.12, -0.04, -0.01], [0.22, 0.10, 0.075], [0, 0, side * 4]);
             }
         } else if (outfit === 'butterfly_wings') {
-            // 还原 butterfly_wings.png：粉边+浅天蓝渐层燕尾蝶翼 + 两侧金色星芒
-            this.shape(root, 'sphere', '#FFE89A', [0, 0.92, -0.32], [0.14, 0.22, 0.10]);
+            // 还原 butterfly_wings.png：粉边+天蓝渐层上扬大蝶翼 + 下垂燕尾下翼 + 浮空金星（修正旋转符号使上翼高扬、下翼垂展）
+            this.shape(root, 'sphere', '#FFE89A', [0, 0.94, -0.32], [0.12, 0.22, 0.09]);
             for (const side of [-1, 1]) {
-                // 上翅：粉色外瓣 + 浅天蓝内纹
-                this.shape(root, 'sphere', '#F7B0D8', [side * 0.78, 1.16, -0.34], [0.64, 0.46, 0.07], [10, -side * 18, -side * 30]);
-                this.shape(root, 'sphere', '#BCE8FC', [side * 0.68, 1.12, -0.30], [0.42, 0.28, 0.06], [10, -side * 18, -side * 30]);
-                // 下翅 + 燕尾小尖
-                this.shape(root, 'sphere', '#F7B0D8', [side * 0.60, 0.80, -0.38], [0.44, 0.34, 0.07], [10, -side * 16, side * 18]);
-                this.shape(root, 'sphere', '#BCE8FC', [side * 0.54, 0.82, -0.34], [0.28, 0.20, 0.06], [10, -side * 16, side * 18]);
-                this.shape(root, 'cone', '#F5A4D0', [side * 0.58, 0.56, -0.40], [0.11, 0.24, 0.06], [180, 0, side * 14]);
-                // 浮空金星点缀
-                this.shape(root, 'sphere', '#FFE066', [side * 0.96, 1.38, -0.26], [0.09, 0.09, 0.06]);
+                // 上翅：高高向上外展（+side * 34°），正反双面均有粉边+浅天蓝内纹
+                this.shape(root, 'sphere', '#F7A8D4', [side * 0.82, 1.24, -0.34], [0.74, 0.48, 0.06], [8, -side * 16, side * 34]);
+                this.shape(root, 'sphere', '#BCEBFF', [side * 0.72, 1.18, -0.30], [0.48, 0.30, 0.055], [8, -side * 16, side * 34]);
+                this.shape(root, 'sphere', '#BCEBFF', [side * 0.72, 1.18, -0.38], [0.48, 0.30, 0.055], [8, -side * 16, side * 34]);
+                // 下翅：向外下方展开（-side * 22°）+ 标志性粉色燕尾尖
+                this.shape(root, 'sphere', '#F7A8D4', [side * 0.62, 0.78, -0.37], [0.48, 0.36, 0.06], [8, -side * 14, -side * 22]);
+                this.shape(root, 'sphere', '#BCEBFF', [side * 0.56, 0.80, -0.33], [0.30, 0.22, 0.055], [8, -side * 14, -side * 22]);
+                this.shape(root, 'sphere', '#BCEBFF', [side * 0.56, 0.80, -0.41], [0.30, 0.22, 0.055], [8, -side * 14, -side * 22]);
+                this.shape(root, 'cone', '#F5A0CE', [side * 0.62, 0.50, -0.39], [0.10, 0.28, 0.055], [180, 0, -side * 16]);
+                // 蝶翼旁闪烁金星
+                this.shape(root, 'box', '#FFE066', [side * 0.98, 1.48, -0.26], [0.13, 0.04, 0.03]);
+                this.shape(root, 'box', '#FFE066', [side * 0.98, 1.48, -0.26], [0.04, 0.13, 0.03]);
             }
         } else if (outfit === 'royal_cape') {
-            // 还原 royal_cape.png：薰衣草紫翻领披风 + 金色弯月胸扣 + 金边垂坠披肩 + 金星点缀
-            this.shape(root, 'torus', '#A684E0', [0, 0.74, 0.32], [1.06, 0.44, 1.02], [24, 0, 0]);
-            // 金色弯月胸扣
-            this.shape(root, 'sphere', '#F8CB48', [0, 0.64, 0.86], [0.17, 0.17, 0.08]);
-            this.shape(root, 'sphere', '#8F6AD6', [0.05, 0.66, 0.89], [0.12, 0.12, 0.07]);
-            // 环绕双肩与背部的宽幅紫色披风 + 金边镶饰
-            this.shape(root, 'box', '#9A76D8', [0, 0.80, -0.42], [1.14, 0.64, 0.10], [40, 0, 0]);
-            this.shape(root, 'box', '#F6C948', [0, 0.56, -0.62], [1.16, 0.08, 0.11], [40, 0, 0]);
-            // 左右垂肩片（正面可见紫色金边披肩）
-            for (const side of [-1, 1]) {
-                this.shape(root, 'box', '#9A76D8', [side * 0.52, 0.56, 0.16], [0.22, 0.44, 0.54], [12, side * 12, -side * 18]);
-                this.shape(root, 'box', '#F6C948', [side * 0.44, 0.54, 0.42], [0.06, 0.42, 0.08], [12, side * 12, -side * 16]);
-                this.shape(root, 'sphere', '#FFE168', [side * 0.56, 0.58, 0.24], [0.08, 0.08, 0.06]);
-            }
-            for (const [sx, sy, sz] of [[-0.32, 0.78, -0.50], [0.30, 0.74, -0.52], [0, 0.88, -0.44]] as const) {
-                this.shape(root, 'sphere', '#FFE168', [sx, sy, sz], [0.09, 0.09, 0.07]);
+            // 还原 royal_cape.png：蓬松薰衣草紫翻领 + 胸前金色弯月扣 + 360° 贴肩外扩钟摆紫披风 + 完整金边与金星
+            this.shape(root, 'torus', '#B492EC', [0, 0.76, 0.32], [1.06, 0.46, 1.02], [24, 0, 0]);
+            // 金色弯月胸扣（月牙朝左抱合）
+            this.shape(root, 'sphere', '#F8CB48', [0, 0.65, 0.86], [0.18, 0.18, 0.07]);
+            this.shape(root, 'sphere', '#9A76D8', [0.055, 0.67, 0.89], [0.13, 0.13, 0.065]);
+            // 7 片平滑钟摆垂坠披风：顶部收贴肩颈、底部自然外扩(-20°)，完整包覆背部不陷入臀部
+            const capeAngles = [-68, -102, -138, 180, 138, 102, 68];
+            for (const deg of capeAngles) {
+                const rad = deg * Math.PI / 180;
+                const isRear = Math.abs(deg) >= 135;
+                const pane = new Node('披风片-' + deg);
+                pane.layer = Layers.Enum.DEFAULT;
+                root.addChild(pane);
+                const r = isRear ? 0.68 : 0.58;
+                const py = isRear ? 0.64 : 0.55;
+                pane.setPosition(Math.sin(rad) * r, py, 0.04 + Math.cos(rad) * r);
+                pane.setRotationFromEuler(isRear ? -26 : -18, deg, 0);
+                this.shape(pane, 'box', '#9B78DA', [0, 0, 0], [0.50, 0.56, 0.07]);
+                // 底部金边镶饰
+                this.shape(pane, 'box', '#F6C948', [0, -0.26, 0.01], [0.51, 0.065, 0.075]);
+                // 前胸左右开口竖向金边
+                if (deg === -68) this.shape(pane, 'box', '#F6C948', [0.23, 0, 0.015], [0.055, 0.56, 0.075]);
+                if (deg === 68) this.shape(pane, 'box', '#F6C948', [-0.23, 0, 0.015], [0.055, 0.56, 0.075]);
+                // 披风表面金色小星星
+                this.shape(pane, 'sphere', '#FFE168', [0, 0.04, 0.045], [0.085, 0.085, 0.03]);
             }
         }
         return root;
