@@ -2610,14 +2610,40 @@ export class Main extends Component {
             if (!recruit) { this.toast('本体库存已达安全上限，本次未扣费'); return; }
             const pets = this.data.pets.slice();
             const added: Pet[] = [];
+            const toSpawn: Pet[] = [];
+            const revivedIds = new Set<number>();
             ids.forEach(id => {
-                if (pets.some(p => p.id === id)) return;
-                const pet = this.makePet(id);
-                pets.push(pet); added.push(pet);
+                const idx = pets.findIndex(p => p.id === id);
+                if (idx === -1) {
+                    const pet = this.makePet(id);
+                    pets.push(pet); added.push(pet); toSpawn.push(pet);
+                } else if (pets[idx].dead || pets[idx].lost) {
+                    // 已有品种若此前已离世或走失，再次招募到该品种时立即满状态回到庭院（保留星级与装扮，且同品种仅显示一只）
+                    const restored: Pet = {
+                        ...pets[idx],
+                        dead: false, lost: false, adventuring: false, adventureReturnAt: undefined,
+                        health: 100, hunger: 85, clean: 85, energy: 90, joy: 85,
+                    };
+                    pets[idx] = restored;
+                    if (!revivedIds.has(id)) { revivedIds.add(id); toSpawn.push(restored); }
+                }
             });
-            const candidate = { ...this.dailyCandidate(now), gems: this.data.gems - cost, pets, recruit };
+            const base = this.dailyCandidate(now);
+            if (revivedIds.size > 0) {
+                (base.adventureLogs || []).forEach(l => {
+                    if (revivedIds.has(l.petId) && (l.type === 'lost' || l.type === 'death_trafficker' || l.type === 'death_sick')) l.resolved = true;
+                });
+            }
+            const candidate = { ...base, gems: this.data.gems - cost, pets, recruit };
             if (!this.commitShop(candidate)) return;
-            added.forEach(p => this.spawnPet(p));
+            toSpawn.forEach(p => {
+                const existingActor = this.actors.find(a => a.pet.id === p.id);
+                if (!existingActor) this.spawnPet(p);
+                else { existingActor.pet = p; existingActor.dying = 0; existingActor.node.active = true; }
+            });
+            if (toSpawn.length > 0) this.allDeadPrompted = false;
+            this.syncActorVisibility();
+            this.refreshMemorialEntry();
             this.renderHeader(); this.updateRecruit();
             if (this.ui && isValid(this.ui, true) && (mode !== 'reward' || !this.dialog)) {
                 this.showRecruitResultDialog(mode, ids, new Set(added.map(p => p.id)), claimed);
@@ -5739,8 +5765,31 @@ export class Main extends Component {
         }, 1.85);
     }
 
-    /** 同步主城与冒险场景中 3D 宠物的可见性：外出冒险的伙伴不显示在主城庭院，只在冒险道路上奔跑 */
+    /** 同步主城与冒险场景中 3D 宠物的可见性：与存档状态严格对齐、同品种仅显示一只，外出冒险的伙伴只在冒险道路上奔跑 */
     public syncActorVisibility() {
+        // 先将每个 3D 角色的 pet 引用与最新存档同步，并剔除重复/已销毁节点，确保同品种严格只显示一只
+        const seen = new Set<number>();
+        const cleaned: Actor[] = [];
+        for (const a of this.actors) {
+            if (!isValid(a.node, true)) continue;
+            const latest = this.data.pets.find(p => p.id === a.pet.id);
+            if (!latest || seen.has(latest.id)) {
+                a.node.active = false;
+                a.node.destroy();
+                continue;
+            }
+            seen.add(latest.id);
+            a.pet = latest;
+            cleaned.push(a);
+        }
+        this.actors = cleaned;
+        // 若存档中有存活且未走失的伙伴尚无 3D 角色，自动补生（同品种仅一只）
+        for (const p of this.data.pets) {
+            if (!p.dead && !p.lost && !seen.has(p.id)) {
+                seen.add(p.id);
+                this.spawnPet(p);
+            }
+        }
         const hasOut = this.actors.some(a => !a.pet.dead && !a.pet.lost && !!a.pet.adventuring);
         this.actors.forEach(a => {
             if (!isValid(a.node, true)) return;

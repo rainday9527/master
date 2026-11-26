@@ -827,6 +827,29 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
     });
     assert.deepEqual(navAfterClick, { toRecruit: 'recruit', toMemorial: 'memorial' });
 
+    // 15) Recruit after all pets died -> previously-owned dead breeds MUST respawn in yard, strictly 1 actor per breed!
+    const respawnRes = await page.evaluate(() => {
+      main.closeDialog();
+      main.open('recruit');
+      main.data.gems += 3000;
+      main.recruitClickTime = 0;
+      main.recruitTransaction('ten');
+      main.closeDialog();
+      main.open('home');
+      const aliveIds = main.data.pets.filter(p => !p.dead && !p.lost).map(p => p.id);
+      const activeActors = main.actors.filter(a => a.node && a.node.active && !a.pet.dead && !a.pet.lost);
+      const actorIds = activeActors.map(a => a.pet.id);
+      const uniqueActorIds = [...new Set(actorIds)];
+      return {
+        aliveCount: aliveIds.length,
+        activeActorCount: activeActors.length,
+        uniqueMatchesAlive: uniqueActorIds.length === aliveIds.length && actorIds.length === uniqueActorIds.length,
+      };
+    });
+    console.log('recruit respawn after all-dead check:', JSON.stringify(respawnRes));
+    assert.ok(respawnRes.aliveCount > 0, 'recruiting after all pets died must bring drawn breeds back alive');
+    assert.equal(respawnRes.uniqueMatchesAlive, true, 'yard must display strictly 1 actor per living breed');
+
     assert.deepEqual(errors, [], 'zero pageerrors');
     assert.deepEqual(failures, [], 'zero HTTP errors');
     console.log('ALL ALBUM + PROFILE + 12-BREED + TRAITS + 3D OUTFITS CHECKS PASSED!');
