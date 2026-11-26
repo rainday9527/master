@@ -230,7 +230,7 @@ export class Main extends Component {
     private shopTimerLabel: Label | null = null;
     private shopCostLabel: Label | null = null;
     private shopCostIcon: Node | null = null;
-    private shopCards: { node: Node; id: string; title: Label; icon: Sprite; species: Label; effect: Label; stock: Label; owned: Label; price: Label; currency: Sprite }[] = [];
+    private shopCards: { node: Node; id: string; title: Label; slotBg: Sprite; icon: Sprite; species: Label; effect: Label; stock: Label; owned: Label; price: Label; currency: Sprite }[] = [];
     private spriteRequests = new WeakMap<Sprite, object>();
     private header: { profile: Node; avatar: number; level: Label; xp: Label; fill: Sprite; gems: Label; coins: Label } | null = null;
     private recruitLabels: Label[] = [];
@@ -242,7 +242,7 @@ export class Main extends Component {
     private recruitBusy = false;
     private bagPage = 0;
     private bagFilter: ItemCategory | null = null;
-    private bagSlots: { node: Node; entry: { item: ItemDefinition; legacy: ItemCategory | null } | null; title: Label; icon: Sprite; species: Label; effect: Label; count: Label; use: Label }[] = [];
+    private bagSlots: { node: Node; entry: { item: ItemDefinition; legacy: ItemCategory | null } | null; title: Label; slotBg: Sprite; icon: Sprite; species: Label; effect: Label; count: Label; use: Label }[] = [];
     private bagPageLabel: Label | null = null;
     private bagTargetLabel: Label | null = null;
     private bagEmpty: Node | null = null;
@@ -1334,14 +1334,14 @@ export class Main extends Component {
                 if (logCard) logCard.setPosition(-this.width / 2 + 24 + 185, this.height / 2 - 266 - 196, 0);
                 const chestBox = this.sheet.getChildByName('冒险右侧宝箱区');
                 if (chestBox) chestBox.setPosition(Math.min(this.width / 2 - 122, 386), -this.height / 2 + 520, 0);
-            } else if (this.page === 'daily' || this.page === 'bag' || this.page === 'diary' || this.page === 'memorial') {
-                this.sheet.setPosition(0, -10, 0);
+            } else if (this.page === 'shop' || this.page === 'daily' || this.page === 'bag' || this.page === 'diary' || this.page === 'memorial') {
+                this.sheet.setPosition(0, this.page === 'shop' ? -6 : -10, 0);
             }
             if (this.page === 'shop' || this.page === 'daily' || this.page === 'bag' || this.page === 'diary' || this.page === 'memorial') {
-                const pw = this.page === 'daily' ? 1024 : (this.page === 'bag' || this.page === 'diary' || this.page === 'memorial') ? 921 : 900;
-                const ph = this.page === 'daily' ? 1400 : (this.page === 'bag' || this.page === 'diary' || this.page === 'memorial') ? 1390 : 1300;
-                const maxScale = this.page === 'shop' ? 1.08 : 1;
-                const padW = this.page === 'shop' ? 28 : 40;
+                const pw = this.page === 'daily' ? 1024 : this.page === 'shop' ? 960 : 921;
+                const ph = this.page === 'daily' ? 1400 : this.page === 'shop' ? 1260 : 1390;
+                const maxScale = this.page === 'shop' ? 1.06 : 1;
+                const padW = this.page === 'shop' ? 24 : 40;
                 const padH = this.page === 'shop' ? 370 : 420;
                 const scale = Math.min(maxScale, (this.width - padW) / pw, (this.height - padH) / ph);
                 this.sheet.setScale(scale, scale, 1);
@@ -1586,18 +1586,21 @@ export class Main extends Component {
         return bg;
     }
 
-    /** 6 阶品质槽位底框映射：普通(米白) → 优秀(嫩绿) → 精良(天蓝) → 史诗(梦幻紫) → 传说(璀璨金) → 限定/神话(粉金彩) */
+    /** 6 阶品质槽位底框映射：金币与钻石同为传说璀璨金，其他道具按实际效果总值分配品质阶梯 */
     private itemQualityTheme(def?: ItemDefinition | null): SlotBgTheme {
         if (!def) return 'general';
-        if (def.currency === 'gems') return def.price > 25 ? 'coin' : 'epic';
-        if (def.price > 210) return 'gem';
-        if (def.price > 140) return 'heal';
+        const fx = def.effects || {};
+        const power = Math.max(0, fx.hunger || 0) + Math.max(0, fx.clean || 0) + Math.max(0, fx.energy || 0)
+            + Math.max(0, fx.joy || 0) + Math.max(0, fx.health || 0);
+        if (power >= 95) return 'coin';
+        if (power >= 75) return 'epic';
+        if (power >= 55) return 'gem';
+        if (power >= 40) return 'heal';
         return 'general';
     }
 
     private rewardSlotTheme(rw: RewardGrantItem): SlotBgTheme {
-        if (rw.kind === 'gems') return 'coin';
-        if (rw.kind === 'coins') return 'general';
+        if (rw.kind === 'gems' || rw.kind === 'coins') return 'coin';
         if (rw.kind === 'care') return 'general';
         return this.itemQualityTheme(findItem(rw.itemId));
     }
@@ -4253,6 +4256,7 @@ export class Main extends Component {
                 card.effect.string = effectText(item);
                 card.price.string = String(item.price);
                 card.icon.node.name = '道具图标-' + item.id;
+                this.updateShopSprite(card.slotBg, 'art/ui/item-bg-' + this.itemQualityTheme(item));
                 this.updateShopSprite(card.icon, 'art/items/' + item.id);
                 if (!previous || previous.currency !== item.currency) {
                     const aspect = item.currency === 'coins' ? 348 / 341 : 315 / 353;
@@ -4267,29 +4271,31 @@ export class Main extends Component {
     private renderShop() {
         const panel = this.sheet!;
         this.shopCards = [];
-        this.shopArt(panel, 'stall', 0, 0, 900, 1300);
-        // 源图 656×947 的连续奶油内板为像素 [55,410]–[600,835]；映射到 900×1300 后安全范围为 x[-374.5,373.2]、y[-496.2,87.2]。
-        // 取消额外 0.94 缩小并充分利用内板空间，放大卡片、道具图标、字号与购买按钮以提升手机可读性。
-        const content = this.uiNode(panel, '商店安全内容', 0, -206, 748, 580);
+        // 全新宽敞手绘商店大底板（960×1260，内区奶油展柜宽 789×高 861，顶部空白木牌居中显示「商店」）
+        this.shopArt(panel, 'stall', 0, 0, 960, 1260);
+        const signTitle = this.headerText(panel, '商  店', 0, 428, 360, 62, 46);
+        signTitle.node.name = '商店木牌标题';
+
+        const content = this.uiNode(panel, '商店安全内容', 0, -165, 764, 830);
         const switchShopTab = (next: 'items' | 'tombstones') => {
             if (this.shopTab === next) return;
             this.shopTab = next;
             if (this.sheet && isValid(this.sheet, true)) { this.sheet.removeFromParent(); this.sheet.destroy(); this.sheet = null; }
             this.open('shop');
         };
-        const tabItems = this.shopArt(panel, 'tab', -262, 190, 194, 76);
+        const tabItems = this.shopArt(panel, 'tab', -254, 214, 186, 68);
         tabItems.name = '商店页签-道具';
-        const tabItemsLbl = this.headerText(tabItems, '道具', 0, 0, 156, 44, 30);
+        const tabItemsLbl = this.headerText(tabItems, '道具', 0, 0, 150, 42, 28);
         tabItemsLbl.color = this.color(this.shopTab === 'items' ? '#4E2C15' : '#8A6B4F');
         this.shopButton(tabItems, () => switchShopTab('items'));
 
-        const tabTomb = this.shopArt(panel, 'tab', -58, 190, 194, 76);
+        const tabTomb = this.shopArt(panel, 'tab', -56, 214, 186, 68);
         tabTomb.name = '商店页签-墓碑';
-        const tabTombLbl = this.headerText(tabTomb, '墓碑', 0, 0, 156, 44, 30);
+        const tabTombLbl = this.headerText(tabTomb, '墓碑', 0, 0, 150, 42, 28);
         tabTombLbl.color = this.color(this.shopTab === 'tombstones' ? '#4E2C15' : '#8A6B4F');
         this.shopButton(tabTomb, () => switchShopTab('tombstones'));
 
-        const close = this.shopArt(panel, 'close', 385, 130, 84, 85);
+        const close = this.shopArt(panel, 'close', 392, 278, 82, 83);
         this.shopButton(close, () => this.open('home'));
 
         if (this.shopTab === 'tombstones') {
@@ -4299,38 +4305,40 @@ export class Main extends Component {
         const goods = this.data.shop.slots.map(slot => findItem(slot.id)!);
         for (let i = 0; i < 6; i++) {
             const col = i % 3, row = Math.floor(i / 3);
-            const card = this.shopArt(content, 'card', (col - 1) * 248, row === 0 ? 147 : -147, 236, 278);
+            const card = this.shopArt(content, 'card', (col - 1) * 252, row === 0 ? 186 : -116, 240, 288);
             if (i >= goods.length) continue;
             const item = goods[i];
-            const title = this.headerText(card, item.name, 0, 116, 222, 34, 28);
-            title.lineHeight = 34; title.overflow = Label.Overflow.CLAMP;
-            const icon = this.uiNode(card, '道具图标-' + item.id, 0, 56, 86, 86).addComponent(Sprite);
+            const title = this.headerText(card, item.name, 0, 120, 224, 34, 26);
+            title.lineHeight = 34; title.overflow = Label.Overflow.SHRINK; title.enableWrapText = false;
+            const slotBox = this.uiNode(card, '商店道具品质槽', 0, 56, 98, 98);
+            const slotBg = this.itemSlotBg(slotBox, this.itemQualityTheme(item), 98, 98, '商店道具底图').getComponent(Sprite)!;
+            const icon = this.uiNode(slotBox, '道具图标-' + item.id, 0, 0, 86, 86).addComponent(Sprite);
             icon.sizeMode = Sprite.SizeMode.CUSTOM;
-            const species = this.text(card, this.speciesText(item), 0, 2, 222, 26, 21, C.muted);
+            const species = this.text(card, this.speciesText(item), 0, -4, 222, 26, 20, C.muted);
             species.lineHeight = 26; species.overflow = Label.Overflow.CLAMP;
-            const effect = this.text(card, effectText(item), 0, -27, 224, 30, 21, C.ink);
-            effect.isBold = true; effect.lineHeight = 28; effect.overflow = Label.Overflow.CLAMP;
-            const stock = this.text(card, '', -52, -57, 110, 26, 21, '#228B3C');
+            const effect = this.text(card, effectText(item), 0, -32, 224, 28, 21, C.ink);
+            effect.isBold = true; effect.lineHeight = 28; effect.overflow = Label.Overflow.SHRINK; effect.enableWrapText = false;
+            const stock = this.text(card, '', -52, -62, 110, 26, 21, '#228B3C');
             stock.node.name = '限购状态文字';
             stock.isBold = true; stock.lineHeight = 26; stock.overflow = Label.Overflow.CLAMP;
-            const owned = this.text(card, '', 54, -57, 110, 26, 21, '#6E533C');
+            const owned = this.text(card, '', 54, -62, 110, 26, 21, '#6E533C');
             owned.node.name = '持有数量文字';
             owned.isBold = true; owned.lineHeight = 26; owned.overflow = Label.Overflow.CLAMP;
-            const buy = this.shopArt(card, 'buy', 0, -104, 172, 172 * 120 / 321);
+            const buy = this.shopArt(card, 'buy', 0, -108, 172, 172 * 120 / 321);
             const price = this.headerText(buy, String(item.price), -24, 0, 98, 42, 32);
             price.lineHeight = 38; price.overflow = Label.Overflow.CLAMP;
             const currencyAspect = item.currency === 'coins' ? 348 / 341 : 315 / 353;
             const coin = this.uiNode(buy, '购买货币图标', 48, 0, 38, 38 * currencyAspect);
             const currency = coin.addComponent(Sprite); currency.sizeMode = Sprite.SizeMode.CUSTOM;
-            const binding = { node: card, id: '', title, icon, species, effect, stock, owned, price, currency };
+            const binding = { node: card, id: '', title, slotBg, icon, species, effect, stock, owned, price, currency };
             this.shopCards.push(binding);
             this.shopButton(buy, () => this.buyShopItem(binding.id));
         }
-        const timer = this.shopArt(panel, 'timer-panel', -192, -552, 326, 80);
-        this.shopArt(timer, 'clock', -118, 0, 40, 47);
+        const timer = this.shopArt(panel, 'timer-panel', -194, -526, 330, 82);
+        this.shopArt(timer, 'clock', -120, 0, 40, 47);
         this.shopTimerLabel = this.text(timer, '', 20, 0, 220, 46, 32, C.white);
         this.shopTimerLabel.isBold = true;
-        const refresh = this.shopArt(panel, 'buy', 202, -552, 266, 266 * 120 / 321);
+        const refresh = this.shopArt(panel, 'buy', 202, -526, 270, 270 * 120 / 321);
         this.shopCostLabel = this.headerText(refresh, '', 0, 0, 250, 46, 29);
         this.shopCostIcon = this.uiNode(refresh, '刷新钻石图标', 58, 0, 42, 42 * 315 / 353);
         this.headerArt(this.shopCostIcon, 'diamond-icon');
@@ -4418,6 +4426,8 @@ export class Main extends Component {
             slot.use.string = !this.petSelected ? '先选伙伴' : full ? '状态已满' : '使用';
             if (changed) {
                 const path = entry.legacy ? 'art/care/' + (entry.legacy === 'food' ? 'feed' : entry.legacy === 'soap' ? 'clean' : 'play') : 'art/items/' + entry.item.id;
+                const theme: SlotBgTheme = entry.legacy ? 'general' : this.itemQualityTheme(entry.item);
+                this.updateShopSprite(slot.slotBg, 'art/ui/item-bg-' + theme);
                 this.updateShopSprite(slot.icon, path);
             }
         });
@@ -4450,13 +4460,15 @@ export class Main extends Component {
             node.name = '背包槽位-' + i;
             // 恢复原物品卡，本轮仅替换承载六格的大底板。
             const title = this.dailyText(node, '', 0, 76, 320, 33, 25);
-            const iconNode = this.uiNode(node, '背包道具图标', -109, 12, 96, 96);
+            const slotBox = this.uiNode(node, '背包道具品质槽', -109, 12, 102, 102);
+            const slotBg = this.itemSlotBg(slotBox, 'general', 102, 102, '背包道具底图').getComponent(Sprite)!;
+            const iconNode = this.uiNode(slotBox, '背包道具图标', 0, 0, 82, 82);
             const icon = iconNode.addComponent(Sprite); icon.sizeMode = Sprite.SizeMode.CUSTOM;
             const species = this.dailyText(node, '', 43, 35, 210, 28, 20);
             const effect = this.dailyText(node, '', 43, -3, 210, 47, 19);
             effect.enableWrapText = true; effect.lineHeight = 22;
             const count = this.dailyText(node, '', -87, -62, 140, 30, 21);
-            const binding = { node, entry: null, title, icon, species, effect, count, use: null as unknown as Label } as typeof this.bagSlots[number];
+            const binding = { node, entry: null, title, slotBg, icon, species, effect, count, use: null as unknown as Label } as typeof this.bagSlots[number];
             const use = this.bagButton(node, '使用', 76, -64, 140, 43, () => {
                 if (binding.entry) this.applyCare(binding.entry.item, binding.entry.legacy);
             });
@@ -4735,17 +4747,17 @@ export class Main extends Component {
     }
 
     private renderShopTombstones(panel: Node, content: Node) {
-        const tip = this.text(content, '购买或看广告解锁限定纪念碑，在「后院纪念角」立碑刻字', 0, 314, 740, 30, 20, '#6E4B2F');
+        const tip = this.text(content, '购买或看广告解锁限定纪念碑，在「后院纪念角」立碑刻字', 0, 324, 740, 30, 20, '#6E4B2F');
         tip.isBold = true; tip.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
         const inv = this.data.tombstoneInventory || {};
 
-        // 3列可滚动展柜：展示全部 9 款高质感手绘纪念碑（含 3 款看广告解锁限定款）
-        const vp = this.uiNode(content, '墓碑商品滚动视口', 0, -48, 760, 680);
+        // 3列可滚动展柜：宽敞展示全部 9 款高质感手绘纪念碑，与底部按钮完全分离零遮挡
+        const vp = this.uiNode(content, '墓碑商品滚动视口', 0, -2, 760, 616);
         vp.addComponent(Mask).type = Mask.Type.GRAPHICS_RECT;
         const rows = Math.ceil(TOMBSTONE_CATALOG.length / 3);
-        const cardW = 238, cardH = 312, gapX = 14, gapY = 14;
-        const totalH = Math.max(680, rows * (cardH + gapY) + 24);
-        const grid = this.uiNode(vp, '墓碑商品网格', 0, 340, 760, totalH);
+        const cardW = 240, cardH = 304, gapX = 12, gapY = 12;
+        const totalH = Math.max(616, rows * (cardH + gapY) + 24);
+        const grid = this.uiNode(vp, '墓碑商品网格', 0, 308, 760, totalH);
         grid.getComponent(UITransform)!.setAnchorPoint(0.5, 1);
         const scroll = vp.addComponent(ScrollView);
         scroll.content = grid; scroll.horizontal = false; scroll.vertical = true;
@@ -4754,31 +4766,31 @@ export class Main extends Component {
         TOMBSTONE_CATALOG.forEach((tomb, idx) => {
             const col = idx % 3, row = Math.floor(idx / 3);
             const x = (col - 1) * (cardW + gapX);
-            const y = -16 - cardH / 2 - row * (cardH + gapY);
+            const y = -12 - cardH / 2 - row * (cardH + gapY);
 
             const card = this.shopArt(grid, 'card', x, y, cardW, cardH);
             card.name = '墓碑商品卡-' + tomb.id;
-            const title = this.headerText(card, tomb.name, 0, 128, 224, 30, 21);
+            const title = this.headerText(card, tomb.name, 0, 124, 224, 30, 21);
             title.overflow = Label.Overflow.SHRINK; title.enableWrapText = false;
 
             // 通用品质底框 + 清晰墓碑图标
-            const slotBox = this.uiNode(card, '墓碑图标槽', 0, 44, 128, 128);
-            this.itemSlotBg(slotBox, tomb.slotTheme, 128, 128, '墓碑槽底图');
-            const icon = this.uiNode(slotBox, '墓碑图标', 0, 2, 102, 102).addComponent(Sprite);
+            const slotBox = this.uiNode(card, '墓碑图标槽', 0, 42, 126, 126);
+            this.itemSlotBg(slotBox, tomb.slotTheme, 126, 126, '墓碑槽底图');
+            const icon = this.uiNode(slotBox, '墓碑图标', 0, 2, 100, 100).addComponent(Sprite);
             icon.sizeMode = Sprite.SizeMode.CUSTOM;
             resources.load('art/memorial/' + tomb.artKey + '/spriteFrame', SpriteFrame, (e, f) => {
                 if (!e && f && isValid(icon, true)) icon.spriteFrame = f;
             });
 
             if (tomb.limited) {
-                this.pillBadge(card, '限定', 76, 98, 62, 26, '#D94343', C.white, 16);
+                this.pillBadge(card, '限定', 76, 94, 62, 26, '#D94343', C.white, 16);
             }
 
             const owned = inv[tomb.id] || 0;
             const ownLbl = this.text(card, '已拥有 ×' + owned, 0, -40, 200, 26, 19, owned > 0 ? '#228B3C' : '#6E533C');
             ownLbl.isBold = true;
 
-            const buy = this.shopArt(card, 'buy', 0, -104, 190, 68);
+            const buy = this.shopArt(card, 'buy', 0, -102, 190, 68);
             buy.name = tomb.unlockMode === 'ad' ? '墓碑广告按钮-' + tomb.id : '墓碑购买按钮-' + tomb.id;
             if (tomb.unlockMode === 'ad') {
                 this.headerText(buy, '看广告解锁', 0, 0, 176, 36, 22);
@@ -4789,7 +4801,7 @@ export class Main extends Component {
             }
         });
 
-        const goMem = this.shopArt(panel, 'buy', 0, -552, 340, 340 * 120 / 321);
+        const goMem = this.shopArt(panel, 'buy', 0, -534, 340, 340 * 120 / 321);
         goMem.name = '商店进纪念角按钮';
         this.headerText(goMem, '前往后院纪念角 ›', 0, 0, 310, 44, 26);
         this.shopButton(goMem, () => this.open('memorial'));
@@ -5054,7 +5066,7 @@ export class Main extends Component {
                 const it = findItem(l.itemId);
                 showcase.push({ spritePath: `art/items/${l.itemId}/spriteFrame`, name: it?.name || l.itemId, theme: this.itemQualityTheme(it) });
             } else if (l.coins) {
-                showcase.push({ spritePath: 'art/header/coin-icon/spriteFrame', name: `金币+${l.coins}`, theme: 'general' });
+                showcase.push({ spritePath: 'art/header/coin-icon/spriteFrame', name: `金币+${l.coins}`, theme: 'coin' });
             } else if (l.gems) {
                 showcase.push({ spritePath: 'art/header/diamond-icon/spriteFrame', name: `钻石+${l.gems}`, theme: 'coin' });
             }
