@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Camera, Canvas, UITransform, Graphics, Label, Color, Vec3, Vec2, RenderTexture, MeshRenderer, Material, primitives, utils, view, ResolutionPolicy, Layers, input, Input, EventTouch, sys, BlockInputEvents, Sprite, SpriteFrame, resources, DirectionalLight, Vec4, JsonAsset, Texture2D, ImageAsset, isValid, tween, Tween, ScrollView, Mask, UIOpacity, profiler } from 'cc';
+import { _decorator, Component, Node, Camera, Canvas, UITransform, Graphics, Label, Color, Vec3, Vec2, RenderTexture, MeshRenderer, Material, primitives, utils, view, ResolutionPolicy, Layers, input, Input, EventTouch, sys, BlockInputEvents, Sprite, SpriteFrame, resources, DirectionalLight, Vec4, JsonAsset, Texture2D, ImageAsset, isValid, tween, Tween, ScrollView, Mask, UIOpacity, profiler, EditBox } from 'cc';
 
 import { ITEM_CATALOG, ItemDefinition, ItemCategory, PetStat, ShopSlot, findItem, itemApplies, effectText, drawShopSlots } from './ItemCatalog';
 
@@ -34,6 +34,7 @@ interface Pet {
     joy: number;
     star: number;
     nickname: string;
+    renameCount?: number;
     trait: TraitId;
     outfit: OutfitId;
     coat: CoatId;
@@ -218,7 +219,7 @@ export class Main extends Component {
 
     private makePet(id: number, hunger = 70, clean = 80, energy = 85, joy = 75): Pet {
         return {
-            id, hunger, clean, energy, joy, star: 1, nickname: '',
+            id, hunger, clean, energy, joy, star: 1, nickname: '', renameCount: 0,
             trait: BREEDS[id].defaultTrait, outfit: 'none', coat: 'original',
             ownedOutfits: ['none'], ownedCoats: ['original'],
         };
@@ -255,6 +256,7 @@ export class Main extends Component {
                 ids.add(p.id);
                 const star = validInt(p.star, MAX_PET_STAR) && p.star >= 1 ? p.star : 1;
                 const nickname = typeof p.nickname === 'string' ? sanitizeNickname(p.nickname) : '';
+                const renameCount = validInt(p.renameCount, 1000000) ? p.renameCount! : (nickname ? 1 : 0);
                 const trait = isTraitId(p.trait) ? p.trait : BREEDS[p.id].defaultTrait;
                 let outfit: OutfitId = isOutfitId(p.outfit) ? p.outfit : 'none';
                 let coat: CoatId = isCoatId(p.coat) ? p.coat : 'original';
@@ -270,7 +272,7 @@ export class Main extends Component {
                 if (!petCoats.has(coat)) coat = 'original';
                 return {
                     id: p.id, hunger: p.hunger, clean: p.clean, energy: p.energy, joy: p.joy,
-                    star, nickname, trait, outfit, coat,
+                    star, nickname, renameCount, trait, outfit, coat,
                     ownedOutfits: Array.from(petOutfits), ownedCoats: Array.from(petCoats),
                 };
             });
@@ -2798,17 +2800,29 @@ export class Main extends Component {
         const pet = this.data.pets.find(p => p.id === petId);
         if (!pet) return false;
         const clean = sanitizeNickname(rawName);
-        const nextPet: Pet = { ...pet, nickname: clean };
+        if (!clean) { this.toast('请输入新名字（1~8个字）'); return false; }
+        if (clean === this.petDisplayName(petId)) { this.toast('新名字和当前名字一样哦'); return false; }
+        const used = pet.renameCount || 0;
+        const cost = used === 0 ? 0 : 100;
+        if (cost > 0 && this.data.gems < cost) {
+            this.closeDialog();
+            this.showGemDialog();
+            return false;
+        }
+        const nextPet: Pet = { ...pet, nickname: clean, renameCount: used + 1 };
         const candidate: Save = {
             ...this.dailyCandidate(),
+            gems: this.data.gems - cost,
             pets: this.data.pets.map(p => p.id === petId ? nextPet : p),
         };
         if (!this.commitShop(candidate)) return false;
         const actor = this.actors.find(a => a.pet.id === petId);
         if (actor) actor.pet = nextPet;
+        this.renderHeader();
         if (this.page === 'profile') this.refreshProfileInPlace();
         else if (this.page === 'pet') this.renderPet();
-        this.toast(clean ? '已改名为「' + clean + '」' : '已恢复默认名称「' + BREEDS[petId].name + '」');
+        else if (this.page === 'album') this.renderAlbumGrid();
+        this.toast(cost > 0 ? '已改名为「' + clean + '」（消耗 100 钻石）' : '首次免费改名为「' + clean + '」');
         return true;
     }
 
@@ -2877,26 +2891,70 @@ export class Main extends Component {
 
     private showRenameDialog(petId: number) {
         if (this.dialog) return;
-        const breed = BREEDS[petId];
-        const presets = PET_NICKNAME_PRESETS[breed.kind];
-        this.showDialog('给伙伴改名', '当前名字：' + this.petDisplayName(petId) + '\n点击下方萌名即可立刻换名，或自定义输入（最多8字）', [
-            { title: '自定义输入', run: () => {
-                const inputVal = typeof window !== 'undefined' && typeof window.prompt === 'function'
-                    ? window.prompt('请输入伙伴新名字（最多8个字，留空恢复默认名）：', this.petDisplayName(petId))
-                    : null;
-                if (inputVal !== null) { this.renamePet(petId, inputVal); this.closeDialog(); }
+        const pet = this.data.pets.find(p => p.id === petId);
+        if (!pet) return;
+        const isFree = (pet.renameCount || 0) === 0;
+        let editBox: EditBox | null = null;
+        this.showDialog('改名', '', [
+            { title: '确认', run: () => {
+                const val = editBox ? editBox.string : '';
+                if (this.renamePet(petId, val)) this.closeDialog();
             } },
-            { title: '恢复原名', run: () => { this.renamePet(petId, ''); this.closeDialog(); } },
+            { title: '取消', run: () => this.closeDialog() },
         ]);
         if (!this.dialog) return;
         const content = this.dialog.getChildByName('通用弹窗面板')?.getChildByName('弹窗安全内容');
         if (!content) return;
         const body = content.getChildByName('弹窗正文');
-        if (body) body.setPosition(0, 128);
-        presets.slice(0, 6).forEach((name, idx) => {
-            const x = -210 + (idx % 3) * 210, y = 26 - Math.floor(idx / 3) * 74;
-            this.bagButton(content, name, x, y, 186, 56, () => { this.renamePet(petId, name); this.closeDialog(); });
-        });
+        if (body) body.active = false;
+
+        // 顶部引导提示
+        const tip = this.text(content, '请输入新的宠物名称（最多8个字）', 0, 102, 640, 34, 24, '#6E4627');
+        tip.isBold = true; tip.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+
+        // 原生 EditBox 输入框（圆角奶油底框 + 棕边，支持手机键盘与桌面直接输入）
+        const boxNode = this.uiNode(content, '改名输入框', 0, 32, 540, 70);
+        const bg = boxNode.addComponent(Graphics);
+        bg.fillColor = this.color('#FFFDF7'); bg.strokeColor = this.color('#B88652'); bg.lineWidth = 3.5;
+        bg.roundRect(-270, -35, 540, 70, 18); bg.fill(); bg.stroke();
+
+        // Cocos 3.8 EditBox 内部按左上角锚点 (0, 1) 排布文本，lineHeight 设为与输入框等高(70)以确保单行文字垂直居中。
+        const txtNode = this.uiNode(boxNode, 'TEXT_LABEL', -270, 35, 540, 70);
+        txtNode.getComponent(UITransform)!.setAnchorPoint(0, 1);
+        const txtLbl = txtNode.addComponent(Label);
+        txtLbl.fontSize = 28; txtLbl.lineHeight = 70; txtLbl.color = this.color('#4E2F1A');
+        txtLbl.horizontalAlign = Label.HorizontalAlign.CENTER;
+        txtLbl.verticalAlign = Label.VerticalAlign.CENTER;
+        txtLbl.overflow = Label.Overflow.CLAMP;
+        txtLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+
+        const phNode = this.uiNode(boxNode, 'PLACEHOLDER_LABEL', -270, 35, 540, 70);
+        phNode.getComponent(UITransform)!.setAnchorPoint(0, 1);
+        const phLbl = phNode.addComponent(Label);
+        phLbl.fontSize = 26; phLbl.lineHeight = 70; phLbl.color = this.color('#A99278');
+        phLbl.horizontalAlign = Label.HorizontalAlign.CENTER;
+        phLbl.verticalAlign = Label.VerticalAlign.CENTER;
+        phLbl.overflow = Label.Overflow.CLAMP;
+        phLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+
+        editBox = boxNode.addComponent(EditBox);
+        editBox.textLabel = txtLbl;
+        editBox.placeholderLabel = phLbl;
+        editBox.maxLength = 8;
+        editBox.placeholder = '点击输入新名字（1~8字）';
+        editBox.string = this.petDisplayName(petId);
+
+        // 费用说明行：明确提示「首次改名免费，后面改名 100 钻石」
+        if (isFree) {
+            const costLbl = this.text(content, '首次改名免费，后续每次改名消耗 100 钻石', 0, -34, 640, 34, 22, '#228B3C');
+            costLbl.isBold = true; costLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+        } else {
+            const costRow = this.uiNode(content, '改名费用提示行', 0, -34, 640, 36);
+            this.currencyIcon(costRow, 'gems', -82, 0, 28);
+            const canAfford = this.data.gems >= 100;
+            const costLbl = this.text(costRow, '本次改名消耗      100（首次改名免费）', 0, 0, 620, 34, 22, canAfford ? '#228B3C' : '#C93832');
+            costLbl.isBold = true; costLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+        }
     }
 
     private renderAlbum() {

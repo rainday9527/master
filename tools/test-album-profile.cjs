@@ -105,12 +105,29 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
     console.log('unlock diamond rewards:', JSON.stringify(gemCheck));
     assert.deepEqual(gemCheck, { okSSR: true, dupSSR: false, okR: true, okSR: true, dSSR: 120, dR: 50, dSR: 80 });
 
-    // 3) Rename pet #7 and verify display name updates
+    // 3) Open Rename dialog -> verify title "改名", EditBox input, 确认/取消 buttons, free 1st rename & 100-gem 2nd rename!
+    await page.evaluate(() => main.showRenameDialog(7));
+    await page.waitForTimeout(250);
+    const renameDlg = await page.evaluate(() => ({
+      title: walk(main.dialog).find(n => n.name === '弹窗独立标题')?.getComponent('cc.Label')?.string,
+      hasInput: !!walk(main.dialog).find(n => n.name === '改名输入框')?.getComponent('cc.EditBox'),
+      hasOk: !!walk(main.dialog).find(n => n.name === '弹窗按钮-确认'),
+      hasCancel: !!walk(main.dialog).find(n => n.name === '弹窗按钮-取消'),
+    }));
+    console.log('rename dialog check:', JSON.stringify(renameDlg));
+    assert.deepEqual(renameDlg, { title: '改名', hasInput: true, hasOk: true, hasCancel: true });
+    await page.screenshot({ path: path.join(OUT_DIR, 'verify-rename-dialog.png') });
     const renamed = await page.evaluate(() => {
-      const ok = main.renamePet(7, '奶盖小仙');
-      return { ok, name: main.petDisplayName(7) };
+      main.closeDialog();
+      const g0 = main.data.gems;
+      const ok1 = main.renamePet(7, '奶盖小仙');
+      const g1 = main.data.gems;
+      const ok2 = main.renamePet(7, '布偶小仙');
+      const g2 = main.data.gems;
+      return { ok1, freeCost: g0 - g1, ok2, secondCost: g1 - g2, name: main.petDisplayName(7) };
     });
-    assert.deepEqual(renamed, { ok: true, name: '奶盖小仙' });
+    console.log('rename cost check:', JSON.stringify(renamed));
+    assert.deepEqual(renamed, { ok1: true, freeCost: 0, ok2: true, secondCost: 100, name: '布偶小仙' });
 
     // 4) Switch to Star Upgrade tab -> upgrade #7 from ★1 -> ★2 -> ★3 (auto-unlocks gold_crown!)
     await page.evaluate(() => { main.openProfile(7, 'star'); });
