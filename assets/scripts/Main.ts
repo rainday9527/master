@@ -7417,7 +7417,7 @@ export class Main extends Component {
             (has(ta, 'bold') || has(tb, 'bold') ? 0.04 : 0) +
             (has(ta, 'glutton') && has(tb, 'glutton') ? 0.05 : 0) +
             0.01;
-        if (this.fightClouds.length < 1 && this.socialTime >= this.yardFightCooldownUntil && Math.random() < fightProb) {
+        if ((this.page === 'home' || this.page === 'pet') && this.fightClouds.length < 1 && this.socialTime >= this.yardFightCooldownUntil && Math.random() < fightProb) {
             this.yardFightCooldownUntil = this.socialTime + 75;
             this.triggerYardFight(a, b);
             return;
@@ -7522,11 +7522,17 @@ export class Main extends Component {
 
     private updateFightClouds(dt: number) {
         if (!this.fightClouds.length) return;
+        const showYardVfx = this.page === 'home' || this.page === 'pet';
         const keep: typeof this.fightClouds = [];
         for (const fc of this.fightClouds) {
             fc.age += dt;
             if (fc.age >= fc.duration || !isValid(fc.node, true)) {
                 if (isValid(fc.node, true)) { fc.node.active = false; fc.node.destroy(); }
+                continue;
+            }
+            fc.node.active = showYardVfx;
+            if (!showYardVfx) {
+                keep.push(fc);
                 continue;
             }
             const t = fc.age;
@@ -7545,9 +7551,13 @@ export class Main extends Component {
                 sp.setScale(pop * 1.25, pop * 1.25, pop * 1.25);
                 sp.setRotationFromEuler(t * 320, t * 240, idx * 45);
             });
-            // 两只宠物在烟云内轻微晃动翻滚感
-            if (isValid(fc.a.node, true)) fc.a.node.setPosition(fc.x - 0.35 + Math.sin(t * 26) * 0.16, 0, fc.z + Math.cos(t * 24) * 0.14);
-            if (isValid(fc.b.node, true)) fc.b.node.setPosition(fc.x + 0.35 - Math.sin(t * 26) * 0.16, 0, fc.z - Math.cos(t * 24) * 0.14);
+            // 仅在庭院界面且伙伴未外出冒险时，在烟云内轻微晃动翻滚，绝不干扰冒险页面编队位置
+            if (isValid(fc.a.node, true) && fc.a.node.active && !fc.a.pet.adventuring) {
+                fc.a.node.setPosition(fc.x - 0.35 + Math.sin(t * 26) * 0.16, 0, fc.z + Math.cos(t * 24) * 0.14);
+            }
+            if (isValid(fc.b.node, true) && fc.b.node.active && !fc.b.pet.adventuring) {
+                fc.b.node.setPosition(fc.x + 0.35 - Math.sin(t * 26) * 0.16, 0, fc.z - Math.cos(t * 24) * 0.14);
+            }
             keep.push(fc);
         }
         this.fightClouds = keep;

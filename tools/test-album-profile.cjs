@@ -379,6 +379,12 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
     console.log('yard fight rolling dust cloud check:', JSON.stringify(fightCheck));
     assert.ok(fightCheck.cloudCount >= 1 && fightCheck.hasCloudNode, 'yard fight must spawn rolling dust cloud 3D node');
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-yard-fight-cloud.png') });
+    // Verify switching to Adventure immediately hides yard fight dust cloud!
+    await page.evaluate(() => main.open('adventure'));
+    await page.waitForTimeout(200);
+    const hiddenOnAdv = await page.evaluate(() => main.fightClouds.every(fc => !fc.node?.active));
+    assert.equal(hiddenOnAdv, true, 'yard fight dust cloud must be hidden when switching to Adventure page');
+    await page.evaluate(() => main.open('home'));
 
     // 9) Verify Recruit page: signboard aligned left with avatar, reward panel shifted right, Album cards in preview strip, and swipeable card details dialog!
     await page.evaluate(() => main.open('recruit'));
