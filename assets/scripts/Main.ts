@@ -1865,12 +1865,18 @@ export class Main extends Component {
             this.intercept(this.sheet); this.renderProfile(); this.layout(); this.animatePanelOpen(); return;
         }
         if (page === 'pet') {
-            this.sheet = this.uiNode(this.ui, '宠物状态', 0, -this.height / 2 + 350, 900, 300);
-            this.headerArt(this.sheet, 'pet-status'); this.intercept(this.sheet);
-            this.headerText(this.sheet, this.petDisplayName(this.selected) + ' · 小日常', -42, 84, 520, 36, 27).node.name = '宠物标题';
-            const goProfile = this.uiNode(this.sheet, '宠物状态进主页', 310, 84, 132, 44);
-            this.dailySprite(goProfile, 'button', 0, 0, 132, 44, true);
-            this.dailyText(goProfile, '主页 ›', 0, 0, 118, 34, 21);
+            this.sheet = this.uiNode(this.ui, '宠物状态', 0, -this.height / 2 + 356, 960, 334);
+            this.headerArt(this.sheet, 'pet-status-pill'); this.intercept(this.sheet);
+            const titleLbl = this.text(this.sheet, this.petDisplayName(this.selected), 56, 82, 380, 36, 25, '#5E3A1E');
+            titleLbl.isBold = true; titleLbl.horizontalAlign = Label.HorizontalAlign.LEFT;
+            titleLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+            titleLbl.node.name = '宠物标题';
+            const goProfile = this.uiNode(this.sheet, '宠物状态进主页', 332, 82, 118, 42);
+            const gpb = goProfile.addComponent(Graphics);
+            gpb.fillColor = this.color('#FFD666'); gpb.strokeColor = this.color('#8A562C'); gpb.lineWidth = 2.5;
+            gpb.roundRect(-59, -21, 118, 42, 21); gpb.fill(); gpb.stroke();
+            const gpl = this.text(goProfile, '主页 ›', 0, 0, 108, 30, 21, '#5B3418');
+            gpl.isBold = true; gpl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
             this.intercept(goProfile); this.pressVisualFeedback(goProfile, goProfile.children.slice());
             goProfile.on(Node.EventType.TOUCH_END, () => this.openProfile(this.selected), this);
             this.renderPet();
@@ -1887,39 +1893,73 @@ export class Main extends Component {
 
     private renderPet() {
         const p = this.data.pets.find(v => v.id === this.selected && !v.dead);
-        if (!p) return;
-        const title = this.sheet!.getChildByName('宠物标题')?.getComponent(Label);
+        if (!p || !this.sheet) return;
+        const title = this.sheet.getChildByName('宠物标题')?.getComponent(Label);
         const sickTag = p.health < 30 ? ' [生病中]' : p.energy <= 0 ? ' [疲惫]' : '';
-        if (title) title.string = this.petDisplayName(this.selected) + ' ★' + p.star + ' · ' + PET_TRAITS[p.trait].name + sickTag;
-        const needs: [string, number][] = [['饱腹', p.hunger], ['洁净', p.clean], ['体力', p.energy], ['心情', p.joy], ['健康', p.health]];
-        needs.forEach(([name, value], i) => {
-            const existing = this.sheet!.getChildByName(name + '-进度')?.getComponent(Sprite);
+        if (title) {
+            title.string = this.petDisplayName(this.selected) + ' ★' + p.star + ' · ' + PET_TRAITS[p.trait].name + sickTag;
+            title.color = this.color(p.health < 30 ? '#C93832' : '#5E3A1E');
+        }
+
+        // 左侧绿色圆框内的宠物头像（可点击直接进入宠物主页）
+        const avHolderName = '状态卡宠物头像';
+        const existingAv = this.sheet.getChildByName(avHolderName);
+        if (!existingAv || (existingAv as any)._petId !== p.id) {
+            if (existingAv) existingAv.destroy();
+            const holder = this.uiNode(this.sheet, avHolderName, -316, 0, 232, 232);
+            (holder as any)._petId = p.id;
+            this.petAvatar(holder, p.id, 0, 0, 224);
+            this.intercept(holder); this.pressVisualFeedback(holder);
+            holder.on(Node.EventType.TOUCH_END, () => this.openProfile(p.id), this);
+        }
+
+        // 5 项扁平可爱图标 + 饱满圆角胶囊彩色进度条
+        const specs: { name: string; icon: string; value: number; fill: string; lowFill: string; ix: number; bx: number; bw: number; bh: number; y: number; nx: number }[] = [
+            { name: '饱腹', icon: 'stat-hunger', value: p.hunger, fill: '#F59E1D', lowFill: '#E05246', ix: -116, bx: -4, bw: 176, bh: 24, y: 30, nx: 108 },
+            { name: '洁净', icon: 'stat-clean', value: p.clean, fill: '#45B6E5', lowFill: '#E05246', ix: 158, bx: 270, bw: 176, bh: 24, y: 30, nx: 384 },
+            { name: '体力', icon: 'stat-energy', value: p.energy, fill: '#E8B923', lowFill: '#E05246', ix: -116, bx: -4, bw: 176, bh: 24, y: -24, nx: 108 },
+            { name: '心情', icon: 'stat-joy', value: p.joy, fill: '#F26D7D', lowFill: '#E05246', ix: 158, bx: 270, bw: 176, bh: 24, y: -24, nx: 384 },
+            { name: '健康', icon: 'stat-health', value: p.health, fill: '#6AB836', lowFill: '#E05246', ix: -116, bx: 132, bw: 448, bh: 26, y: -78, nx: 384 },
+        ];
+
+        const drawPillBar = (g: Graphics, w: number, h: number, ratio: number, fillHex: string) => {
+            g.clear();
+            const r = h / 2;
+            // 柔和米灰底槽
+            g.fillColor = this.color('#D8CCB8');
+            g.roundRect(-w / 2, -h / 2, w, h, r); g.fill();
+            // 彩色胶囊填充
+            const clamped = Math.max(0, Math.min(1, ratio));
+            if (clamped > 0.01) {
+                const fw = Math.max(h, w * clamped);
+                g.fillColor = this.color(fillHex);
+                g.roundRect(-w / 2, -h / 2, fw, h, r); g.fill();
+                // 顶部柔和光泽高光条
+                g.fillColor = new Color(255, 255, 255, 65);
+                g.roundRect(-w / 2 + 4, 2, Math.max(6, fw - 8), h * 0.28, r * 0.5); g.fill();
+            }
+        };
+
+        specs.forEach(s => {
+            const fillColor = s.value < 30 ? s.lowFill : s.fill;
+            const existing = this.sheet!.getChildByName(s.name + '-进度')?.getComponent(Graphics);
             if (existing) {
-                if (existing.spriteFrame) existing.fillRange = value / 100;
-                existing.color = this.color(value < 30 ? '#F08A72' : '#FFFFFF');
-                const number = this.sheet!.getChildByName(name + '-数字')?.getComponent(Label);
-                if (number) number.string = String(Math.round(value));
+                drawPillBar(existing, s.bw, s.bh, s.value / 100, fillColor);
+                const num = this.sheet!.getChildByName(s.name + '-数字')?.getComponent(Label);
+                if (num) {
+                    num.string = String(Math.round(s.value));
+                    num.color = this.color(s.value < 30 ? '#C93832' : '#6A472B');
+                }
                 return;
             }
-            const isHealth = i === 4;
-            const x = isHealth ? 0 : (-185 + (i % 2) * 370);
-            const y = isHealth ? -94 : (28 - Math.floor(i / 2) * 60);
-            const barW = isHealth ? 380 : 192;
-            this.headerText(this.sheet!, name, isHealth ? -246 : x - 125, y, 72, 32, 22);
-            const bg = this.uiNode(this.sheet!, name + '-槽', isHealth ? 0 : x + 14, y, barW, 30);
-            this.headerArt(bg, 'xp-track');
-            const fillNode = this.uiNode(this.sheet!, name + '-进度', isHealth ? 0 : x + 14, y, barW, 30);
-            const fill = fillNode.addComponent(Sprite); fill.sizeMode = Sprite.SizeMode.CUSTOM;
-            resources.load('art/header/xp-fit/spriteFrame', SpriteFrame, (error, frame) => {
-                if (error || !frame || !isValid(fill, true)) return;
-                fill.spriteFrame = frame; fill.type = Sprite.Type.FILLED;
-                const current = this.data.pets.find(pet => pet.id === this.selected);
-                if (!current) return;
-                const liveValue = [current.hunger, current.clean, current.energy, current.joy, current.health][i];
-                fill.fillType = Sprite.FillType.HORIZONTAL; fill.fillStart = 0; fill.fillRange = liveValue / 100;
-                fill.color = this.color(liveValue < 30 ? '#F08A72' : '#FFFFFF');
-            });
-            this.headerText(this.sheet!, String(Math.round(value)), isHealth ? 232 : x + 137, y, 58, 32, 22).node.name = name + '-数字';
+            const iconNode = this.uiNode(this.sheet!, s.name + '-图标', s.ix, s.y, 38, 38);
+            this.headerArt(iconNode, s.icon);
+            const barNode = this.uiNode(this.sheet!, s.name + '-进度', s.bx, s.y, s.bw, s.bh);
+            const barG = barNode.addComponent(Graphics);
+            drawPillBar(barG, s.bw, s.bh, s.value / 100, fillColor);
+            const numLbl = this.text(this.sheet!, String(Math.round(s.value)), s.nx, s.y, 52, 30, 21, s.value < 30 ? '#C93832' : '#6A472B');
+            numLbl.isBold = true; numLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+            numLbl.node.name = s.name + '-数字';
         });
     }
     private care(item: ItemCategory | 'rest') {
