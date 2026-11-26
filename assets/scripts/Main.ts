@@ -1299,9 +1299,11 @@ export class Main extends Component {
         const shade = this.dialog.getComponent(Graphics)!;
         shade.clear(); shade.fillColor = new Color(0, 0, 0, 165);
         shade.rect(-this.width / 2, -this.height / 2, this.width, this.height); shade.fill();
-        const panel = this.dialog.getChildByName('通用弹窗面板')!;
+        const panel = this.dialog.getChildByName('通用弹窗面板') || this.dialog.getChildByName('更换头像面板');
+        if (!panel) return;
         const panelHeight = panel.getComponent(UITransform)!.height;
-        const scale = Math.min(1, (this.width - 40) / 900, (this.height - 40) / panelHeight);
+        const panelWidth = panel.getComponent(UITransform)!.width;
+        const scale = Math.min(1, (this.width - 40) / panelWidth, (this.height - 40) / panelHeight);
         panel.setScale(scale, scale, 1);
     }
 
@@ -1371,6 +1373,131 @@ export class Main extends Component {
         ], { amount: VIDEO_REWARDS.coins, currency: 'coins', description: '也可前往林间寻宝，每次获得80金币' });
     }
 
+    private showAvatarDialog() {
+        if (this.dialog) return;
+        const ownedIds = new Set(this.data.pets.map(p => p.id));
+        let selectedId = ownedIds.has(this.data.avatar) ? this.data.avatar : (this.data.pets[0]?.id ?? 0);
+
+        const overlay = this.uiNode(this.ui, '通用弹窗遮罩', 0, 0, this.width, this.height);
+        this.dialog = overlay;
+        overlay.addComponent(Graphics); this.intercept(overlay);
+
+        const panelW = 880, panelH = Math.round(880 * 1154 / 900);
+        const panel = this.uiNode(overlay, '更换头像面板', 0, 0, panelW, panelH);
+        this.intercept(panel);
+        const art = this.uiNode(panel, '更换头像底板', 0, 0, panelW, panelH);
+        const sprite = art.addComponent(Sprite); sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+        resources.load('art/header/avatar-picker-panel/spriteFrame', SpriteFrame, (error, frame) => {
+            if (!error && frame && isValid(sprite, true)) sprite.spriteFrame = frame;
+        });
+
+        // 顶部木牌标题（居中落在双爪印之间的弧形木牌上）
+        const heading = this.text(panel, '更换头像', 0, 474, 420, 62, 44, '#FFF9E8');
+        heading.isBold = true; heading.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+        heading.enableOutline = true; heading.outlineColor = this.color('#6D3B18'); heading.outlineWidth = 4;
+        heading.node.name = '弹窗独立标题';
+
+        // 右上角关闭按钮
+        const close = this.shopArt(panel, 'close', 382, 444, 72, 73);
+        this.shopButton(close, () => this.closeDialog());
+
+        // 副标题说明
+        const sub = this.text(panel, '点击已解锁伙伴更换头像（已解锁 ' + ownedIds.size + '/' + BREEDS.length + '）', 0, 366, 720, 34, 24, '#7A5130');
+        sub.isBold = true; sub.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+
+        // 4×3 全部 12 只猫狗头像网格（未解锁自动灰显并上锁）
+        const refreshers: Array<() => void> = [];
+        const refreshAll = () => refreshers.forEach(fn => fn());
+
+        BREEDS.forEach((breed, idx) => {
+            const col = idx % 4, row = Math.floor(idx / 4);
+            const x = (col - 1.5) * 172;
+            const y = 215 - row * 198;
+            const owned = ownedIds.has(breed.id);
+            const slot = this.uiNode(panel, '头像选项-' + breed.id, x, y, 156, 182);
+            const cardBg = slot.addComponent(Graphics);
+            this.petAvatar(slot, breed.id, 0, 22, 112, !owned);
+
+            const badgeNode = this.uiNode(slot, '头像状态标', 0, -28, 82, 26);
+            const badgeBg = badgeNode.addComponent(Graphics);
+            const badgeLbl = this.text(badgeNode, '', 0, 0, 78, 24, 16, C.white);
+            badgeLbl.isBold = true; badgeLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+
+            const nameLbl = this.text(slot, owned ? this.petDisplayName(breed.id) : breed.name, 0, -64, 148, 30, 22, owned ? '#58351D' : '#8A8680');
+            nameLbl.isBold = true; nameLbl.overflow = Label.Overflow.CLAMP;
+            nameLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+
+            const redraw = () => {
+                const isEquipped = this.data.avatar === breed.id;
+                const isSelected = selectedId === breed.id;
+                cardBg.clear();
+                cardBg.fillColor = this.color(!owned ? '#EDEAE3' : isSelected ? '#FFF3C4' : '#FFFBF0');
+                cardBg.strokeColor = this.color(!owned ? '#C4BCB0' : isSelected ? '#E69924' : isEquipped ? '#38A169' : '#D9BE98');
+                cardBg.lineWidth = isSelected ? 4.5 : 2.5;
+                cardBg.roundRect(-78, -91, 156, 182, 20);
+                cardBg.fill(); cardBg.stroke();
+
+                badgeBg.clear();
+                if (!owned) {
+                    badgeNode.active = true;
+                    badgeBg.fillColor = this.color('#7B828E');
+                    badgeBg.roundRect(-38, -13, 76, 26, 13); badgeBg.fill();
+                    badgeLbl.string = '未解锁';
+                } else if (isEquipped) {
+                    badgeNode.active = true;
+                    badgeBg.fillColor = this.color('#2F9E44');
+                    badgeBg.roundRect(-38, -13, 76, 26, 13); badgeBg.fill();
+                    badgeLbl.string = '使用中';
+                } else if (isSelected) {
+                    badgeNode.active = true;
+                    badgeBg.fillColor = this.color('#E08E1B');
+                    badgeBg.roundRect(-38, -13, 76, 26, 13); badgeBg.fill();
+                    badgeLbl.string = '已选中';
+                } else {
+                    badgeNode.active = false;
+                }
+            };
+            refreshers.push(redraw);
+            redraw();
+
+            this.intercept(slot); this.pressVisualFeedback(slot);
+            slot.on(Node.EventType.TOUCH_END, () => {
+                if (!owned) {
+                    this.toast('尚未解锁「' + breed.name + '」，请先通过招募获得！');
+                    return;
+                }
+                selectedId = breed.id;
+                refreshAll();
+            }, this);
+        });
+
+        // 底部确认 / 取消按钮
+        const okBtn = this.shopArt(panel, 'buy', -158, -396, 270, 270 * 120 / 321);
+        okBtn.name = '弹窗按钮-确认更换';
+        this.headerText(okBtn, '确认更换', 0, 0, 220, 44, 28);
+        this.shopButton(okBtn, () => {
+            if (!ownedIds.has(selectedId)) return;
+            if (this.data.avatar === selectedId) {
+                this.closeDialog();
+                return;
+            }
+            this.data.avatar = selectedId;
+            if (this.persist()) {
+                this.renderHeader();
+                if (this.page === 'album' && this.profilePetId !== null) this.refreshProfileInPlace();
+                this.closeDialog();
+                this.toast('已更换头像为「' + this.petDisplayName(selectedId) + '」');
+            }
+        });
+
+        const cancelBtn = this.shopArt(panel, 'buy', 158, -396, 270, 270 * 120 / 321);
+        cancelBtn.name = '弹窗按钮-取消';
+        this.headerText(cancelBtn, '取消', 0, 0, 220, 44, 28);
+        this.shopButton(cancelBtn, () => this.closeDialog());
+
+        this.layoutDialog();
+    }
+
     private watchRewardedVideo(currency: Currency) {
         const currencyName = currency === 'coins' ? '金币' : '钻石';
         const amount = VIDEO_REWARDS[currency];
@@ -1427,7 +1554,7 @@ export class Main extends Component {
         this.petAvatar(profile, this.data.avatar, -161, 0, 126);
         this.headerArt(profile, 'profile');
         this.intercept(profile);
-        profile.on(Node.EventType.TOUCH_END, () => this.open('album'), this);
+        profile.on(Node.EventType.TOUCH_END, () => this.showAvatarDialog(), this);
         const levelLabel = this.headerText(profile, 'Lv.' + level, -45, 25, 100, 36, 27);
         const track = this.uiNode(profile, '独立经验槽', 65, -17, 290, 50);
         this.headerArt(track, 'xp-track');

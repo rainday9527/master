@@ -483,6 +483,56 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
     await page.waitForTimeout(200);
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-shop-after.png') });
 
+    // 14) Avatar Picker dialog + Earless HUD frame check:
+    // Go back to home with 7 unlocked & 5 locked pets so we verify both unlocked & locked states in the picker!
+    await page.evaluate(() => {
+      main.open('home');
+      main.data.pets = main.data.pets.filter(p => p.id < 7);
+      main.data.avatar = 0;
+      main.renderHeader();
+    });
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: path.join(OUT_DIR, 'verify-hud-earless.png') });
+    // Trigger click on top-left player avatar -> must open Avatar Picker dialog, NOT jump to Album!
+    await page.evaluate(() => {
+      const prof = main.top.getChildByName('头像等级经验');
+      prof.emit('touch-end', {});
+    });
+    await page.waitForTimeout(450);
+    const avCheck = await page.evaluate(() => {
+      const panel = main.dialog?.getChildByName('更换头像面板');
+      const slots = panel ? panel.children.filter(c => c.name.startsWith('头像选项-')) : [];
+      const locked = slots.filter(s => !!walk(s).find(n => n.name === '未解锁遮罩')).length;
+      const unlocked = slots.length - locked;
+      return {
+        page: main.page,
+        title: panel?.getChildByName('弹窗独立标题')?.getComponent('cc.Label')?.string,
+        totalSlots: slots.length,
+        unlocked,
+        locked,
+        hasConfirm: !!panel?.getChildByName('弹窗按钮-确认更换'),
+        hasCancel: !!panel?.getChildByName('弹窗按钮-取消'),
+      };
+    });
+    console.log('avatar picker check:', JSON.stringify(avCheck));
+    assert.deepEqual(avCheck, { page: 'home', title: '更换头像', totalSlots: 12, unlocked: 7, locked: 5, hasConfirm: true, hasCancel: true });
+    await page.screenshot({ path: path.join(OUT_DIR, 'verify-avatar-picker.png') });
+    // Clicking a locked avatar must NOT change equipped avatar; clicking unlocked avatar + 确认更换 MUST equip it!
+    const avSwap = await page.evaluate(() => {
+      const panel = main.dialog.getChildByName('更换头像面板');
+      panel.getChildByName('头像选项-8').emit('touch-end', {}); // locked
+      panel.getChildByName('弹窗按钮-确认更换').emit('touch-end', {});
+      const afterLocked = main.data.avatar;
+      // Re-open, select unlocked pet #4, confirm
+      main.showAvatarDialog();
+      const panel2 = main.dialog.getChildByName('更换头像面板');
+      panel2.getChildByName('头像选项-4').emit('touch-end', {});
+      panel2.getChildByName('弹窗按钮-确认更换').emit('touch-end', {});
+      return { afterLocked, afterUnlocked: main.data.avatar, dialogClosed: !main.dialog };
+    });
+    console.log('avatar swap check:', JSON.stringify(avSwap));
+    assert.deepEqual(avSwap, { afterLocked: 0, afterUnlocked: 4, dialogClosed: true });
+
     assert.deepEqual(errors, [], 'zero pageerrors');
     assert.deepEqual(failures, [], 'zero HTTP errors');
     console.log('ALL ALBUM + PROFILE + 12-BREED + TRAITS + 3D OUTFITS CHECKS PASSED!');
