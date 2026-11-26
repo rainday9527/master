@@ -1364,7 +1364,7 @@ export class Main extends Component {
         this.intercept(memorial); this.pressFeedback(memorial);
         const memIcon = this.uiNode(memorial, '纪念角入口图标', 0, 26, 98, 98).addComponent(Sprite);
         memIcon.sizeMode = Sprite.SizeMode.CUSTOM;
-        resources.load('art/memorial/tomb-wood/spriteFrame', SpriteFrame, (e, f) => { if (!e && f && isValid(memIcon, true)) memIcon.spriteFrame = f; });
+        resources.load('art/memorial/entry-icon/spriteFrame', SpriteFrame, (e, f) => { if (!e && f && isValid(memIcon, true)) memIcon.spriteFrame = f; });
         this.navCaption(memorial, '纪念角', 2);
         memorial.on(Node.EventType.TOUCH_END, () => this.open('memorial'), this);
         this.refreshMemorialEntry();
