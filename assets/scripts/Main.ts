@@ -193,10 +193,10 @@ export class Main extends Component {
     private actors: Actor[] = [];
     public petNodeScale = 0.48;
     public petCollisionRadius = 0.54;
-    private readonly yardMinX = -3.0;
-    private readonly yardMaxX = 3.0;
-    private readonly yardMinZ = -3.2;
-    private readonly yardMaxZ = 6.2;
+    private readonly yardMinX = -4.2;
+    private readonly yardMaxX = 4.2;
+    private readonly yardMinZ = -3.8;
+    private readonly yardMaxZ = 7.4;
     private socialTime = 0;
     private pairCooldowns = new Map<string, number>();
     private bubbleLayer: Node | null = null;
@@ -634,12 +634,12 @@ export class Main extends Component {
         const n = new Node('庭院相机'); this.node.addChild(n);
         this.worldCamera = n.addComponent(Camera);
         this.worldCamera.projection = Camera.ProjectionType.ORTHO;
-        this.worldCamera.orthoHeight = 9.5;
+        this.worldCamera.orthoHeight = 11.2;
         this.worldCamera.near = 0.1; this.worldCamera.far = 100;
         this.worldCamera.visibility = Layers.Enum.DEFAULT;
         this.worldCamera.clearFlags = Camera.ClearFlag.DEPTH_ONLY;
         this.worldCamera.priority = 1;
-        n.setPosition(0, 22, 16); n.lookAt(new Vec3(0, 0, 0));
+        n.setPosition(0, 27, 15); n.lookAt(new Vec3(0, 0, 0.4));
 
         // 宠物主页专属 3D 展示相机：渲染至 512×512 透明 RenderTexture，由主页展示舞台 Sprite 承载，1:1 零拉伸且严守 UI 层级。
         const previewRT = new RenderTexture();
@@ -1887,8 +1887,9 @@ export class Main extends Component {
         this.ui.getChildByName('每日任务入口')?.setPosition(this.width / 2 - 4 - 190 / 2, this.height / 2 - 295, 0);
         this.ui.getChildByName('冒险日记入口')?.setPosition(this.width / 2 - 4 - 190 / 2, this.height / 2 - 458, 0);
         this.ui.getChildByName('后院纪念角入口')?.setPosition(this.width / 2 - 4 - 190 / 2, this.height / 2 - 620, 0);
-        this.ui.getChildByName('庭院布置入口')?.setPosition(this.width / 2 - 4 - 190 / 2, this.height / 2 - 780, 0);
-        this.ui.getChildByName('GM调试入口')?.setPosition(-Math.min(this.width / 2 - 72, 416), this.height / 2 - 226, 0);
+        // 庭院布置入口移至左侧，与右侧「任务」入口完全水平对齐，GM 调试按钮顺移至其下方避免遮挡
+        this.ui.getChildByName('庭院布置入口')?.setPosition(-this.width / 2 + 4 + 190 / 2, this.height / 2 - 295, 0);
+        this.ui.getChildByName('GM调试入口')?.setPosition(-Math.min(this.width / 2 - 72, 416), this.height / 2 - 422, 0);
         this.bottom.setPosition(0, -this.height / 2 + 90, 0);
         this.layoutGmPanel();
         if (this.page !== 'home' && Date.now() > this.noticeUntil && this.notice) {
@@ -1902,7 +1903,7 @@ export class Main extends Component {
             const cover = Math.max(this.width / 1080, this.height / 1920);
             this.recruitBackground.getComponent(UITransform)!.setContentSize(1080 * cover, 1920 * cover);
         }
-        this.worldCamera.orthoHeight = Math.max(9.5, 9.5 * this.height / 1920);
+        this.worldCamera.orthoHeight = Math.max(11.2, 11.2 * this.height / 1920);
         if (this.sheet) {
             this.sheet.setPosition(0, this.page === 'pet' ? -this.height / 2 + 350 : this.page === 'shop' ? -this.height / 2 + 850 : -this.height / 2 + 640, 0);
             if (this.page === 'recruit') {
@@ -5238,6 +5239,22 @@ export class Main extends Component {
             this.world.addChild(this.furnitureLayer);
         }
         this.furnitureLayer.active = showYard;
+        // 布置模式下在草坪地面显示柔和金色可摆放区域框，直观标示宽敞活动与摆放边界
+        let frame = this.furnitureLayer.getChildByName('布置区域框');
+        if (!frame) {
+            frame = new Node('布置区域框');
+            frame.layer = Layers.Enum.DEFAULT;
+            this.furnitureLayer.addChild(frame);
+            const w = this.yardMaxX - this.yardMinX;
+            const h = this.yardMaxZ - this.yardMinZ;
+            const cx = (this.yardMinX + this.yardMaxX) * 0.5;
+            const cz = (this.yardMinZ + this.yardMaxZ) * 0.5;
+            this.shape(frame, 'box', '#FFE066', [cx, 0.03, this.yardMinZ], [w, 0.02, 0.09]);
+            this.shape(frame, 'box', '#FFE066', [cx, 0.03, this.yardMaxZ], [w, 0.02, 0.09]);
+            this.shape(frame, 'box', '#FFE066', [this.yardMinX, 0.03, cz], [0.09, 0.02, h]);
+            this.shape(frame, 'box', '#FFE066', [this.yardMaxX, 0.03, cz], [0.09, 0.02, h]);
+        }
+        frame.active = this.page === 'layout';
         const placed = this.data?.placedFurniture || [];
         const activeUids = new Set(placed.map(p => p.uid));
 
@@ -5294,12 +5311,12 @@ export class Main extends Component {
                     sr.setSharedMaterial(smat, 0);
                 });
 
-                // 面向庭院正交相机的手绘 2.5D 家具立牌（plane 沿 X 轴旋转 +36° 朝向相机且贴图正向不倒置）
+                // 面向高俯视庭院正交相机的手绘 2.5D 家具立牌（plane 沿 X 轴旋转 +29° 朝向相机且贴图正向不倒置）
                 const card = new Node('家具画面');
                 card.layer = Layers.Enum.DEFAULT;
                 root.addChild(card);
-                card.setPosition(0, sz * 0.34, 0);
-                card.setRotationFromEuler(36, 0, 0);
+                card.setPosition(0, sz * 0.32, 0);
+                card.setRotationFromEuler(29, 0, 0);
                 card.setScale(sz, 1, sz);
                 const mr = card.addComponent(MeshRenderer);
                 mr.mesh = quadMesh!;
@@ -7922,9 +7939,38 @@ export class Main extends Component {
         const clampZ = (z: number) => Math.max(this.yardMinZ, Math.min(this.yardMaxZ, z));
         const diameter = this.petCollisionRadius * 2;
         actors.forEach(a => { const p = a.node.position; a.node.setPosition(clampX(p.x), p.y, clampZ(p.z)); });
-        // 子步内收敛，避免把多宠物挤压的修正留到下一帧而造成抖动。
+        // 子步内收敛，避免把多宠物挤压与建筑阻挡的修正留到下一帧而造成抖动。
+        const placedFurn = (this.data?.placedFurniture || []).map(pf => ({ pf, def: findFurniture(pf.id) })).filter(x => !!x.def);
         for (let pass = 0; pass < 48; pass++) {
             let overlapping = false;
+            // 1) 庭院建筑/家具实体阻挡：漫步中的猫狗自动绕开猫窝、狗窝、食盆、乐园与装饰，绝不穿模！
+            for (let i = 0; i < actors.length; i++) {
+                const a = actors[i];
+                const p = a.node.position;
+                let px = p.x, pz = p.z, pushed = false;
+                for (let f = 0; f < placedFurn.length; f++) {
+                    const { pf, def } = placedFurn[f];
+                    if (a.activity?.furnitureUid === pf.uid) continue;
+                    const blockR = def!.radius * 0.72 + this.petCollisionRadius;
+                    let dx = px - pf.x, dz = pz - pf.z;
+                    const dist = Math.hypot(dx, dz);
+                    if (dist >= blockR - 0.0001) continue;
+                    overlapping = true;
+                    pushed = true;
+                    if (dist < 0.0001) {
+                        const ang = ((a.pet.id + 1) * 1.9 + pf.uid) % (Math.PI * 2);
+                        dx = Math.cos(ang); dz = Math.sin(ang);
+                    } else { dx /= dist; dz /= dist; }
+                    px = clampX(pf.x + dx * (blockR + 0.01));
+                    pz = clampZ(pf.z + dz * (blockR + 0.01));
+                    if (pass === 0 && !a.activity) {
+                        // 碰到建筑时顺滑切向绕行，不会一直顶在建筑上
+                        const side = (a.pet.id % 2 === 0 ? 1 : -1);
+                        a.target.set(clampX(px + dx * 0.7 - dz * 1.1 * side), 0, clampZ(pz + dz * 0.7 + dx * 1.1 * side));
+                    }
+                }
+                if (pushed) a.node.setPosition(px, p.y, pz);
+            }
             for (let i = 0; i < actors.length; i++) for (let j = i + 1; j < actors.length; j++) {
                 const a = actors[i], b = actors[j], p = a.node.position.clone(), q = b.node.position.clone();
                 let dx = q.x - p.x, dz = q.z - p.z;
@@ -8404,6 +8450,12 @@ export class Main extends Component {
                         for (let tries = 0; tries < 6; tries++) {
                             const cx = this.yardMinX + 0.15 + Math.random() * spanX;
                             const cz = this.yardMinZ + 0.15 + Math.random() * spanZ;
+                            // 避开已摆放建筑的占地范围，让随机漫步目标落在开阔草坪上
+                            const hitsFurn = (this.data.placedFurniture || []).some(pf => {
+                                const fd = findFurniture(pf.id);
+                                return fd ? Math.hypot(cx - pf.x, cz - pf.z) < fd.radius * 0.85 + 0.35 : false;
+                            });
+                            if (hitsFurn) continue;
                             const distSelf = Math.hypot(cx - pos.x, cz - pos.z);
                             let minOther = 99;
                             for (const o of this.actors) {

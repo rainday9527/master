@@ -83,11 +83,11 @@ export function isFurnitureId(v: unknown): v is FurnitureId {
 
 export function defaultPlacedFurniture(): PlacedFurniture[] {
     return [
-        { uid: 1, id: 'cat_bed_basic', x: -2.45, z: -1.55 },
-        { uid: 2, id: 'dog_bed_basic', x: 2.45, z: -1.55 },
-        { uid: 3, id: 'cat_bowl_basic', x: -2.25, z: 2.15 },
-        { uid: 4, id: 'dog_bowl_basic', x: 2.25, z: 2.15 },
-        { uid: 5, id: 'play_park_basic', x: 0.0, z: -0.35 },
+        { uid: 1, id: 'cat_bed_basic', x: -3.25, z: -2.05 },
+        { uid: 2, id: 'dog_bed_basic', x: 3.25, z: -2.05 },
+        { uid: 3, id: 'cat_bowl_basic', x: -3.05, z: 2.85 },
+        { uid: 4, id: 'dog_bowl_basic', x: 3.05, z: 2.85 },
+        { uid: 5, id: 'play_park_basic', x: 0.0, z: 0.05 },
     ];
 }
 
