@@ -1,4 +1,5 @@
 import { _decorator, Component, Node, Camera, Canvas, UITransform, Graphics, Label, Color, Vec3, Vec2, RenderTexture, MeshRenderer, Material, primitives, utils, view, ResolutionPolicy, Layers, input, Input, EventTouch, sys, BlockInputEvents, Sprite, SpriteFrame, resources, DirectionalLight, Vec4, JsonAsset, Texture2D, ImageAsset, isValid, tween, Tween, ScrollView, Mask, UIOpacity, profiler, EditBox, game } from 'cc';
+import { DEBUG } from 'cc/env';
 
 import { ITEM_CATALOG, ItemDefinition, ItemCategory, PetStat, ShopSlot, findItem, itemApplies, effectText, drawShopSlots } from './ItemCatalog';
 
@@ -250,6 +251,7 @@ export class Main extends Component {
     private shadowTexture: Promise<Texture2D | null> | null = null;
     private page: Page = 'login';
     private settingsReturnPage: 'home' | 'login' = 'home';
+    private readonly enableGm = DEBUG;
     private selected = 0;
     private petSelected = false;
     private careSelected = '';
@@ -316,6 +318,11 @@ export class Main extends Component {
         profiler.hideStats();
         this.data = this.load();
         SoundManager.init(this.data.settings?.bgm !== false, this.data.settings?.sfx !== false);
+        // 暴露宿主激励视频广告 SDK 注入入口（提审/正式接入广告适配器时直接调用）
+        if (typeof window !== 'undefined') {
+            (window as unknown as { setCatParadiseRewardedAdProvider?: (p: RewardedVideoProvider | null) => void }).setCatParadiseRewardedAdProvider =
+                (provider: RewardedVideoProvider | null) => this.setRewardedVideoProvider(provider);
+        }
         // 立即保存商店迁移结果；失败时后续商店事务仍须先落盘才会生效。
         this.commitShop(this.data);
         view.setDesignResolutionSize(1080, 1920, ResolutionPolicy.SHOW_ALL);
@@ -1839,15 +1846,17 @@ export class Main extends Component {
         this.navCaption(settingsBtn, '设置', 0);
         settingsBtn.on(Node.EventType.TOUCH_END, () => this.open('settings'), this);
 
-        // GM 预览调试悬浮入口（位于左侧「设置」下方，不遮挡顶栏/底栏与主操作区）
-        const gm = this.uiNode(this.ui, 'GM调试入口', -440, 730, 104, 46);
-        const gmg = gm.addComponent(Graphics);
-        gmg.fillColor = new Color(92, 58, 36, 215); gmg.strokeColor = this.color('#F5C86B'); gmg.lineWidth = 3;
-        gmg.roundRect(-52, -23, 104, 46, 23); gmg.fill(); gmg.stroke();
-        const gmLbl = this.text(gm, 'GM 调试', 0, 0, 96, 36, 20, '#FFF6DC');
-        gmLbl.isBold = true; gmLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
-        this.intercept(gm); this.pressVisualFeedback(gm, gm.children.slice());
-        gm.on(Node.EventType.TOUCH_END, () => this.toggleGmPanel(), this);
+        // GM 预览调试悬浮入口：仅在 Debug / 预览模式创建，Release 正式提审包彻底隐藏且禁用
+        if (this.enableGm) {
+            const gm = this.uiNode(this.ui, 'GM调试入口', -440, 730, 104, 46);
+            const gmg = gm.addComponent(Graphics);
+            gmg.fillColor = new Color(92, 58, 36, 215); gmg.strokeColor = this.color('#F5C86B'); gmg.lineWidth = 3;
+            gmg.roundRect(-52, -23, 104, 46, 23); gmg.fill(); gmg.stroke();
+            const gmLbl = this.text(gm, 'GM 调试', 0, 0, 96, 36, 20, '#FFF6DC');
+            gmLbl.isBold = true; gmLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+            this.intercept(gm); this.pressVisualFeedback(gm, gm.children.slice());
+            gm.on(Node.EventType.TOUCH_END, () => this.toggleGmPanel(), this);
+        }
 
         this.layout(); this.renderHeader(); this.renderNav(); this.refreshTaskRedDots();
     }
@@ -2813,7 +2822,7 @@ export class Main extends Component {
         this.refreshTaskRedDots();
         const gmEntry = this.ui.getChildByName('GM调试入口');
         const hideChrome = page === 'login' || (page === 'settings' && this.settingsReturnPage === 'login');
-        if (gmEntry) gmEntry.active = !hideChrome && page !== 'album' && page !== 'profile' && page !== 'layout';
+        if (gmEntry) gmEntry.active = this.enableGm && !hideChrome && page !== 'album' && page !== 'profile' && page !== 'layout';
         if (this.top) this.top.active = !hideChrome && page !== 'album' && page !== 'profile';
         if (this.bottom) this.bottom.active = !hideChrome && page !== 'profile' && page !== 'layout';
         if (page !== 'layout') this.selectedFurnitureUid = null;
@@ -3888,6 +3897,7 @@ export class Main extends Component {
     }
 
     public toggleGmPanel() {
+        if (!this.enableGm) return;
         if (this.gmPanel) { this.closeGmPanel(); return; }
         const overlay = this.uiNode(this.ui, 'GM调试面板', 0, 0, this.width, this.height);
         this.gmPanel = overlay;
