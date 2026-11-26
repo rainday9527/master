@@ -175,14 +175,13 @@ export class Main extends Component {
     private poopNextId = 1;
     private ghosts: GhostFloat[] = [];
     private brooms: BroomSweep[] = [];
+    private advBgContainer: Node | null = null;
     private advRoadTiles: Node[] = [];
-    private advMarchers: { node: Node; baseY: number; phase: number; petId: number }[] = [];
     private advChestAura: Node | null = null;
     private advChestSprite: Sprite | null = null;
     private advChestBadge: Node | null = null;
     private advTimerLabel: Label | null = null;
-    private advRewardSummary: Label | null = null;
-    private advScrollX = 0;
+    private advScrollY = 0;
     private advChestOpenUntil = 0;
     private advLogNextId = 1;
     private shopTab: 'items' | 'tombstones' = 'items';
@@ -1908,14 +1907,16 @@ export class Main extends Component {
         if (this.top) this.top.active = page !== 'album' && page !== 'profile';
         if (this.bottom) this.bottom.active = page !== 'profile';
         if (page !== 'adventure') {
-            this.advRoadTiles = []; this.advMarchers = [];
+            this.clearAdventureBackground();
             this.advChestAura = null; this.advChestSprite = null; this.advChestBadge = null;
-            this.advTimerLabel = null; this.advRewardSummary = null;
+            this.advTimerLabel = null;
         }
         if (page === 'home') { this.checkMainCityAlerts(); return; }
         if (page === 'adventure') {
-            this.sheet = this.uiNode(this.ui, '冒险挂机面板', 0, -10, 960, 1340);
-            this.intercept(this.sheet); this.renderAdventure(); this.layout(); this.animatePanelOpen(); return;
+            this.sheet = this.uiNode(this.ui, '冒险挂机全屏层', 0, 0, this.width, this.height);
+            this.renderAdventure(); this.layout();
+            if (this.bottom) this.bottom.setSiblingIndex(this.ui.children.length - 1);
+            return;
         }
         if (page === 'diary') {
             this.sheet = this.uiNode(this.ui, '冒险日记面板', 0, -10, 921, 1390);
@@ -4559,74 +4560,75 @@ export class Main extends Component {
         return true;
     }
 
-    private renderAdventure() {
-        const panel = this.sheet!;
-        this.advRoadTiles = []; this.advMarchers = [];
-        this.dailySprite(panel, 'panel-clean', 0, 0, 960, 1340, true, '冒险挂机底板');
-        this.dailyText(panel, '林间挂机冒险', -10, 404, 380, 48, 38);
-        const close = this.uiNode(panel, '关闭冒险', 392, 404, 82, 82);
-        this.dailySprite(close, 'close', 0, 0, 76, 76);
-        this.shopButton(close, () => this.open('home'));
-
-        // 顶部挂机时长 + 快捷进入冒险日记
-        this.advTimerLabel = this.dailyText(panel, '', -118, 326, 470, 36, 23);
-        const diaryBtn = this.bagButton(panel, '冒险日记 ›', 268, 326, 200, 52, () => this.open('diary'));
-        diaryBtn.name = '冒险页进日记按钮';
-
-        // 1) 循环走动的挂机小路视口（820×380，无缝横向循环卷轴 + 萌宠蹦跳前行）
-        const vp = this.uiNode(panel, '冒险循环路视口', 0, 108, 820, 370);
-        const vpFrame = this.uiNode(panel, '冒险路边框', 0, 108, 828, 378);
-        const fg = vpFrame.addComponent(Graphics);
-        fg.strokeColor = this.color('#8F5E34'); fg.lineWidth = 6;
-        fg.roundRect(-414, -189, 828, 378, 26); fg.stroke();
-        vp.addComponent(Mask).type = Mask.Type.GRAPHICS_RECT;
-
-        const tileW = 820;
-        for (let i = 0; i < 2; i++) {
-            const tile = this.uiNode(vp, '冒险路底图-' + i, i * tileW, 0, tileW + 2, 374);
-            const sp = tile.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM;
-            resources.load('art/adventure/road-bg/spriteFrame', SpriteFrame, (e, f) => {
-                if (!e && f && isValid(sp, true)) sp.spriteFrame = f;
-            });
-            this.advRoadTiles.push(tile);
+    private clearAdventureBackground() {
+        if (this.advBgContainer && isValid(this.advBgContainer, true)) {
+            this.advBgContainer.active = false;
         }
+        if (this.backgroundSprite && isValid(this.backgroundSprite.node, true)) {
+            this.backgroundSprite.node.active = true;
+        }
+    }
 
-        // 最多 4 只存活且未走失的伙伴在路上循环前行
-        const marchPets = this.data.pets.filter(p => !p.dead && !p.lost).slice(0, 4);
-        marchPets.forEach((pet, idx) => {
-            const mx = 160 - idx * 142;
-            const my = -86 + (idx % 2 === 0 ? 10 : -14);
-            const mNode = this.uiNode(vp, '冒险行进伙伴-' + pet.id, mx, my, 128, 128);
-            const sp = mNode.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM;
-            void this.loadPetPortrait(BREEDS[pet.id].skin).then(f => {
-                if (f && isValid(sp, true)) sp.spriteFrame = f;
-            });
-            this.advMarchers.push({ node: mNode, baseY: my, phase: idx * 1.4, petId: pet.id });
+    private ensureAdventureBackground() {
+        if (!this.background || !isValid(this.background, true)) return;
+        if (this.backgroundSprite && isValid(this.backgroundSprite.node, true)) {
+            this.backgroundSprite.node.active = false;
+        }
+        if (!this.advBgContainer || !isValid(this.advBgContainer, true)) {
+            this.advBgContainer = new Node('冒险竖向循环路背景');
+            this.advBgContainer.layer = this.backgroundLayer;
+            this.background.addChild(this.advBgContainer);
+            this.advBgContainer.addComponent(UITransform).setContentSize(this.width, this.height);
+            this.advRoadTiles = [];
+            for (let i = 0; i < 2; i++) {
+                const tile = new Node('冒险竖路-' + i);
+                tile.layer = this.backgroundLayer;
+                this.advBgContainer.addChild(tile);
+                tile.addComponent(UITransform).setContentSize(this.width, this.height);
+                const sp = tile.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM;
+                resources.load('art/adventure/road-bg/spriteFrame', SpriteFrame, (e, f) => {
+                    if (!e && f && isValid(sp, true)) sp.spriteFrame = f;
+                });
+                this.advRoadTiles.push(tile);
+            }
+        }
+        this.advBgContainer.active = true;
+        this.layoutAdventureBackground();
+    }
+
+    private layoutAdventureBackground() {
+        if (!this.advBgContainer || !isValid(this.advBgContainer, true)) return;
+        const size = view.getVisibleSize();
+        const cover = Math.max(size.width / 1080, size.height / 1920);
+        const tw = 1080 * cover, th = 1920 * cover;
+        this.advRoadTiles.forEach((tile, i) => {
+            if (!isValid(tile, true)) return;
+            tile.getComponent(UITransform)!.setContentSize(tw, th + 2);
+            tile.setPosition(0, i * th - (this.advScrollY % th), 0);
         });
-        const marchBadge = this.uiNode(vp, '挂机状态胶囊', 0, 152, 420, 38);
-        const mbg = marchBadge.addComponent(Graphics);
-        mbg.fillColor = new Color(68, 42, 22, 175); mbg.roundRect(-210, -19, 420, 38, 19); mbg.fill();
-        this.text(marchBadge, marchPets.length ? '伙伴们正在林间小路持续寻宝（离线也计时）' : '暂无可出行的伙伴', 0, 0, 400, 30, 19, '#FFF6DA');
+    }
 
-        // 2) 挂机冒险宝箱区（未开启有旋转金光提醒，点击开启领取并触发开箱特效）
-        const chestCard = this.uiNode(panel, '冒险宝箱区', 0, -214, 820, 238);
-        const cg = chestCard.addComponent(Graphics);
-        cg.fillColor = this.color('#FFF6E1'); cg.strokeColor = this.color('#D5AF78'); cg.lineWidth = 3.5;
-        cg.roundRect(-410, -119, 820, 238, 24); cg.fill(); cg.stroke();
+    private renderAdventure() {
+        const layer = this.sheet!;
+        // 1) 开启全屏竖向无缝循环冒险小路（位于背景相机层，我们的真实 3D 猫狗模型在中间小路上循环前行！）
+        this.ensureAdventureBackground();
+
+        // 2) 右侧悬浮挂机宝箱 + 旋转金光 + 宝箱下方挂机时间（画面干净清爽，不显示日志列表）
+        const chestBox = this.uiNode(layer, '冒险右侧宝箱区', 386, -120, 230, 320);
 
         // 旋转金光光环（可领取时亮起旋转）
-        const aura = this.uiNode(chestCard, '宝箱金光', -266, 0, 210, 210);
+        const aura = this.uiNode(chestBox, '宝箱金光', 0, 26, 250, 250);
         const ag = aura.addComponent(Graphics);
         for (let r = 0; r < 12; r++) {
             const a0 = (r * Math.PI * 2) / 12;
-            const a1 = a0 + 0.16;
-            ag.fillColor = new Color(255, 218, 92, r % 2 === 0 ? 115 : 65);
-            ag.moveTo(0, 0); ag.lineTo(Math.cos(a0) * 102, Math.sin(a0) * 102); ag.lineTo(Math.cos(a1) * 102, Math.sin(a1) * 102); ag.close(); ag.fill();
+            const a1 = a0 + 0.17;
+            ag.fillColor = new Color(255, 224, 96, r % 2 === 0 ? 135 : 70);
+            ag.moveTo(0, 0); ag.lineTo(Math.cos(a0) * 122, Math.sin(a0) * 122); ag.lineTo(Math.cos(a1) * 122, Math.sin(a1) * 122); ag.close(); ag.fill();
         }
-        ag.fillColor = new Color(255, 238, 150, 125); ag.circle(0, 0, 58); ag.fill();
+        ag.fillColor = new Color(255, 240, 152, 145); ag.circle(0, 0, 68); ag.fill();
         this.advChestAura = aura;
 
-        const chestNode = this.uiNode(chestCard, '冒险挂机宝箱', -266, 4, 168, 168);
+        const chestNode = this.uiNode(chestBox, '冒险挂机宝箱', 0, 26, 184, 184);
         const chestSp = chestNode.addComponent(Sprite); chestSp.sizeMode = Sprite.SizeMode.CUSTOM;
         resources.load('art/adventure/chest-closed/spriteFrame', SpriteFrame, (e, f) => {
             if (!e && f && isValid(chestSp, true)) chestSp.spriteFrame = f;
@@ -4635,39 +4637,25 @@ export class Main extends Component {
         this.intercept(chestNode); this.pressFeedback(chestNode);
         chestNode.on(Node.EventType.TOUCH_END, () => this.claimAdventureChest(), this);
 
-        const badge = this.uiNode(chestCard, '宝箱可领标', -266, -78, 114, 30);
+        // 可开启红标（悬浮在宝箱顶部）
+        const badge = this.uiNode(chestBox, '宝箱可领标', 0, 128, 122, 34);
         const bgG = badge.addComponent(Graphics);
-        bgG.fillColor = this.color('#E05744'); bgG.roundRect(-57, -15, 114, 30, 15); bgG.fill();
-        const bLbl = this.text(badge, '可开启!', 0, 0, 108, 26, 18, C.white); bLbl.isBold = true;
+        bgG.fillColor = this.color('#E05744'); bgG.strokeColor = this.color('#FFF6DC'); bgG.lineWidth = 3;
+        bgG.roundRect(-61, -17, 122, 34, 17); bgG.fill(); bgG.stroke();
+        const bLbl = this.text(badge, '可领取!', 0, 0, 114, 28, 20, C.white); bLbl.isBold = true;
         this.advChestBadge = badge;
 
-        this.headerText(chestCard, '挂机冒险宝箱（最多累计24小时）', 108, 72, 490, 36, 25);
-        this.advRewardSummary = this.text(chestCard, '', 108, 14, 490, 62, 22, '#6E4627');
-        this.advRewardSummary.enableWrapText = true; this.advRewardSummary.lineHeight = 28; this.advRewardSummary.isBold = true;
-        const claimBtn = this.bagButton(chestCard, '开启宝箱领取', 108, -66, 280, 62, () => this.claimAdventureChest());
-        claimBtn.name = '领取冒险宝箱按钮';
+        // 挂机时间与宝箱名紧贴宝箱正下方
+        const timerPill = this.uiNode(chestBox, '宝箱挂机时间牌', 0, -92, 204, 72);
+        const tpg = timerPill.addComponent(Graphics);
+        tpg.fillColor = new Color(74, 44, 22, 222); tpg.strokeColor = this.color('#F5CC6C'); tpg.lineWidth = 3.5;
+        tpg.roundRect(-102, -36, 204, 72, 20); tpg.fill(); tpg.stroke();
+        const tTitle = this.text(timerPill, '挂机宝箱', 0, 15, 190, 26, 20, '#FFE896'); tTitle.isBold = true;
+        this.advTimerLabel = this.text(timerPill, '00:00 / 24h', 0, -15, 194, 28, 21, '#FFFDF2');
+        this.advTimerLabel.isBold = true;
+        this.intercept(timerPill); this.pressFeedback(timerPill);
+        timerPill.on(Node.EventType.TOUCH_END, () => this.claimAdventureChest(), this);
 
-        // 3) 底部最新冒险事件快览（最近 2 条日志 + 进入完整日记）
-        const feedCard = this.uiNode(panel, '最新冒险快览', 0, -448, 820, 198);
-        const fcg = feedCard.addComponent(Graphics);
-        fcg.fillColor = this.color('#FFFBF0'); fcg.strokeColor = this.color('#D9BE98'); fcg.lineWidth = 3;
-        fcg.roundRect(-410, -99, 820, 198, 22); fcg.fill(); fcg.stroke();
-        this.headerText(feedCard, '最新冒险见闻', -276, 68, 230, 32, 23);
-        const moreBtn = this.bagButton(feedCard, '全部日志 ›', 300, 68, 168, 42, () => this.open('diary'));
-        moreBtn.name = '冒险快览全部日志';
-
-        const recent = (this.data.adventureLogs || []).slice(0, 2);
-        if (!recent.length) {
-            this.text(feedCard, '伙伴刚刚踏上旅途，稍后将带回精彩的冒险见闻！', 0, -16, 760, 40, 21, C.muted);
-        } else {
-            recent.forEach((log, idx) => {
-                const y = 14 - idx * 62;
-                const meta = eventBadgeMeta(log.type);
-                this.pillBadge(feedCard, meta.label, -330, y, 106, 28, meta.color, C.white, 16);
-                const txt = this.text(feedCard, log.text, 64, y, 650, 46, 19, '#5A3A22');
-                txt.horizontalAlign = Label.HorizontalAlign.LEFT; txt.enableWrapText = true; txt.lineHeight = 22;
-            });
-        }
         this.updateAdventureLabel();
     }
 
@@ -4680,12 +4668,7 @@ export class Main extends Component {
         const mm = ('0' + Math.floor((totalSec % 3600) / 60)).slice(-2);
         const ss = ('0' + (totalSec % 60)).slice(-2);
         if (this.advTimerLabel && isValid(this.advTimerLabel, true)) {
-            this.advTimerLabel.string = `已挂机 ${hh}:${mm}:${ss} / 24:00:00`;
-        }
-        if (this.advRewardSummary && isValid(this.advRewardSummary, true)) {
-            this.advRewardSummary.string = preview.ready
-                ? `预计收获：金币 +${preview.coins} · 钻石 +${preview.gems}${preview.itemCount > 0 ? ` · 随机道具 ×${preview.itemCount}` : ''}`
-                : '挂机满 1 分钟即可开启宝箱，挂机越久奖励越丰厚！';
+            this.advTimerLabel.string = preview.minutes >= 60 ? `${hh}:${mm} / 24h` : `${mm}:${ss} / 24h`;
         }
         if (this.advChestAura && isValid(this.advChestAura, true)) {
             this.advChestAura.active = preview.ready || Date.now() < this.advChestOpenUntil;
@@ -4697,20 +4680,15 @@ export class Main extends Component {
 
     private updateAdventureScene(dt: number) {
         if (this.page !== 'adventure') return;
-        const tileW = 820;
+        const size = view.getVisibleSize();
+        const cover = Math.max(size.width / 1080, size.height / 1920);
+        const th = 1920 * cover;
         if (this.advRoadTiles.length === 2) {
-            this.advScrollX = (this.advScrollX + dt * 105) % tileW;
-            this.advRoadTiles[0].setPosition(-this.advScrollX, 0, 0);
-            this.advRoadTiles[1].setPosition(tileW - this.advScrollX, 0, 0);
+            // 背景小路向下无缝循环滚动，营造猫狗向前奔跑探险的真实挂机体验
+            this.advScrollY = (this.advScrollY + dt * 240) % th;
+            this.advRoadTiles[0].setPosition(0, -this.advScrollY, 0);
+            this.advRoadTiles[1].setPosition(0, th - this.advScrollY, 0);
         }
-        this.advMarchers.forEach(m => {
-            if (!isValid(m.node, true)) return;
-            m.phase += dt * 7.5;
-            const hop = Math.abs(Math.sin(m.phase)) * 16;
-            const tilt = Math.sin(m.phase) * 6;
-            m.node.setPosition(m.node.position.x, m.baseY + hop, 0);
-            m.node.setRotationFromEuler(0, 0, tilt);
-        });
         if (this.advChestAura && isValid(this.advChestAura, true) && this.advChestAura.active) {
             const z = this.advChestAura.eulerAngles.z - dt * 42;
             this.advChestAura.setRotationFromEuler(0, 0, z);
@@ -5431,6 +5409,9 @@ export class Main extends Component {
                 vis = { node: root, quad, poop, smokes };
                 this.poopVisuals.set(poop.id, vis);
             }
+            // 冒险全屏模式下隐藏庭院便便，避免浮现在冒险小路上
+            vis.node.active = this.page !== 'adventure';
+            if (!vis.node.active) continue;
             // Billboard 始终面向主摄像机
             vis.quad.setWorldRotation(camRot);
             // 更新 3D 飘烟上升、摇曳与淡出
@@ -5936,8 +5917,25 @@ export class Main extends Component {
                 a.idleTime = (a.idleTime || 0) + step;
                 let desiredSpeed = 0;
                 let happyHop = 0;
-                const socializing = (a.socialUntil || 0) > this.socialTime;
-                const celebrating = a.timer < 0;
+                let turnDelta = 0;
+                const socializing = this.page !== 'adventure' && (a.socialUntil || 0) > this.socialTime;
+                const celebrating = this.page !== 'adventure' && a.timer < 0;
+                if (this.page === 'adventure') {
+                    // 全屏冒险模式：我们的 3D 猫狗模型在中间石板小路上排成小队面向前方持续奔跑！
+                    const idx = this.actors.indexOf(a);
+                    const laneX = (idx % 2 === 0 ? -0.45 : 0.45) + Math.sin(this.socialTime * 1.1 + idx * 1.7) * 0.08;
+                    const laneZ = -1.6 + Math.floor(idx / 2) * 1.15;
+                    const pos = a.node.position;
+                    const blend = 1 - Math.exp(-step * 6.0);
+                    a.node.setPosition(pos.x + (laneX - pos.x) * blend, 0, pos.z + (laneZ - pos.z) * blend);
+                    const targetYaw = 180 + Math.sin(this.socialTime * 2.2 + idx) * 8;
+                    const yaw = a.node.eulerAngles.y;
+                    const diff = ((targetYaw - yaw + 540) % 360) - 180;
+                    a.node.setRotationFromEuler(0, yaw + diff * (1 - Math.exp(-step * 8.0)), 0);
+                    a.speed = cruise;
+                    a.phase = (a.phase + step * 8.6) % (Math.PI * 2);
+                    a.tailExcite = 0.55;
+                } else {
                 if (celebrating) {
                     a.timer = Math.min(0, a.timer + step);
                     happyHop = Math.abs(Math.sin(a.timer * 7.8)) * 0.22;
@@ -5992,7 +5990,6 @@ export class Main extends Component {
                 // 平滑加减速与弧线转向
                 const speedBlend = 1 - Math.exp(-step * (desiredSpeed > (a.speed || 0) ? 5.5 : 8.5));
                 a.speed = (a.speed || 0) + (desiredSpeed - (a.speed || 0)) * speedBlend;
-                let turnDelta = 0;
                 if (a.facing !== undefined) {
                     const yaw = a.node.eulerAngles.y;
                     const difference = ((a.facing - yaw + 540) % 360) - 180;
@@ -6008,12 +6005,12 @@ export class Main extends Component {
                         a.node.setPosition(pos.x + dx / distance * travel, 0, pos.z + dz / distance * travel);
                     }
                 }
-                // 步相按真实位移与原地转身碎步共同推进，保证脚掌踩实不滑步。
-                const turnShuffle = Math.abs(turnDelta) * 0.042;
-                const gaitRaw = Math.min(1, (a.speed / cruise) + Math.min(0.45, Math.abs(turnDelta) / (step * 180 + 1e-4) * 0.35));
-                if (travel > 0 || turnShuffle > 0.002) {
-                    a.phase = (a.phase + travel * 8.2 + turnShuffle) % (Math.PI * 2);
+                if (travel > 0 || Math.abs(turnDelta) * 0.042 > 0.002) {
+                    a.phase = (a.phase + travel * 8.2 + Math.abs(turnDelta) * 0.042) % (Math.PI * 2);
                 }
+                }
+                // 步相按真实位移与原地转身碎步共同推进，保证脚掌踩实不滑步。
+                const gaitRaw = Math.min(1, (a.speed / cruise) + Math.min(0.45, Math.abs(turnDelta) / (step * 180 + 1e-4) * 0.35));
                 // 闲置时偶尔俏皮转头歪头张望
                 a.lookTimer = (a.lookTimer ?? 2) - step;
                 if (a.lookTimer <= 0) {

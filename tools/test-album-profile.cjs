@@ -619,17 +619,19 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
       });
       main.open('adventure');
     });
-    await page.waitForTimeout(550);
+    await page.waitForTimeout(750);
     const advCheck = await page.evaluate(() => ({
       roadTiles: main.advRoadTiles.length,
-      marchers: main.advMarchers.length,
+      bgActive: !!main.advBgContainer?.active,
       auraActive: !!main.advChestAura?.active,
-      hasClaimBtn: !!walk(main.sheet).find(n => n.name === '领取冒险宝箱按钮'),
+      hasChest: !!walk(main.sheet).find(n => n.name === '冒险挂机宝箱'),
+      hasTimer: !!walk(main.sheet).find(n => n.name === '宝箱挂机时间牌'),
+      noLogList: !walk(main.sheet).find(n => n.name === '最新冒险快览'),
       hasDiaryEntryOnHome: !!main.ui.getChildByName('冒险日记入口'),
       hasMemorialEntryOnHome: !!main.ui.getChildByName('后院纪念角入口'),
     }));
     console.log('adventure loop check:', JSON.stringify(advCheck));
-    assert.deepEqual(advCheck, { roadTiles: 2, marchers: 4, auraActive: true, hasClaimBtn: true, hasDiaryEntryOnHome: true, hasMemorialEntryOnHome: true });
+    assert.deepEqual(advCheck, { roadTiles: 2, bgActive: true, auraActive: true, hasChest: true, hasTimer: true, noLogList: true, hasDiaryEntryOnHome: true, hasMemorialEntryOnHome: true });
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-adventure-loop.png') });
 
     // Claim idle treasure chest -> verify coins/gems reward & dialog
