@@ -30,8 +30,8 @@ import { SoundManager } from './SoundManager';
 const { ccclass } = _decorator;
 type Kind = 'cat' | 'dog';
 type Currency = 'gems' | 'coins';
-// 金币广告奖励暂与钻石一致；后续数值调整只改此处。
-const VIDEO_REWARDS: Record<Currency, number> = { gems: 200, coins: 200 };
+// 激励视频单次奖励（钻石 200 / 金币 500）；后续数值调整只改此处。
+const VIDEO_REWARDS: Record<Currency, number> = { gems: 200, coins: 500 };
 type Page = 'login' | 'home' | 'recruit' | 'adventure' | 'album' | 'profile' | 'shop' | 'pet' | 'bag' | 'daily' | 'diary' | 'memorial' | 'layout' | 'signin' | 'settings';
 export type RewardedVideoResult = 'completed' | 'cancelled' | 'failed';
 export interface RewardedVideoProvider {
@@ -66,7 +66,7 @@ interface Pet {
     ownedCoats: CoatId[];
 }
 interface DialogAction { title: string; run: () => void; cost?: { currency: Currency; amount: number }; }
-const LOST_PET_RECOVER_GEMS = 50;
+const LOST_PET_RECOVER_GEMS = 200;
 type RewardGrantItem =
     | { kind: 'coins'; amount: number }
     | { kind: 'gems'; amount: number }
@@ -8751,7 +8751,7 @@ export class Main extends Component {
         if (!poop) return;
         const c = this.dailyCandidate();
         c.poops = (c.poops || []).filter(p => p.id !== poopId);
-        c.coins = Math.min(100000000, c.coins + 5);
+        c.coins = Math.min(100000000, c.coins + 20);
         c.xp = Math.min(100000000, c.xp + 4);
         const targetPet = c.pets.find(p => p.id === poop.petId && !p.dead) || c.pets.find(p => !p.dead);
         if (targetPet) {
@@ -8771,7 +8771,8 @@ export class Main extends Component {
         }
         this.renderHeader();
         if (this.page === 'pet') this.open('pet');
-        this.toast('清理便便成功，庭院更干净啦'); this.showRewardToast([{ kind: 'coins', amount: 5 }]);
+        SoundManager.playSfx('bath');
+        this.toast('清理便便成功，庭院更干净啦'); this.showRewardToast([{ kind: 'coins', amount: 20 }]);
     }
 
     private getPoopMaterial(): Material {
