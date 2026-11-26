@@ -2478,14 +2478,38 @@ export class Main extends Component {
         });
     }
     private care(item: ItemCategory | 'rest') {
-        if (item !== 'rest') {
-            const changed = this.bagFilter !== item;
-            this.bagFilter = item;
-            if (changed || this.page !== 'bag') this.bagPage = 0;
-            if (this.page === 'bag') this.updateBag(); else this.open('bag');
+        if (item === 'rest') {
+            this.applyCare(null, 'rest');
             return;
         }
-        this.applyCare(null, 'rest');
+        // 已在背包界面内点击分类时，仍切换背包筛选方便自由挑选道具
+        if (this.page === 'bag') {
+            const changed = this.bagFilter !== item;
+            this.bagFilter = item;
+            if (changed) this.bagPage = 0;
+            this.updateBag();
+            return;
+        }
+        // 在宠物互动界面直接消耗对应品类道具（优先消耗基础常规道具，再按低价优先消耗背包道具），免进背包更便捷；库存不足自动跳转商店购买
+        if (!this.petSelected) { this.toast('请先选择要照顾的伙伴'); return; }
+        const p = this.data.pets.find(pet => pet.id === this.selected && !pet.dead);
+        if (!p) return;
+        if (item !== 'medicine' && this.data[item] > 0) {
+            this.applyCare(this.legacyItem(item), item);
+            return;
+        }
+        const kind = BREEDS[p.id].kind;
+        const candidates = ITEM_CATALOG
+            .filter(def => def.category === item && itemApplies(def, kind) && (this.data.itemInventory[def.id] || 0) > 0)
+            .sort((a, b) => (a.currency === b.currency ? a.price - b.price : (a.currency === 'coins' ? -1 : 1)));
+        if (candidates.length > 0) {
+            this.applyCare(candidates[0], null);
+            return;
+        }
+        const catNames: Record<ItemCategory, string> = { food: '喂养', soap: '清洁', toy: '陪玩', medicine: '治疗' };
+        this.shopTab = 'items';
+        this.open('shop');
+        this.toast('暂无可用的' + catNames[item] + '道具，已为你跳转商店购买！');
     }
 
     private legacyItem(key: ItemCategory): ItemDefinition {
