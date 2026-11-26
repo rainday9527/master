@@ -2918,42 +2918,51 @@ export class Main extends Component {
         bg.fillColor = this.color('#FFFDF7'); bg.strokeColor = this.color('#B88652'); bg.lineWidth = 3.5;
         bg.roundRect(-270, -35, 540, 70, 18); bg.fill(); bg.stroke();
 
-        // Cocos 3.8 EditBox 内部按左上角锚点 (0, 1) 排布文本，lineHeight 设为与输入框等高(70)以确保单行文字垂直居中。
-        const txtNode = this.uiNode(boxNode, 'TEXT_LABEL', -270, 35, 540, 70);
+        // Cocos 3.8 EditBox 单行输入模式（SINGLE_LINE 使用 <input>，禁止上下滚动并支持单行垂直居中）
+        const txtNode = this.uiNode(boxNode, 'TEXT_LABEL', -255, 35, 510, 70);
         txtNode.getComponent(UITransform)!.setAnchorPoint(0, 1);
         const txtLbl = txtNode.addComponent(Label);
-        txtLbl.fontSize = 28; txtLbl.lineHeight = 70; txtLbl.color = this.color('#4E2F1A');
+        txtLbl.fontSize = 28; txtLbl.lineHeight = 36; txtLbl.color = this.color('#4E2F1A');
         txtLbl.horizontalAlign = Label.HorizontalAlign.CENTER;
         txtLbl.verticalAlign = Label.VerticalAlign.CENTER;
         txtLbl.overflow = Label.Overflow.CLAMP;
+        txtLbl.enableWrapText = false;
         txtLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
 
-        const phNode = this.uiNode(boxNode, 'PLACEHOLDER_LABEL', -270, 35, 540, 70);
+        const phNode = this.uiNode(boxNode, 'PLACEHOLDER_LABEL', -255, 35, 510, 70);
         phNode.getComponent(UITransform)!.setAnchorPoint(0, 1);
         const phLbl = phNode.addComponent(Label);
-        phLbl.fontSize = 26; phLbl.lineHeight = 70; phLbl.color = this.color('#A99278');
+        phLbl.fontSize = 26; phLbl.lineHeight = 36; phLbl.color = this.color('#A99278');
         phLbl.horizontalAlign = Label.HorizontalAlign.CENTER;
         phLbl.verticalAlign = Label.VerticalAlign.CENTER;
         phLbl.overflow = Label.Overflow.CLAMP;
+        phLbl.enableWrapText = false;
         phLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
 
         editBox = boxNode.addComponent(EditBox);
+        editBox.inputMode = EditBox.InputMode.SINGLE_LINE;
+        editBox.returnType = EditBox.KeyboardReturnType.DONE;
         editBox.textLabel = txtLbl;
         editBox.placeholderLabel = phLbl;
         editBox.maxLength = 8;
         editBox.placeholder = '点击输入新名字（1~8字）';
         editBox.string = this.petDisplayName(petId);
 
-        // 费用说明行：明确提示「首次改名免费，后面改名 100 钻石」
+        // 费用说明行：未改过名显示「首次改名免费」，已改过名仅显示「本次改名消耗 [💎] 100」（拆分为独立节点避免图标与文字重叠）
         if (isFree) {
-            const costLbl = this.text(content, '首次改名免费，后续每次改名消耗 100 钻石', 0, -34, 640, 34, 22, '#228B3C');
+            const costLbl = this.text(content, '首次改名免费', 0, -34, 600, 34, 24, '#228B3C');
             costLbl.isBold = true; costLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
         } else {
-            const costRow = this.uiNode(content, '改名费用提示行', 0, -34, 640, 36);
-            this.currencyIcon(costRow, 'gems', -82, 0, 28);
+            const costRow = this.uiNode(content, '改名费用提示行', 0, -34, 600, 36);
             const canAfford = this.data.gems >= 100;
-            const costLbl = this.text(costRow, '本次改名消耗      100（首次改名免费）', 0, 0, 620, 34, 22, canAfford ? '#228B3C' : '#C93832');
-            costLbl.isBold = true; costLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+            const col = canAfford ? '#228B3C' : '#C93832';
+            const preLbl = this.text(costRow, '本次改名消耗', -56, 0, 170, 34, 24, col);
+            preLbl.isBold = true; preLbl.horizontalAlign = Label.HorizontalAlign.RIGHT;
+            preLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+            this.currencyIcon(costRow, 'gems', 48, 0, 28);
+            const numLbl = this.text(costRow, '100', 100, 0, 72, 34, 24, col);
+            numLbl.isBold = true; numLbl.horizontalAlign = Label.HorizontalAlign.LEFT;
+            numLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
         }
     }
 
