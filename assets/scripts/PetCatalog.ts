@@ -1,6 +1,6 @@
-// 宠物核心图鉴目录：12 品种、R/SR/SSR 品质、解锁钻石奖励、性格词条、升星规则、装扮与毛色换肤。
+// 宠物核心图鉴目录：12 品种、R(普通)/SR(稀有)/SSR(史诗)/SSSR(传说) 四阶品质、解锁钻石奖励、性格词条、升星规则、装扮与毛色换肤。
 export type PetKind = 'cat' | 'dog';
-export type PetRarity = 'R' | 'SR' | 'SSR';
+export type PetRarity = 'R' | 'SR' | 'SSR' | 'SSSR';
 export type TraitId = 'glutton' | 'bold' | 'tidy' | 'energetic' | 'playful' | 'lucky' | 'gentle' | 'explorer';
 export type OutfitId =
     | 'none'
@@ -31,7 +31,8 @@ export interface RarityInfo {
 export const RARITY_INFO: Record<PetRarity, RarityInfo> = {
     R: { id: 'R', label: '普通 R', unlockGems: 50, badgeBg: '#539C5A', badgeText: '#FFFDF5', border: '#6BB272', cardBg: '#E6F5E3', lockedCardBg: '#DCE6DA' },
     SR: { id: 'SR', label: '稀有 SR', unlockGems: 80, badgeBg: '#4A86D0', badgeText: '#FFFDF5', border: '#63A0E6', cardBg: '#E3F0FC', lockedCardBg: '#DAE3EC' },
-    SSR: { id: 'SSR', label: '珍稀 SSR', unlockGems: 120, badgeBg: '#DF8E1E', badgeText: '#FFFDF5', border: '#EDA936', cardBg: '#FFF0CD', lockedCardBg: '#ECE3D0' },
+    SSR: { id: 'SSR', label: '史诗 SSR', unlockGems: 120, badgeBg: '#8E55D6', badgeText: '#FFFDF5', border: '#A574E8', cardBg: '#F0E6FC', lockedCardBg: '#E3DCEB' },
+    SSSR: { id: 'SSSR', label: '传说 SSSR', unlockGems: 160, badgeBg: '#DF8E1E', badgeText: '#FFFDF5', border: '#EDA936', cardBg: '#FFF0CD', lockedCardBg: '#ECE3D0' },
 };
 
 export interface TraitDefinition {
@@ -134,12 +135,12 @@ export const PET_BREEDS: BreedDefinition[] = [
     { id: 3, name: '芝麻犬', speciesTitle: '田园黑白芝麻犬', kind: 'dog', skin: 'dog_zhima', rarity: 'R', unlockGems: 50, defaultTrait: 'explorer', color: '#777F89', accent: '#E5D3BA', cost: 45, bio: '聪明机灵的小芝麻犬，庭院里的每块石板都逃不过它的探索。' },
     { id: 4, name: '橘子猫', speciesTitle: '中华田园大橘猫', kind: 'cat', skin: 'cat_juzi', rarity: 'R', unlockGems: 50, defaultTrait: 'glutton', color: '#EFA65C', accent: '#B36F37', cost: 55, bio: '圆滚滚的中华田园橘猫，听见开罐头的声音就会飞奔而来。' },
     { id: 5, name: '桃桃犬', speciesTitle: '蜜桃奶油小犬', kind: 'dog', skin: 'dog_taotao', rarity: 'SR', unlockGems: 80, defaultTrait: 'playful', color: '#EACBB9', accent: '#B99183', cost: 65, bio: '脸蛋粉扑扑的蜜桃小狗，最喜欢叼着小球找你玩耍。' },
-    { id: 6, name: '蓝胖英短', speciesTitle: '英国短毛蓝猫', kind: 'cat', skin: 'cat_yingduan', rarity: 'SR', unlockGems: 80, defaultTrait: 'glutton', color: '#7F93A8', accent: '#5D6E82', cost: 75, bio: '拥有圆嘟嘟发腮脸蛋的英短蓝猫，琥珀大眼睛超治愈。' },
-    { id: 7, name: '奶油布偶', speciesTitle: '重点色布偶猫', kind: 'cat', skin: 'cat_buou', rarity: 'SSR', unlockGems: 120, defaultTrait: 'tidy', color: '#FAF2E6', accent: '#6B4E3F', cost: 120, bio: '蓝宝石眼眸的仙女布偶猫，性格温柔黏人，自带优雅气场。' },
+    { id: 6, name: '蓝胖英短', speciesTitle: '英国短毛蓝猫', kind: 'cat', skin: 'cat_yingduan', rarity: 'SSR', unlockGems: 120, defaultTrait: 'glutton', color: '#7F93A8', accent: '#5D6E82', cost: 95, bio: '拥有圆嘟嘟发腮脸蛋的英短蓝猫，琥珀大眼睛超治愈。' },
+    { id: 7, name: '奶油布偶', speciesTitle: '重点色布偶猫', kind: 'cat', skin: 'cat_buou', rarity: 'SSSR', unlockGems: 160, defaultTrait: 'tidy', color: '#FAF2E6', accent: '#6B4E3F', cost: 140, bio: '蓝宝石眼眸的仙女布偶猫，性格温柔黏人，自带优雅气场。' },
     { id: 8, name: '团子三花', speciesTitle: '中华田园三花猫', kind: 'cat', skin: 'cat_sanhua', rarity: 'SR', unlockGems: 80, defaultTrait: 'lucky', color: '#F8F3EA', accent: '#E08642', cost: 80, bio: '橘黑奶白相间的幸运三花团子，传说能给庭院带来好运。' },
     { id: 9, name: '短腿柯基', speciesTitle: '彭布罗克柯基犬', kind: 'dog', skin: 'dog_keji', rarity: 'SR', unlockGems: 80, defaultTrait: 'energetic', color: '#E89B48', accent: '#FFF7EC', cost: 85, bio: '小短腿迈着超快节奏的微笑柯基，走到哪都是开心果。' },
-    { id: 10, name: '赤毛柴犬', speciesTitle: '赤色柴犬', kind: 'dog', skin: 'dog_chaiquan', rarity: 'SR', unlockGems: 80, defaultTrait: 'bold', color: '#D9823B', accent: '#FFF5E3', cost: 90, bio: '自带可爱豆豆眉的赤柴，胆大自信又爱到处探险。' },
-    { id: 11, name: '阳光金毛', speciesTitle: '黄金巡回猎犬', kind: 'dog', skin: 'dog_jinmao', rarity: 'SSR', unlockGems: 120, defaultTrait: 'lucky', color: '#E8B256', accent: '#C4842E', cost: 120, bio: '笑容像午后阳光般温暖的金毛宝宝，是庭院里最贴心的暖男。' },
+    { id: 10, name: '赤毛柴犬', speciesTitle: '赤色柴犬', kind: 'dog', skin: 'dog_chaiquan', rarity: 'SSR', unlockGems: 120, defaultTrait: 'bold', color: '#D9823B', accent: '#FFF5E3', cost: 100, bio: '自带可爱豆豆眉的赤柴，胆大自信又爱到处探险。' },
+    { id: 11, name: '阳光金毛', speciesTitle: '黄金巡回猎犬', kind: 'dog', skin: 'dog_jinmao', rarity: 'SSSR', unlockGems: 160, defaultTrait: 'lucky', color: '#E8B256', accent: '#C4842E', cost: 140, bio: '笑容像午后阳光般温暖的金毛宝宝，是庭院里最贴心的暖男。' },
 ];
 
 // 6 阶 × 5 星 = 最高 30 星：每满 5 星进阶下一颜色/皇冠图标（5★金星、10★蓝星、15★紫星、20★粉星、25★金冠、30★羽翼皇冠）。

@@ -2676,7 +2676,7 @@ export class Main extends Component {
             const cardW = 304, cardH = 328;
             const card = this.uiNode(content, '招募结果卡片-' + id, 0, 56, cardW, cardH);
             this.albumArt(card, 'card-' + b.rarity.toLowerCase(), 0, 0, cardW, cardH, '图鉴卡片底框', false);
-            const badgeH = b.rarity === 'SSR' ? 72 : 64;
+            const badgeH = b.rarity === 'SSSR' ? 72 : 64;
             this.albumArt(card, 'rarity-' + b.rarity.toLowerCase(), -102, 112, 60, badgeH, '稀有度徽章-' + b.rarity);
 
             const tag = this.uiNode(card, '招募结果状态标', 24, 116, 108, 32);
@@ -2703,11 +2703,12 @@ export class Main extends Component {
             const line2 = this.text(info, '性格·' + trait.name + '  ' + trait.summary, 0, -19, 590, 28, 19, '#6C4D33');
             line2.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
         } else {
+            const sssrCount = ids.filter(id => BREEDS[id].rarity === 'SSSR').length;
             const ssrCount = ids.filter(id => BREEDS[id].rarity === 'SSR').length;
             const srCount = ids.filter(id => BREEDS[id].rarity === 'SR').length;
-            const rCount = ids.length - ssrCount - srCount;
-            const summary = '共获 ' + ids.length + ' 位伙伴' + (newIds.size > 0 ? ' · 新解锁 ' + newIds.size + ' 位' : '') + ' · SSR×' + ssrCount + '  SR×' + srCount + '  R×' + rCount;
-            this.dailyText(content, summary, 0, 354, 800, 40, 26);
+            const rCount = ids.length - sssrCount - ssrCount - srCount;
+            const summary = '共获 ' + ids.length + ' 位伙伴' + (newIds.size > 0 ? ' · 新解锁 ' + newIds.size + ' 位' : '') + ' · SSSR×' + sssrCount + ' SSR×' + ssrCount + ' SR×' + srCount + ' R×' + rCount;
+            this.dailyText(content, summary, 0, 354, 820, 40, 24);
 
             // 4+4+2 舒展大卡排布（192×212），稀有度徽章、NEW/+1 标、头像与名称全部清晰易读
             const cardW = 192, cardH = 212, gapX = 14, gapY = 16;
@@ -2724,7 +2725,7 @@ export class Main extends Component {
 
                 const card = this.uiNode(content, '招募结果卡片-' + idx + '-' + id, x, y, cardW, cardH);
                 this.albumArt(card, 'card-' + b.rarity.toLowerCase(), 0, 0, cardW, cardH, '图鉴卡片底框', false);
-                const badgeH = b.rarity === 'SSR' ? 50 : 44;
+                const badgeH = b.rarity === 'SSSR' ? 50 : 44;
                 this.albumArt(card, 'rarity-' + b.rarity.toLowerCase(), -63, 73, 42, badgeH, '稀有度徽章-' + b.rarity);
 
                 const pillW = isFirstNew ? 68 : 54;
@@ -2880,7 +2881,7 @@ export class Main extends Component {
     }
 
     private recruitPoolOrder(): number[] {
-        const rank: Record<'SSR' | 'SR' | 'R', number> = { SSR: 0, SR: 1, R: 2 };
+        const rank: Record<'SSSR' | 'SSR' | 'SR' | 'R', number> = { SSSR: 0, SSR: 1, SR: 2, R: 3 };
         return BREEDS.map(b => b.id).sort((a, b) => rank[BREEDS[a].rarity] - rank[BREEDS[b].rarity] || a - b);
     }
 
@@ -2944,7 +2945,7 @@ export class Main extends Component {
             const cardW = 274, cardH = 296;
             const cardBox = this.uiNode(slot, '卡池图鉴卡面', 0, 50, cardW, cardH);
             this.albumArt(cardBox, 'card-' + b.rarity.toLowerCase(), 0, 0, cardW, cardH, '图鉴卡片底框', false);
-            const badgeH = b.rarity === 'SSR' ? 66 : 58;
+            const badgeH = b.rarity === 'SSSR' ? 66 : 58;
             this.albumArt(cardBox, 'rarity-' + b.rarity.toLowerCase(), -92, 101, 55, badgeH, '稀有度徽章-' + b.rarity);
 
             // 右上拥有/本体胶囊（居中落在左上徽章与右上星星之间，不压星角）
@@ -3131,7 +3132,7 @@ export class Main extends Component {
             const x = pad + cardW / 2 + idx * (cardW + gap);
             const card = this.uiNode(strip, '招募本体-' + id, x, 0, cardW, cardH);
             this.albumArt(card, 'card-' + b.rarity.toLowerCase(), 0, 0, cardW, cardH, '图鉴卡片底框', false);
-            const badgeH = b.rarity === 'SSR' ? 45 : 40;
+            const badgeH = b.rarity === 'SSSR' ? 45 : 40;
             this.albumArt(card, 'rarity-' + b.rarity.toLowerCase(), -58, 65, 38, badgeH, '稀有度徽章-' + b.rarity);
             const pillNode = this.uiNode(card, '招募本体数标签', 12, 67, 58, 24);
             const pill = pillNode.addComponent(Graphics);
@@ -3913,7 +3914,7 @@ export class Main extends Component {
         content.getComponent(UITransform)!.setContentSize(880, totalH);
         viewport!.getComponent(ScrollView)!.scrollToTop(0);
 
-        const rarityTint: Record<'R' | 'SR' | 'SSR', string> = { R: '#E0F1DB', SR: '#E0EBFC', SSR: '#FFF0C2' };
+        const rarityTint: Record<'R' | 'SR' | 'SSR' | 'SSSR', string> = { R: '#E0F1DB', SR: '#E0EBFC', SSR: '#EFE4FC', SSSR: '#FFF0C2' };
 
         list.forEach((b, idx) => {
             const col = idx % cols, row = Math.floor(idx / cols);
@@ -3941,7 +3942,7 @@ export class Main extends Component {
             cg.fill();
 
             // 左上角：手绘立体稀有度徽章
-            const badgeH = b.rarity === 'SSR' ? 62 : 56;
+            const badgeH = b.rarity === 'SSSR' ? 62 : 56;
             this.albumArt(card, 'rarity-' + b.rarity.toLowerCase(), -92, 134, 54, badgeH, '稀有度徽章-' + b.rarity);
 
             // 右上角：待领图鉴钻显示醒目「领奖」提醒胶囊+红点（引导进主页领奖）；未解锁显示首获钻石
@@ -4081,7 +4082,7 @@ export class Main extends Component {
         }
 
         // 2) 中上方：稀有度徽章 + 宠物名称胶囊 + 红色改名按钮 + 五星展示行（去掉原参考图左侧升星角标）
-        const badgeH = breed.rarity === 'SSR' ? 68 : 60;
+        const badgeH = breed.rarity === 'SSSR' ? 68 : 60;
         this.albumArt(layer, 'rarity-' + breed.rarity.toLowerCase(), -224, 766, 58, badgeH, '主页稀有度徽章-' + breed.rarity);
         const namePill = drawCard(layer, '宠物名称胶囊', -6, 766, 336, 74, '#FFF6DC', '#B98C5A', 3, 37);
         const nameLbl = this.dailyText(namePill, this.petDisplayName(pet.id), 0, 0, 310, 52, 40);

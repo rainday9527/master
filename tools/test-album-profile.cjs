@@ -93,17 +93,19 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
 
     const gemCheck = await page.evaluate(() => {
       const g0 = main.data.gems;
-      const okSSR = main.claimAlbumReward(7);
+      const okSSSR = main.claimAlbumReward(7);
       const g1 = main.data.gems;
-      const dupSSR = main.claimAlbumReward(7);
+      const dupSSSR = main.claimAlbumReward(7);
       const okR = main.claimAlbumReward(0);
       const g2 = main.data.gems;
-      const okSR = main.claimAlbumReward(6);
+      const okSSR = main.claimAlbumReward(6);
       const g3 = main.data.gems;
-      return { okSSR, dupSSR, okR, okSR, dSSR: g1 - g0, dR: g2 - g1, dSR: g3 - g2 };
+      const okSR = main.claimAlbumReward(9);
+      const g4 = main.data.gems;
+      return { okSSSR, dupSSSR, okR, okSSR, okSR, dSSSR: g1 - g0, dR: g2 - g1, dSSR: g3 - g2, dSR: g4 - g3 };
     });
     console.log('unlock diamond rewards:', JSON.stringify(gemCheck));
-    assert.deepEqual(gemCheck, { okSSR: true, dupSSR: false, okR: true, okSR: true, dSSR: 120, dR: 50, dSR: 80 });
+    assert.deepEqual(gemCheck, { okSSSR: true, dupSSSR: false, okR: true, okSSR: true, okSR: true, dSSSR: 160, dR: 50, dSSR: 120, dSR: 80 });
 
     // 3) Open Rename dialog -> verify title "改名", single-line EditBox input, 确认/取消 buttons, free 1st rename & 100-gem 2nd rename!
     await page.evaluate(() => { main.closeDialog(); main.showRenameDialog(7); });
