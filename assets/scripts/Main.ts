@@ -12,12 +12,18 @@ import {
     isTraitId, isOutfitId, isCoatId, TraitId, OutfitId, CoatId,
 } from './PetCatalog';
 
+import {
+    TombstoneId, TOMBSTONE_CATALOG, findTombstone, MemorialRecord, AdventureLogEntry,
+    calcIdleRewardPreview, rollIdleBonusItems, eventBadgeMeta, itemCategoryTag,
+    makeDepartOutcome, makeLostOutcome, makeTraffickerDeathOutcome, rollAdventureEvent, RolledAdventureOutcome,
+} from './AdventureSystem';
+
 const { ccclass } = _decorator;
 type Kind = 'cat' | 'dog';
 type Currency = 'gems' | 'coins';
 // 金币广告奖励暂与钻石一致；后续数值调整只改此处。
 const VIDEO_REWARDS: Record<Currency, number> = { gems: 200, coins: 200 };
-type Page = 'home' | 'recruit' | 'adventure' | 'album' | 'profile' | 'shop' | 'pet' | 'bag' | 'daily';
+type Page = 'home' | 'recruit' | 'adventure' | 'album' | 'profile' | 'shop' | 'pet' | 'bag' | 'daily' | 'diary' | 'memorial';
 export type RewardedVideoResult = 'completed' | 'cancelled' | 'failed';
 export interface RewardedVideoProvider {
     // 可信边界：仅由宿主注入的平台适配器调用终态回调，并在游戏主线程执行。
@@ -34,6 +40,9 @@ interface Pet {
     joy: number;
     health: number;
     dead?: boolean;
+    lost?: boolean;
+    deathReason?: string;
+    diedAt?: number;
     star: number;
     nickname: string;
     renameCount?: number;
@@ -57,6 +66,10 @@ interface Save {
     adventureEnd: number; lastSeen: number; shop: ShopState; daily: DailyState; recruit: RecruitState;
     albumClaimed: Record<string, boolean>;
     poops?: YardPoop[];
+    adventureIdleStart?: number;
+    adventureLogs?: AdventureLogEntry[];
+    tombstoneInventory?: Record<string, number>;
+    memorials?: MemorialRecord[];
 }
 type RigPartName = 'body' | 'head' | 'face' | 'earL' | 'earR' | 'legFL' | 'legFR' | 'legBL' | 'legBR' | 'tail';
 interface PetRigAsset {
@@ -162,6 +175,18 @@ export class Main extends Component {
     private poopNextId = 1;
     private ghosts: GhostFloat[] = [];
     private brooms: BroomSweep[] = [];
+    private advRoadTiles: Node[] = [];
+    private advMarchers: { node: Node; baseY: number; phase: number; petId: number }[] = [];
+    private advChestAura: Node | null = null;
+    private advChestSprite: Sprite | null = null;
+    private advChestBadge: Node | null = null;
+    private advTimerLabel: Label | null = null;
+    private advRewardSummary: Label | null = null;
+    private advScrollX = 0;
+    private advChestOpenUntil = 0;
+    private advLogNextId = 1;
+    private shopTab: 'items' | 'tombstones' = 'items';
+    private pendingAlerts: { kind: 'lost' | 'dead'; petId: number; reason: string }[] = [];
     private socialBubbles: SocialBubble[] = [];
     private needBubbles = new Map<number, { node: Node; icon: string; until: number; urgent: boolean }>();
     private needHistory = new Map<number, number[]>();
@@ -270,11 +295,19 @@ export class Main extends Component {
     }
 
     private fresh(): Save {
+        const now = Date.now();
         return { version: 1, coins: 260, gems: 100, xp: 0, avatar: 0,
             pets: [0, 1].map(id => this.makePet(id, 75, 85, 90, 80, 100)),
-            food: 5, soap: 4, toy: 3, itemInventory: { bandage: 2 }, adventureEnd: 0, lastSeen: Date.now(), shop: this.newShop(Date.now()), daily: newDaily(this.shopDay(Date.now())),
+            food: 5, soap: 4, toy: 3, itemInventory: { bandage: 2 }, adventureEnd: 0, lastSeen: now, shop: this.newShop(now), daily: newDaily(this.shopDay(now)),
             recruit: restoreRecruit(undefined, [0, 1], BREEDS.map((_, id) => id), false),
-            albumClaimed: {}, poops: [] };
+            albumClaimed: {}, poops: [],
+            adventureIdleStart: now - 15 * 60000,
+            adventureLogs: [{
+                id: 1, time: now - 5 * 60000, petId: 0, petName: BREEDS[0].name,
+                type: 'depart', title: '独自出门冒险',
+                text: `「${BREEDS[0].name}」摇着尾巴悄悄钻过庭院木门，踏上了阳光花径的冒险之旅！`,
+            }],
+            tombstoneInventory: {}, memorials: [] };
     }
 
     private load(): Save {
@@ -311,8 +344,11 @@ export class Main extends Component {
                 if (!petCoats.has(coat)) coat = 'original';
                 const health = typeof (p as any).health === 'number' && Number.isFinite((p as any).health) && (p as any).health >= 0 && (p as any).health <= 100 ? (p as any).health : 100;
                 const dead = Boolean((p as any).dead);
+                const lost = Boolean((p as any).lost);
+                const deathReason = typeof (p as any).deathReason === 'string' ? (p as any).deathReason : undefined;
+                const diedAt = validInt((p as any).diedAt, 9000000000000000) ? (p as any).diedAt : undefined;
                 return {
-                    id: p.id, hunger: p.hunger, clean: p.clean, energy: p.energy, joy: p.joy, health, dead,
+                    id: p.id, hunger: p.hunger, clean: p.clean, energy: p.energy, joy: p.joy, health, dead, lost, deathReason, diedAt,
                     star, nickname, renameCount, trait, outfit, coat,
                     ownedOutfits: Array.from(petOutfits), ownedCoats: Array.from(petCoats),
                 };
@@ -341,6 +377,16 @@ export class Main extends Component {
                 });
             }
             s.poops = validPoops;
+            s.adventureIdleStart = validInt((s as any).adventureIdleStart, 9000000000000000) ? (s as any).adventureIdleStart : Math.max(0, Date.now() - 10 * 60000);
+            s.adventureLogs = Array.isArray((s as any).adventureLogs) ? ((s as any).adventureLogs as AdventureLogEntry[]).slice(0, 40) : [];
+            this.advLogNextId = s.adventureLogs.reduce((m, e) => Math.max(m, e.id || 0), 1);
+            const tombInv: Record<string, number> = {};
+            TOMBSTONE_CATALOG.forEach(t => {
+                const c = (s as any).tombstoneInventory && (s as any).tombstoneInventory[t.id];
+                if (validInt(c)) tombInv[t.id] = c;
+            });
+            s.tombstoneInventory = tombInv;
+            s.memorials = Array.isArray((s as any).memorials) ? ((s as any).memorials as MemorialRecord[]).slice(0, BREEDS.length) : [];
             const inventory: Record<string, number> = {};
             ITEM_CATALOG.forEach(item => {
                 const count = s.itemInventory && s.itemInventory[item.id];
@@ -1053,7 +1099,7 @@ export class Main extends Component {
     }
 
     private spawnPet(pet: Pet) {
-        if (pet.dead) return;
+        if (pet.dead || pet.lost) return;
         const b = BREEDS[pet.id], cat = b.kind === 'cat';
         const root = new Node(b.name); this.world.addChild(root);
         const col = pet.id % 4, row = Math.floor(pet.id / 4);
@@ -1109,6 +1155,25 @@ export class Main extends Component {
         this.dailySprite(daily, 'task', 0, 26, 108, 98, false, '每日入口图标');
         this.navCaption(daily, '任务', 0);
         daily.on(Node.EventType.TOUCH_END, () => this.open('daily'), this);
+
+        // 冒险日记入口：位于每日任务入口正下方
+        const diary = this.uiNode(this.ui, '冒险日记入口', 390, 490, 190, 174);
+        this.intercept(diary); this.pressFeedback(diary);
+        const diaryIcon = this.uiNode(diary, '日记入口图标', 0, 26, 98, 98).addComponent(Sprite);
+        diaryIcon.sizeMode = Sprite.SizeMode.CUSTOM;
+        resources.load('art/adventure/diary-icon/spriteFrame', SpriteFrame, (e, f) => { if (!e && f && isValid(diaryIcon, true)) diaryIcon.spriteFrame = f; });
+        this.navCaption(diary, '日记', 1);
+        diary.on(Node.EventType.TOUCH_END, () => this.open('diary'), this);
+
+        // 后院纪念角入口：位于冒险日记下方，有离世伙伴或已购/已立墓碑时自动开放
+        const memorial = this.uiNode(this.ui, '后院纪念角入口', 390, 330, 190, 174);
+        this.intercept(memorial); this.pressFeedback(memorial);
+        const memIcon = this.uiNode(memorial, '纪念角入口图标', 0, 26, 98, 98).addComponent(Sprite);
+        memIcon.sizeMode = Sprite.SizeMode.CUSTOM;
+        resources.load('art/memorial/tomb-wood/spriteFrame', SpriteFrame, (e, f) => { if (!e && f && isValid(memIcon, true)) memIcon.spriteFrame = f; });
+        this.navCaption(memorial, '纪念角', 2);
+        memorial.on(Node.EventType.TOUCH_END, () => this.open('memorial'), this);
+        this.refreshMemorialEntry();
 
         // GM 预览调试悬浮入口（位于左上头像栏下方，不遮挡顶栏/底栏与主操作区）
         const gm = this.uiNode(this.ui, 'GM调试入口', -440, 730, 104, 46);
@@ -1211,6 +1276,8 @@ export class Main extends Component {
         this.top.setPosition(0, this.height / 2 - 110, 0);
         // 入口宽190：右边缘距设计画布右侧4，按确认位置进一步靠右。
         this.ui.getChildByName('每日任务入口')?.setPosition(this.width / 2 - 4 - 190 / 2, this.height / 2 - 295, 0);
+        this.ui.getChildByName('冒险日记入口')?.setPosition(this.width / 2 - 4 - 190 / 2, this.height / 2 - 458, 0);
+        this.ui.getChildByName('后院纪念角入口')?.setPosition(this.width / 2 - 4 - 190 / 2, this.height / 2 - 620, 0);
         this.ui.getChildByName('GM调试入口')?.setPosition(-Math.min(this.width / 2 - 72, 416), this.height / 2 - 226, 0);
         this.bottom.setPosition(0, -this.height / 2 + 90, 0);
         this.layoutGmPanel();
@@ -1833,11 +1900,31 @@ export class Main extends Component {
         this.layoutNotice();
         const dailyEntry = this.ui.getChildByName('每日任务入口');
         if (dailyEntry) dailyEntry.active = page === 'home';
+        const diaryEntry = this.ui.getChildByName('冒险日记入口');
+        if (diaryEntry) diaryEntry.active = page === 'home';
+        this.refreshMemorialEntry();
         const gmEntry = this.ui.getChildByName('GM调试入口');
         if (gmEntry) gmEntry.active = page !== 'album' && page !== 'profile';
         if (this.top) this.top.active = page !== 'album' && page !== 'profile';
         if (this.bottom) this.bottom.active = page !== 'profile';
-        if (page === 'home') return;
+        if (page !== 'adventure') {
+            this.advRoadTiles = []; this.advMarchers = [];
+            this.advChestAura = null; this.advChestSprite = null; this.advChestBadge = null;
+            this.advTimerLabel = null; this.advRewardSummary = null;
+        }
+        if (page === 'home') { this.checkMainCityAlerts(); return; }
+        if (page === 'adventure') {
+            this.sheet = this.uiNode(this.ui, '冒险挂机面板', 0, -10, 960, 1340);
+            this.intercept(this.sheet); this.renderAdventure(); this.layout(); this.animatePanelOpen(); return;
+        }
+        if (page === 'diary') {
+            this.sheet = this.uiNode(this.ui, '冒险日记面板', 0, -10, 921, 1390);
+            this.intercept(this.sheet); this.renderAdventureDiary(); this.layout(); this.animatePanelOpen(); return;
+        }
+        if (page === 'memorial') {
+            this.sheet = this.uiNode(this.ui, '后院纪念角面板', 0, -10, 921, 1390);
+            this.intercept(this.sheet); this.renderMemorialCorner(); this.layout(); this.animatePanelOpen(); return;
+        }
         if (page === 'recruit') {
             this.sheet = this.uiNode(this.ui, '招募面板', 0, 0, 1000, 1560);
             this.intercept(this.sheet); this.renderRecruit(); this.layout(); this.animatePanelOpen(); return;
@@ -2867,10 +2954,14 @@ export class Main extends Component {
                 c.xp = Math.min(100000000, c.xp + 100);
                 if (this.commitShop(c)) { refreshVisible(); this.toast('GM：全道具 +5，玩家经验 +100'); }
             }],
-            ['寻宝立即完成', () => {
+            ['冒险快进+6小时', () => {
                 const c = this.dailyCandidate();
-                c.adventureEnd = Date.now() - 1000;
-                if (this.commitShop(c)) { refreshVisible(); this.toast('GM：林间寻宝已完成，可立即领奖'); }
+                c.adventureIdleStart = Math.max(0, (c.adventureIdleStart || Date.now()) - 6 * 3600000);
+                if (this.commitShop(c)) {
+                    const p0 = this.data.pets.find(p => !p.dead && !p.lost);
+                    if (p0) this.triggerAdventureOutcome(p0, rollAdventureEvent(this.petDisplayName(p0.id), BREEDS[p0.id].kind, p0.health, p0.joy));
+                    refreshVisible(); this.toast('GM：挂机冒险快进 +6 小时，快去开宝箱看日记！');
+                }
             }],
             ['庭院拉便便', () => {
                 const alive = this.actors.find(a => !a.pet.dead && !a.dying);
@@ -3965,10 +4056,31 @@ export class Main extends Component {
         // 源图 656×947 的连续奶油内板为像素 [55,410]–[600,835]；映射到 900×1300 后安全范围为 x[-374.5,373.2]、y[-496.2,87.2]。
         // 取消额外 0.94 缩小并充分利用内板空间，放大卡片、道具图标、字号与购买按钮以提升手机可读性。
         const content = this.uiNode(panel, '商店安全内容', 0, -206, 748, 580);
-        const tab = this.shopArt(panel, 'tab', -262, 190, 206, 78);
-        this.headerText(tab, '道具', 0, 0, 168, 44, 32);
+        const switchShopTab = (next: 'items' | 'tombstones') => {
+            if (this.shopTab === next) return;
+            this.shopTab = next;
+            if (this.sheet && isValid(this.sheet, true)) { this.sheet.removeFromParent(); this.sheet.destroy(); this.sheet = null; }
+            this.open('shop');
+        };
+        const tabItems = this.shopArt(panel, 'tab', -262, 190, 194, 76);
+        tabItems.name = '商店页签-道具';
+        const tabItemsLbl = this.headerText(tabItems, '道具', 0, 0, 156, 44, 30);
+        tabItemsLbl.color = this.color(this.shopTab === 'items' ? '#4E2C15' : '#8A6B4F');
+        this.shopButton(tabItems, () => switchShopTab('items'));
+
+        const tabTomb = this.shopArt(panel, 'tab', -58, 190, 194, 76);
+        tabTomb.name = '商店页签-墓碑';
+        const tabTombLbl = this.headerText(tabTomb, '墓碑', 0, 0, 156, 44, 30);
+        tabTombLbl.color = this.color(this.shopTab === 'tombstones' ? '#4E2C15' : '#8A6B4F');
+        this.shopButton(tabTomb, () => switchShopTab('tombstones'));
+
         const close = this.shopArt(panel, 'close', 385, 130, 84, 85);
         this.shopButton(close, () => this.open('home'));
+
+        if (this.shopTab === 'tombstones') {
+            this.renderShopTombstones(panel, content);
+            return;
+        }
         const goods = this.data.shop.slots.map(slot => findItem(slot.id)!);
         for (let i = 0; i < 6; i++) {
             const col = i % 3, row = Math.floor(i / 3);
@@ -4396,19 +4508,737 @@ export class Main extends Component {
         this.toast('寻宝成功' + note + '！金币 +' + coinGain + '，钻石 +' + gemGain + '，经验 +25' + (bonusItemName ? '，带回【' + bonusItemName + '】×1' : ''));
     }
 
-    private renderAdventure() {
-        this.text(this.sheet!, '小小脚步，也能收集大大的惊喜', 0, 267, 940, 55, 29, C.muted);
-        const art = this.uiNode(this.sheet!, '冒险图案', 0, 87, 880, 210); this.card(art, C.pale, 32);
-        this.text(art, '庭院  —  花径  —  林间宝箱\n伙伴们正在发现生活的小美好', 0, 0, 830, 170, 34);
-        this.adventureLabel = this.text(this.sheet!, '', 0, -90, 940, 100, 37, C.green);
-        this.updateAdventureLabel();
-        this.text(this.sheet!, '每次 60 秒 · 奖励 80 金币 / 8 钻石 / 25 经验\n无需等待在此页面，离线也会计时', 0, -218, 940, 100, 27, C.muted);
-        this.button(this.sheet!, this.data.adventureEnd === 0 ? '出发寻宝' : Date.now() >= this.data.adventureEnd ? '领取本次奖励' : '查看寻宝进度', 0, -355, 850, 100, () => this.adventureAction(), C.coral);
+    private renderShopTombstones(panel: Node, content: Node) {
+        const tip = this.text(content, '购买墓碑后可在「后院纪念角」为离世伙伴立碑刻字', 0, 260, 720, 32, 22, '#6E4B2F');
+        tip.isBold = true; tip.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+        const inv = this.data.tombstoneInventory || {};
+        TOMBSTONE_CATALOG.forEach((tomb, idx) => {
+            const x = (idx - 1) * 246;
+            const card = this.shopArt(content, 'card', x, 10, 234, 410);
+            card.name = '墓碑商品卡-' + tomb.id;
+            const title = this.headerText(card, tomb.name, 0, 166, 220, 36, 24);
+            title.overflow = Label.Overflow.CLAMP;
+            const icon = this.uiNode(card, '墓碑图标', 0, 62, 138, 138).addComponent(Sprite);
+            icon.sizeMode = Sprite.SizeMode.CUSTOM;
+            resources.load('art/memorial/' + tomb.artKey + '/spriteFrame', SpriteFrame, (e, f) => {
+                if (!e && f && isValid(icon, true)) icon.spriteFrame = f;
+            });
+            const desc = this.text(card, tomb.desc, 0, -44, 206, 62, 18, C.muted);
+            desc.enableWrapText = true; desc.lineHeight = 22;
+            const owned = inv[tomb.id] || 0;
+            const ownLbl = this.text(card, '已拥有 ' + owned, 0, -96, 200, 28, 21, '#6E533C');
+            ownLbl.isBold = true;
+            const buy = this.shopArt(card, 'buy', 0, -148, 186, 186 * 120 / 321);
+            this.headerText(buy, String(tomb.priceGems), -20, 0, 100, 38, 28);
+            const cur = this.uiNode(buy, '墓碑钻石标', 42, 0, 36, 36 * 315 / 353).addComponent(Sprite);
+            cur.sizeMode = Sprite.SizeMode.CUSTOM;
+            this.updateShopSprite(cur, 'art/header/diamond-icon');
+            this.shopButton(buy, () => this.buyTombstone(tomb.id));
+        });
+        const goMem = this.shopArt(panel, 'buy', 0, -552, 340, 340 * 120 / 321);
+        goMem.name = '商店进纪念角按钮';
+        this.headerText(goMem, '前往后院纪念角 ›', 0, 0, 310, 44, 26);
+        this.shopButton(goMem, () => this.open('memorial'));
     }
+
+    private buyTombstone(id: TombstoneId): boolean {
+        const tomb = findTombstone(id);
+        if (!tomb) return false;
+        if (this.data.gems < tomb.priceGems) { this.showGemDialog(); return false; }
+        const c = this.dailyCandidate();
+        c.gems -= tomb.priceGems;
+        c.tombstoneInventory = { ...(c.tombstoneInventory || {}), [id]: ((c.tombstoneInventory || {})[id] || 0) + 1 };
+        if (!this.commitShop(c)) return false;
+        this.renderHeader();
+        this.refreshMemorialEntry();
+        if (this.page === 'shop' && this.shopTab === 'tombstones') {
+            if (this.sheet && isValid(this.sheet, true)) { this.sheet.removeFromParent(); this.sheet.destroy(); this.sheet = null; }
+            this.open('shop');
+        }
+        this.toast('已购入「' + tomb.name + '」，可在后院纪念角为伙伴立碑纪念');
+        return true;
+    }
+
+    private renderAdventure() {
+        const panel = this.sheet!;
+        this.advRoadTiles = []; this.advMarchers = [];
+        this.dailySprite(panel, 'panel-clean', 0, 0, 960, 1340, true, '冒险挂机底板');
+        this.dailyText(panel, '林间挂机冒险', -10, 404, 380, 48, 38);
+        const close = this.uiNode(panel, '关闭冒险', 392, 404, 82, 82);
+        this.dailySprite(close, 'close', 0, 0, 76, 76);
+        this.shopButton(close, () => this.open('home'));
+
+        // 顶部挂机时长 + 快捷进入冒险日记
+        this.advTimerLabel = this.dailyText(panel, '', -118, 326, 470, 36, 23);
+        const diaryBtn = this.bagButton(panel, '冒险日记 ›', 268, 326, 200, 52, () => this.open('diary'));
+        diaryBtn.name = '冒险页进日记按钮';
+
+        // 1) 循环走动的挂机小路视口（820×380，无缝横向循环卷轴 + 萌宠蹦跳前行）
+        const vp = this.uiNode(panel, '冒险循环路视口', 0, 108, 820, 370);
+        const vpFrame = this.uiNode(panel, '冒险路边框', 0, 108, 828, 378);
+        const fg = vpFrame.addComponent(Graphics);
+        fg.strokeColor = this.color('#8F5E34'); fg.lineWidth = 6;
+        fg.roundRect(-414, -189, 828, 378, 26); fg.stroke();
+        vp.addComponent(Mask).type = Mask.Type.GRAPHICS_RECT;
+
+        const tileW = 820;
+        for (let i = 0; i < 2; i++) {
+            const tile = this.uiNode(vp, '冒险路底图-' + i, i * tileW, 0, tileW + 2, 374);
+            const sp = tile.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM;
+            resources.load('art/adventure/road-bg/spriteFrame', SpriteFrame, (e, f) => {
+                if (!e && f && isValid(sp, true)) sp.spriteFrame = f;
+            });
+            this.advRoadTiles.push(tile);
+        }
+
+        // 最多 4 只存活且未走失的伙伴在路上循环前行
+        const marchPets = this.data.pets.filter(p => !p.dead && !p.lost).slice(0, 4);
+        marchPets.forEach((pet, idx) => {
+            const mx = 160 - idx * 142;
+            const my = -86 + (idx % 2 === 0 ? 10 : -14);
+            const mNode = this.uiNode(vp, '冒险行进伙伴-' + pet.id, mx, my, 128, 128);
+            const sp = mNode.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM;
+            void this.loadPetPortrait(BREEDS[pet.id].skin).then(f => {
+                if (f && isValid(sp, true)) sp.spriteFrame = f;
+            });
+            this.advMarchers.push({ node: mNode, baseY: my, phase: idx * 1.4, petId: pet.id });
+        });
+        const marchBadge = this.uiNode(vp, '挂机状态胶囊', 0, 152, 420, 38);
+        const mbg = marchBadge.addComponent(Graphics);
+        mbg.fillColor = new Color(68, 42, 22, 175); mbg.roundRect(-210, -19, 420, 38, 19); mbg.fill();
+        this.text(marchBadge, marchPets.length ? '伙伴们正在林间小路持续寻宝（离线也计时）' : '暂无可出行的伙伴', 0, 0, 400, 30, 19, '#FFF6DA');
+
+        // 2) 挂机冒险宝箱区（未开启有旋转金光提醒，点击开启领取并触发开箱特效）
+        const chestCard = this.uiNode(panel, '冒险宝箱区', 0, -214, 820, 238);
+        const cg = chestCard.addComponent(Graphics);
+        cg.fillColor = this.color('#FFF6E1'); cg.strokeColor = this.color('#D5AF78'); cg.lineWidth = 3.5;
+        cg.roundRect(-410, -119, 820, 238, 24); cg.fill(); cg.stroke();
+
+        // 旋转金光光环（可领取时亮起旋转）
+        const aura = this.uiNode(chestCard, '宝箱金光', -266, 0, 210, 210);
+        const ag = aura.addComponent(Graphics);
+        for (let r = 0; r < 12; r++) {
+            const a0 = (r * Math.PI * 2) / 12;
+            const a1 = a0 + 0.16;
+            ag.fillColor = new Color(255, 218, 92, r % 2 === 0 ? 115 : 65);
+            ag.moveTo(0, 0); ag.lineTo(Math.cos(a0) * 102, Math.sin(a0) * 102); ag.lineTo(Math.cos(a1) * 102, Math.sin(a1) * 102); ag.close(); ag.fill();
+        }
+        ag.fillColor = new Color(255, 238, 150, 125); ag.circle(0, 0, 58); ag.fill();
+        this.advChestAura = aura;
+
+        const chestNode = this.uiNode(chestCard, '冒险挂机宝箱', -266, 4, 168, 168);
+        const chestSp = chestNode.addComponent(Sprite); chestSp.sizeMode = Sprite.SizeMode.CUSTOM;
+        resources.load('art/adventure/chest-closed/spriteFrame', SpriteFrame, (e, f) => {
+            if (!e && f && isValid(chestSp, true)) chestSp.spriteFrame = f;
+        });
+        this.advChestSprite = chestSp;
+        this.intercept(chestNode); this.pressFeedback(chestNode);
+        chestNode.on(Node.EventType.TOUCH_END, () => this.claimAdventureChest(), this);
+
+        const badge = this.uiNode(chestCard, '宝箱可领标', -266, -78, 114, 30);
+        const bgG = badge.addComponent(Graphics);
+        bgG.fillColor = this.color('#E05744'); bgG.roundRect(-57, -15, 114, 30, 15); bgG.fill();
+        const bLbl = this.text(badge, '可开启!', 0, 0, 108, 26, 18, C.white); bLbl.isBold = true;
+        this.advChestBadge = badge;
+
+        this.headerText(chestCard, '挂机冒险宝箱（最多累计24小时）', 108, 72, 490, 36, 25);
+        this.advRewardSummary = this.text(chestCard, '', 108, 14, 490, 62, 22, '#6E4627');
+        this.advRewardSummary.enableWrapText = true; this.advRewardSummary.lineHeight = 28; this.advRewardSummary.isBold = true;
+        const claimBtn = this.bagButton(chestCard, '开启宝箱领取', 108, -66, 280, 62, () => this.claimAdventureChest());
+        claimBtn.name = '领取冒险宝箱按钮';
+
+        // 3) 底部最新冒险事件快览（最近 2 条日志 + 进入完整日记）
+        const feedCard = this.uiNode(panel, '最新冒险快览', 0, -448, 820, 198);
+        const fcg = feedCard.addComponent(Graphics);
+        fcg.fillColor = this.color('#FFFBF0'); fcg.strokeColor = this.color('#D9BE98'); fcg.lineWidth = 3;
+        fcg.roundRect(-410, -99, 820, 198, 22); fcg.fill(); fcg.stroke();
+        this.headerText(feedCard, '最新冒险见闻', -276, 68, 230, 32, 23);
+        const moreBtn = this.bagButton(feedCard, '全部日志 ›', 300, 68, 168, 42, () => this.open('diary'));
+        moreBtn.name = '冒险快览全部日志';
+
+        const recent = (this.data.adventureLogs || []).slice(0, 2);
+        if (!recent.length) {
+            this.text(feedCard, '伙伴刚刚踏上旅途，稍后将带回精彩的冒险见闻！', 0, -16, 760, 40, 21, C.muted);
+        } else {
+            recent.forEach((log, idx) => {
+                const y = 14 - idx * 62;
+                const meta = eventBadgeMeta(log.type);
+                this.pillBadge(feedCard, meta.label, -330, y, 106, 28, meta.color, C.white, 16);
+                const txt = this.text(feedCard, log.text, 64, y, 650, 46, 19, '#5A3A22');
+                txt.horizontalAlign = Label.HorizontalAlign.LEFT; txt.enableWrapText = true; txt.lineHeight = 22;
+            });
+        }
+        this.updateAdventureLabel();
+    }
+
     private updateAdventureLabel() {
-        if (!this.adventureLabel || !this.adventureLabel.isValid) return;
-        const left = Math.ceil((this.data.adventureEnd - Date.now()) / 1000);
-        this.adventureLabel.string = !this.data.adventureEnd ? '今日的风景，等你一起发现' : left > 0 ? '寻宝中  ' + Math.floor(left / 60) + ':' + ('0' + left % 60).slice(-2) : '伙伴回来啦 · 礼物等待领取';
+        const start = this.data.adventureIdleStart || Date.now();
+        const aliveCount = this.data.pets.filter(p => !p.dead && !p.lost).length;
+        const preview = calcIdleRewardPreview(Date.now() - start, aliveCount);
+        const totalSec = Math.floor(preview.cappedMs / 1000);
+        const hh = ('0' + Math.floor(totalSec / 3600)).slice(-2);
+        const mm = ('0' + Math.floor((totalSec % 3600) / 60)).slice(-2);
+        const ss = ('0' + (totalSec % 60)).slice(-2);
+        if (this.advTimerLabel && isValid(this.advTimerLabel, true)) {
+            this.advTimerLabel.string = `已挂机 ${hh}:${mm}:${ss} / 24:00:00`;
+        }
+        if (this.advRewardSummary && isValid(this.advRewardSummary, true)) {
+            this.advRewardSummary.string = preview.ready
+                ? `预计收获：金币 +${preview.coins} · 钻石 +${preview.gems}${preview.itemCount > 0 ? ` · 随机道具 ×${preview.itemCount}` : ''}`
+                : '挂机满 1 分钟即可开启宝箱，挂机越久奖励越丰厚！';
+        }
+        if (this.advChestAura && isValid(this.advChestAura, true)) {
+            this.advChestAura.active = preview.ready || Date.now() < this.advChestOpenUntil;
+        }
+        if (this.advChestBadge && isValid(this.advChestBadge, true)) {
+            this.advChestBadge.active = preview.ready;
+        }
+    }
+
+    private updateAdventureScene(dt: number) {
+        if (this.page !== 'adventure') return;
+        const tileW = 820;
+        if (this.advRoadTiles.length === 2) {
+            this.advScrollX = (this.advScrollX + dt * 105) % tileW;
+            this.advRoadTiles[0].setPosition(-this.advScrollX, 0, 0);
+            this.advRoadTiles[1].setPosition(tileW - this.advScrollX, 0, 0);
+        }
+        this.advMarchers.forEach(m => {
+            if (!isValid(m.node, true)) return;
+            m.phase += dt * 7.5;
+            const hop = Math.abs(Math.sin(m.phase)) * 16;
+            const tilt = Math.sin(m.phase) * 6;
+            m.node.setPosition(m.node.position.x, m.baseY + hop, 0);
+            m.node.setRotationFromEuler(0, 0, tilt);
+        });
+        if (this.advChestAura && isValid(this.advChestAura, true) && this.advChestAura.active) {
+            const z = this.advChestAura.eulerAngles.z - dt * 42;
+            this.advChestAura.setRotationFromEuler(0, 0, z);
+            const pulse = 0.94 + Math.sin(Date.now() * 0.006) * 0.08;
+            this.advChestAura.setScale(pulse, pulse, 1);
+        }
+        if (this.advChestSprite && isValid(this.advChestSprite, true) && this.advChestOpenUntil > 0 && Date.now() >= this.advChestOpenUntil) {
+            this.advChestOpenUntil = 0;
+            resources.load('art/adventure/chest-closed/spriteFrame', SpriteFrame, (e, f) => {
+                if (!e && f && isValid(this.advChestSprite, true)) this.advChestSprite!.spriteFrame = f;
+            });
+        }
+    }
+
+    public claimAdventureChest(): boolean {
+        const start = this.data.adventureIdleStart || Date.now();
+        const aliveCount = this.data.pets.filter(p => !p.dead && !p.lost).length;
+        const preview = calcIdleRewardPreview(Date.now() - start, aliveCount);
+        if (!preview.ready) {
+            this.toast('挂机满 1 分钟才能开启宝箱哦（离线也会累计）');
+            return false;
+        }
+        const bonusItems = rollIdleBonusItems(preview.itemCount);
+        const c = this.dailyCandidate();
+        c.coins = Math.min(100000000, c.coins + preview.coins);
+        c.gems = Math.min(100000000, c.gems + preview.gems);
+        c.xp = Math.min(100000000, c.xp + Math.max(15, Math.min(200, preview.minutes * 2)));
+        c.adventureIdleStart = Date.now();
+        c.itemInventory = { ...c.itemInventory };
+        bonusItems.forEach(bi => { c.itemInventory[bi.id] = (c.itemInventory[bi.id] || 0) + bi.count; });
+        recordDaily(c.daily, 'adventure');
+        if (!this.commitShop(c)) return false;
+
+        // 切换为开启发光宝箱 + 记录到冒险日记
+        this.advChestOpenUntil = Date.now() + 2600;
+        if (this.advChestSprite && isValid(this.advChestSprite, true)) {
+            resources.load('art/adventure/chest-open/spriteFrame', SpriteFrame, (e, f) => {
+                if (!e && f && isValid(this.advChestSprite, true)) this.advChestSprite!.spriteFrame = f;
+            });
+        }
+        const firstItem = bonusItems[0];
+        const itemSummary = bonusItems.map(bi => `${findItem(bi.id)?.name || bi.id}×${bi.count}`).join('、');
+        this.recordAdventureLog({
+            petId: this.data.pets[0]?.id ?? 0,
+            petName: '冒险小队',
+            type: 'chest',
+            title: '开启挂机宝箱',
+            text: `开启了累计 ${preview.minutes} 分钟的冒险宝箱：金币 +${preview.coins}、钻石 +${preview.gems}${itemSummary ? '，带回 ' + itemSummary : ''}！`,
+            itemId: firstItem?.id,
+            itemCount: firstItem?.count,
+            coins: preview.coins,
+            gems: preview.gems,
+        });
+        this.renderHeader();
+        this.updateAdventureLabel();
+        this.showDialog('冒险宝箱已开启！', `金币 +${preview.coins} · 钻石 +${preview.gems}${itemSummary ? '\n额外道具：' + itemSummary : ''}`, [
+            { title: '太棒了', run: () => this.closeDialog() },
+        ]);
+        return true;
+    }
+
+    private recordAdventureLog(partial: Omit<AdventureLogEntry, 'id' | 'time'>): AdventureLogEntry {
+        const entry: AdventureLogEntry = { id: ++this.advLogNextId, time: Date.now(), ...partial };
+        if (!this.data.adventureLogs) this.data.adventureLogs = [];
+        this.data.adventureLogs.unshift(entry);
+        if (this.data.adventureLogs.length > 40) this.data.adventureLogs.length = 40;
+        this.dirty = true;
+        this.persist();
+        return entry;
+    }
+
+    public triggerAdventureOutcome(pet: Pet, outcome: RolledAdventureOutcome) {
+        const name = this.petDisplayName(pet.id);
+        const c = this.dailyCandidate();
+        const target = c.pets.find(p => p.id === pet.id);
+        if (!target) return;
+        if (outcome.coins) c.coins = Math.min(100000000, c.coins + outcome.coins);
+        if (outcome.gems) c.gems = Math.min(100000000, c.gems + outcome.gems);
+        if (outcome.item) {
+            c.itemInventory = { ...c.itemInventory, [outcome.item.id]: (c.itemInventory[outcome.item.id] || 0) + (outcome.itemCount || 1) };
+        }
+        if (outcome.cleanSetMax !== undefined) target.clean = Math.min(target.clean, outcome.cleanSetMax);
+        if (outcome.cleanDelta) target.clean = Math.max(0, Math.min(100, target.clean + outcome.cleanDelta));
+        if (outcome.healthDelta) target.health = Math.max(0, Math.min(100, target.health + outcome.healthDelta));
+        if (outcome.joyDelta) target.joy = Math.max(0, Math.min(100, target.joy + outcome.joyDelta));
+        if (outcome.setLost) target.lost = true;
+        if (outcome.setDead) {
+            target.dead = true; target.health = 0;
+            target.deathReason = outcome.deathReason || '冒险遭遇意外';
+            target.diedAt = Date.now();
+        }
+        if (!this.commitShop(c)) return;
+        const actor = this.actors.find(a => a.pet.id === pet.id);
+        if (outcome.setLost && actor) {
+            if (isValid(actor.node, true)) { actor.node.active = false; actor.node.destroy(); }
+            this.actors = this.actors.filter(a => a !== actor);
+        } else if (outcome.setDead && actor) {
+            if (this.page === 'home' || this.page === 'pet') { actor.dying = 0.001; actor.ghostSpawned = false; }
+            else { if (isValid(actor.node, true)) { actor.node.active = false; actor.node.destroy(); } this.actors = this.actors.filter(a => a !== actor); }
+        } else if (actor) {
+            actor.pet = target;
+        }
+        this.recordAdventureLog({
+            petId: pet.id, petName: name, type: outcome.type, title: outcome.title, text: outcome.text,
+            itemId: outcome.item?.id, itemCount: outcome.itemCount, coins: outcome.coins, gems: outcome.gems,
+            resolved: !(outcome.setLost || outcome.setDead),
+        });
+        this.renderHeader();
+        this.refreshMemorialEntry();
+        if (outcome.setLost) {
+            this.pendingAlerts.push({ kind: 'lost', petId: pet.id, reason: outcome.text });
+            this.checkMainCityAlerts();
+        } else if (outcome.setDead) {
+            this.pendingAlerts.push({ kind: 'dead', petId: pet.id, reason: outcome.deathReason || '冒险途中遭遇猫狗贩子' });
+            this.checkMainCityAlerts();
+        }
+    }
+
+    private checkMainCityAlerts() {
+        if (this.page !== 'home' || this.dialog || !this.pendingAlerts.length) return;
+        const alert = this.pendingAlerts.shift()!;
+        const pet = this.data.pets.find(p => p.id === alert.petId);
+        if (!pet) return;
+        if (alert.kind === 'lost' && !pet.lost) return;
+        if (alert.kind === 'dead' && !pet.dead) return;
+        this.showPetCrisisDialog(alert.kind, pet.id, alert.reason);
+    }
+
+    public showPetCrisisDialog(kind: 'lost' | 'dead', petId: number, reason: string) {
+        if (this.dialog) this.closeDialog();
+        const name = this.petDisplayName(petId);
+        if (kind === 'lost') {
+            this.showDialog('走失警报！', `「${name}」在冒险中贪玩走丢了！\n可以免费观看广告立刻找回，或花 100 金币发布寻宠启事。`, [
+                { title: '看广告找回', run: () => this.recoverLostPet(petId, 'ad') },
+                { title: '100金币找回', run: () => this.recoverLostPet(petId, 'coins') },
+            ]);
+        } else {
+            this.showDialog('离别提醒', `「${name}」因【${reason}】离开了庭院……\n可以观看广告奇迹复活，或前往后院纪念角立碑纪念。`, [
+                { title: '看广告复活', run: () => this.revivePetByAd(petId) },
+                { title: '购买墓碑纪念', run: () => { this.closeDialog(); this.open('memorial'); this.showErectTombstoneDialog(petId); } },
+            ]);
+        }
+    }
+
+    private recoverLostPet(petId: number, mode: 'ad' | 'coins') {
+        const pet = this.data.pets.find(p => p.id === petId);
+        if (!pet || !pet.lost) { this.closeDialog(); return; }
+        const finish = () => {
+            const c = this.dailyCandidate();
+            if (mode === 'coins') {
+                if (c.coins < 100) { this.closeDialog(); this.showCoinDialog(); return; }
+                c.coins -= 100;
+            }
+            const target = c.pets.find(p => p.id === petId);
+            if (!target) return;
+            target.lost = false; target.joy = Math.min(100, target.joy + 20);
+            (c.adventureLogs || []).forEach(l => { if (l.petId === petId && l.type === 'lost') l.resolved = true; });
+            if (!this.commitShop(c)) return;
+            if (!this.actors.some(a => a.pet.id === petId)) this.spawnPet(target);
+            this.closeDialog();
+            this.renderHeader();
+            if (this.page === 'diary') { if (this.sheet) { this.sheet.destroy(); this.sheet = null; } this.open('diary'); }
+            this.toast('太好了！「' + this.petDisplayName(petId) + '」已经平安回到庭院啦！');
+        };
+        if (mode === 'coins') { finish(); return; }
+        if (this.rewardedVideoProvider) {
+            this.rewardedVideoProvider.show(res => { if (res === 'completed') finish(); else this.toast('未完整观看广告，暂未找回'); });
+        } else { finish(); }
+    }
+
+    public revivePetByAd(petId: number) {
+        const pet = this.data.pets.find(p => p.id === petId);
+        if (!pet || !pet.dead) { this.closeDialog(); return; }
+        const finish = () => {
+            const c = this.dailyCandidate();
+            const target = c.pets.find(p => p.id === petId);
+            if (!target) return;
+            target.dead = false; target.lost = false;
+            target.health = 100; target.hunger = 80; target.clean = 80; target.energy = 90; target.joy = 85;
+            (c.adventureLogs || []).forEach(l => { if (l.petId === petId && (l.type === 'death_trafficker' || l.type === 'death_sick')) l.resolved = true; });
+            if (!this.commitShop(c)) return;
+            if (!this.actors.some(a => a.pet.id === petId)) this.spawnPet(target);
+            this.closeDialog();
+            this.renderHeader();
+            this.refreshMemorialEntry();
+            if (this.page === 'diary' || this.page === 'memorial') {
+                const pg = this.page;
+                if (this.sheet) { this.sheet.destroy(); this.sheet = null; }
+                this.open(pg);
+            }
+            this.toast('奇迹发生！「' + this.petDisplayName(petId) + '」满血复活回到庭院啦！');
+        };
+        if (this.rewardedVideoProvider) {
+            this.rewardedVideoProvider.show(res => { if (res === 'completed') finish(); else this.toast('未完整观看广告，未能复活'); });
+        } else { finish(); }
+    }
+
+    private refreshMemorialEntry() {
+        const node = this.ui?.getChildByName('后院纪念角入口');
+        if (!node) return;
+        const hasDead = this.data.pets.some(p => p.dead);
+        const hasMem = (this.data.memorials || []).length > 0;
+        const hasTomb = Object.values(this.data.tombstoneInventory || {}).some(v => v > 0);
+        node.active = this.page === 'home' && (hasDead || hasMem || hasTomb);
+    }
+
+    private renderAdventureDiary() {
+        const panel = this.sheet!;
+        this.dailySprite(panel, 'panel-clean', 0, 0, 921, 1390, true, '冒险日记底板');
+        this.dailyText(panel, '冒险日记', -14, 415, 360, 48, 38);
+        const close = this.uiNode(panel, '关闭日记', 380, 416, 84, 84);
+        this.dailySprite(close, 'close', 0, 0, 78, 78);
+        this.shopButton(close, () => this.open('home'));
+
+        const logs = this.data.adventureLogs || [];
+        const sub = this.dailyText(panel, `共记录 ${logs.length} 条冒险见闻（点击实物卡片可查看背包）`, 0, 316, 740, 34, 21);
+        sub.node.name = '日记副标题';
+
+        const vp = this.uiNode(panel, '日记滚动视口', 0, -142, 770, 840);
+        vp.addComponent(Mask).type = Mask.Type.GRAPHICS_RECT;
+        const content = this.uiNode(vp, '日记滚动内容', 0, 420, 770, Math.max(840, logs.length * 204 + 40));
+        content.getComponent(UITransform)!.setAnchorPoint(0.5, 1);
+        const scroll = vp.addComponent(ScrollView);
+        scroll.content = content; scroll.horizontal = false; scroll.vertical = true;
+        scroll.cancelInnerEvents = true; scroll.elastic = true;
+
+        if (!logs.length) {
+            this.text(content, '还没有冒险记录，去林间挂机冒险看看吧！', 0, -240, 680, 44, 26, C.muted);
+            return;
+        }
+
+        let curY = -12;
+        logs.forEach((log) => {
+            const pet = this.data.pets.find(p => p.id === log.petId);
+            const hasItem = !!log.itemId && !!findItem(log.itemId);
+            const needsAction = (log.type === 'lost' && pet?.lost) || ((log.type === 'death_trafficker' || log.type === 'death_sick') && pet?.dead);
+            const cardH = hasItem ? 210 : needsAction ? 198 : 138;
+            const card = this.uiNode(content, '日记条目-' + log.id, 0, curY - cardH / 2, 744, cardH);
+            curY -= (cardH + 14);
+
+            const bg = card.addComponent(Graphics);
+            bg.fillColor = this.color(needsAction ? '#FFF3EE' : '#FFFBF0');
+            bg.strokeColor = this.color(needsAction ? '#D96B52' : '#D9BE98');
+            bg.lineWidth = needsAction ? 3.5 : 2.5;
+            bg.roundRect(-372, -cardH / 2, 744, cardH, 20); bg.fill(); bg.stroke();
+
+            const topY = cardH / 2 - 30;
+            const d = new Date(log.time);
+            const pad = (n: number) => ('0' + n).slice(-2);
+            const timeStr = `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+            const meta = eventBadgeMeta(log.type);
+            this.pillBadge(card, meta.label, -304, topY, 112, 30, meta.color, C.white, 17);
+            const titleLbl = this.text(card, `${log.petName} · ${log.title}`, -36, topY, 390, 32, 22, '#58351D');
+            titleLbl.isBold = true; titleLbl.horizontalAlign = Label.HorizontalAlign.LEFT;
+            const timeLbl = this.text(card, timeStr, 290, topY, 136, 26, 18, '#8C7055');
+            timeLbl.horizontalAlign = Label.HorizontalAlign.RIGHT;
+
+            const bodyLbl = this.text(card, log.text, 0, topY - 48, 700, 52, 20, '#634329');
+            bodyLbl.horizontalAlign = Label.HorizontalAlign.LEFT; bodyLbl.enableWrapText = true; bodyLbl.lineHeight = 25;
+
+            if (hasItem) {
+                const item = findItem(log.itemId!)!;
+                const itemCard = this.uiNode(card, '日志实物卡-' + item.id, 0, -cardH / 2 + 44, 696, 68);
+                const ig = itemCard.addComponent(Graphics);
+                ig.fillColor = this.color('#FFF4D6'); ig.strokeColor = this.color('#D8A85A'); ig.lineWidth = 2.5;
+                ig.roundRect(-348, -34, 696, 68, 16); ig.fill(); ig.stroke();
+                this.itemIcon(itemCard, item.id, -306, 0, 54);
+                const il = this.text(itemCard, `${item.name} ×${log.itemCount || 1}`, -110, 10, 310, 28, 21, '#58351D');
+                il.isBold = true; il.horizontalAlign = Label.HorizontalAlign.LEFT;
+                const ef = this.text(itemCard, effectText(item), -110, -16, 310, 24, 17, '#7A5B3E');
+                ef.horizontalAlign = Label.HorizontalAlign.LEFT;
+                this.pillBadge(itemCard, itemCategoryTag(item), 156, 0, 86, 28, '#5C9B68', C.white, 17);
+                const goBag = this.text(itemCard, '查看背包 ›', 284, 0, 110, 28, 19, '#B86420'); goBag.isBold = true;
+                this.intercept(itemCard); this.pressVisualFeedback(itemCard);
+                itemCard.on(Node.EventType.TOUCH_END, () => { this.bagFilter = item.category; this.open('bag'); }, this);
+            } else if (needsAction) {
+                const btnY = -cardH / 2 + 38;
+                if (log.type === 'lost') {
+                    this.bagButton(card, '看广告找回', -150, btnY, 240, 50, () => this.recoverLostPet(log.petId, 'ad'));
+                    this.bagButton(card, '100金币找回', 150, btnY, 240, 50, () => this.recoverLostPet(log.petId, 'coins'));
+                } else {
+                    this.bagButton(card, '看广告复活', -150, btnY, 240, 50, () => this.revivePetByAd(log.petId));
+                    this.bagButton(card, '立碑纪念', 150, btnY, 240, 50, () => { this.open('memorial'); this.showErectTombstoneDialog(log.petId); });
+                }
+            }
+        });
+        content.getComponent(UITransform)!.setContentSize(770, Math.max(840, -curY + 24));
+    }
+
+    private renderMemorialCorner() {
+        const panel = this.sheet!;
+        this.dailySprite(panel, 'panel-clean', 0, 0, 921, 1390, true, '后院纪念角底板');
+        this.dailyText(panel, '后院纪念角', -14, 415, 360, 48, 38);
+        const close = this.uiNode(panel, '关闭纪念角', 380, 416, 84, 84);
+        this.dailySprite(close, 'close', 0, 0, 78, 78);
+        this.shopButton(close, () => this.open('home'));
+
+        this.dailyText(panel, '点击已立墓碑可重温生平照片与冒险高光记录', -70, 316, 560, 34, 21);
+        const buyTombBtn = this.bagButton(panel, '去买墓碑 ›', 282, 316, 174, 46, () => { this.shopTab = 'tombstones'; this.open('shop'); });
+        buyTombBtn.name = '纪念角买墓碑按钮';
+
+        const memorials = this.data.memorials || [];
+        const deadUnmemorialized = this.data.pets.filter(p => p.dead && !memorials.some(m => m.petId === p.id));
+
+        const vp = this.uiNode(panel, '纪念角视口', 0, -142, 770, 840);
+        vp.addComponent(Mask).type = Mask.Type.GRAPHICS_RECT;
+        const content = this.uiNode(vp, '纪念角内容', 0, 420, 770, 840);
+        content.getComponent(UITransform)!.setAnchorPoint(0.5, 1);
+        const scroll = vp.addComponent(ScrollView);
+        scroll.content = content; scroll.horizontal = false; scroll.vertical = true;
+        scroll.cancelInnerEvents = true; scroll.elastic = true;
+
+        let curY = -16;
+        if (deadUnmemorialized.length) {
+            deadUnmemorialized.forEach(pet => {
+                const row = this.uiNode(content, '待立碑伙伴-' + pet.id, 0, curY - 62, 740, 118);
+                curY -= 132;
+                const rg = row.addComponent(Graphics);
+                rg.fillColor = this.color('#FFF5EA'); rg.strokeColor = this.color('#D89A6C'); rg.lineWidth = 3;
+                rg.roundRect(-370, -59, 740, 118, 22); rg.fill(); rg.stroke();
+                this.petAvatar(row, pet.id, -296, 0, 88);
+                const nl = this.text(row, `${this.petDisplayName(pet.id)}（${pet.deathReason || '已离世'}）`, -40, 18, 390, 32, 22, '#58351D');
+                nl.isBold = true; nl.horizontalAlign = Label.HorizontalAlign.LEFT;
+                const sl = this.text(row, '可立碑刻字永远纪念，或观看广告复活', -40, -18, 390, 26, 18, '#7A5B3E');
+                sl.horizontalAlign = Label.HorizontalAlign.LEFT;
+                const erectBtn = this.bagButton(row, '立碑纪念', 248, 22, 168, 44, () => this.showErectTombstoneDialog(pet.id));
+                erectBtn.name = '立碑按钮-' + pet.id;
+                this.bagButton(row, '广告复活', 248, -26, 168, 42, () => this.revivePetByAd(pet.id));
+            });
+        }
+
+        if (!memorials.length && !deadUnmemorialized.length) {
+            this.text(content, '庭院里所有伙伴都健康陪伴着你！\n若伙伴不幸离世，可在此立碑刻字永远纪念。', 0, -240, 680, 96, 24, C.muted);
+        } else if (memorials.length) {
+            memorials.forEach((rec, idx) => {
+                const col = idx % 2, rowIdx = Math.floor(idx / 2);
+                const cx = col === 0 ? -186 : 186;
+                const cy = curY - 156 - rowIdx * 324;
+                const card = this.uiNode(content, '已立墓碑-' + rec.petId, cx, cy, 354, 304);
+                const cg = card.addComponent(Graphics);
+                cg.fillColor = this.color('#F7F4EA'); cg.strokeColor = this.color('#B8C49E'); cg.lineWidth = 3.5;
+                cg.roundRect(-177, -152, 354, 304, 24); cg.fill(); cg.stroke();
+                const tomb = findTombstone(rec.tombstoneId) || TOMBSTONE_CATALOG[0];
+                const tsp = this.uiNode(card, '墓碑图', 0, 44, 162, 162).addComponent(Sprite);
+                tsp.sizeMode = Sprite.SizeMode.CUSTOM;
+                resources.load('art/memorial/' + tomb.artKey + '/spriteFrame', SpriteFrame, (e, f) => {
+                    if (!e && f && isValid(tsp, true)) tsp.spriteFrame = f;
+                });
+                const nLbl = this.text(card, rec.customName, 0, -56, 320, 34, 24, '#4E3422'); nLbl.isBold = true;
+                const eLbl = this.text(card, `「${rec.epitaph}」`, 0, -98, 320, 48, 18, '#7A634C');
+                eLbl.enableWrapText = true; eLbl.lineHeight = 22;
+                const hint = this.text(card, '点击重温生平与冒险高光 ›', 0, -132, 300, 24, 16, '#5D8A52'); hint.isBold = true;
+                this.intercept(card); this.pressVisualFeedback(card);
+                card.on(Node.EventType.TOUCH_END, () => this.showMemorialDetailDialog(rec), this);
+            });
+            curY -= Math.ceil(memorials.length / 2) * 324 + 24;
+        }
+        content.getComponent(UITransform)!.setContentSize(770, Math.max(840, -curY + 24));
+    }
+
+    public showErectTombstoneDialog(petId: number) {
+        if (this.dialog) this.closeDialog();
+        const pet = this.data.pets.find(p => p.id === petId);
+        if (!pet) return;
+        const overlay = this.uiNode(this.ui, '通用弹窗遮罩', 0, 0, this.width, this.height);
+        this.dialog = overlay;
+        overlay.addComponent(Graphics); this.intercept(overlay);
+
+        const panel = this.uiNode(overlay, '通用弹窗面板', 0, 0, 880, 980);
+        this.intercept(panel);
+        const bg = panel.addComponent(Graphics);
+        bg.fillColor = this.color('#FFF9EC'); bg.strokeColor = this.color('#B87B44'); bg.lineWidth = 6;
+        bg.roundRect(-440, -490, 880, 980, 32); bg.fill(); bg.stroke();
+        this.headerText(panel, '立碑刻字纪念', 0, 428, 420, 48, 36).node.name = '弹窗独立标题';
+        const close = this.shopArt(panel, 'close', 384, 428, 68, 69);
+        this.shopButton(close, () => this.closeDialog());
+
+        let selectedTomb: TombstoneId = TOMBSTONE_CATALOG.find(t => ((this.data.tombstoneInventory || {})[t.id] || 0) > 0)?.id || 'tomb_stone';
+        const redraws: Array<() => void> = [];
+        TOMBSTONE_CATALOG.forEach((tomb, idx) => {
+            const x = (idx - 1) * 264;
+            const slot = this.uiNode(panel, '选墓碑-' + tomb.id, x, 240, 244, 250);
+            const sg = slot.addComponent(Graphics);
+            const sp = this.uiNode(slot, '墓碑预览', 0, 34, 128, 128).addComponent(Sprite);
+            sp.sizeMode = Sprite.SizeMode.CUSTOM;
+            resources.load('art/memorial/' + tomb.artKey + '/spriteFrame', SpriteFrame, (e, f) => { if (!e && f && isValid(sp, true)) sp.spriteFrame = f; });
+            const nl = this.text(slot, tomb.name, 0, -52, 224, 30, 21, '#58351D'); nl.isBold = true;
+            const owned = (this.data.tombstoneInventory || {})[tomb.id] || 0;
+            const pl = this.text(slot, owned > 0 ? `已拥有 ×${owned}` : `${tomb.priceGems} 钻石购买`, 0, -86, 224, 28, 19, owned > 0 ? '#228B3C' : '#C96A22');
+            pl.isBold = true;
+            const redraw = () => {
+                const active = selectedTomb === tomb.id;
+                sg.clear();
+                sg.fillColor = this.color(active ? '#FFF1C2' : '#FFFDF7');
+                sg.strokeColor = this.color(active ? '#E69924' : '#D9BE98');
+                sg.lineWidth = active ? 4.5 : 2.5;
+                sg.roundRect(-122, -125, 244, 250, 20); sg.fill(); sg.stroke();
+            };
+            redraws.push(redraw); redraw();
+            this.intercept(slot); this.pressVisualFeedback(slot);
+            slot.on(Node.EventType.TOUCH_END, () => { selectedTomb = tomb.id; redraws.forEach(fn => fn()); }, this);
+        });
+
+        const makeSingleInput = (labelText: string, y: number, initVal: string, maxLen: number, ph: string): EditBox => {
+            const lbl = this.text(panel, labelText, -270, y + 48, 220, 30, 22, '#6E4627');
+            lbl.isBold = true; lbl.horizontalAlign = Label.HorizontalAlign.LEFT;
+            const box = this.uiNode(panel, '立碑输入-' + labelText, 0, y, 740, 64);
+            box.active = false;
+            const g = box.addComponent(Graphics);
+            g.fillColor = this.color('#FFFDF7'); g.strokeColor = this.color('#B88652'); g.lineWidth = 3;
+            g.roundRect(-370, -32, 740, 64, 16); g.fill(); g.stroke();
+            const tn = this.uiNode(box, 'TEXT_LABEL', -354, 32, 708, 64);
+            tn.getComponent(UITransform)!.setAnchorPoint(0, 1);
+            const tl = tn.addComponent(Label);
+            tl.fontSize = 24; tl.lineHeight = 32; tl.color = this.color('#4E2F1A');
+            tl.horizontalAlign = Label.HorizontalAlign.CENTER; tl.verticalAlign = Label.VerticalAlign.CENTER;
+            tl.overflow = Label.Overflow.CLAMP; tl.enableWrapText = false;
+            const pn = this.uiNode(box, 'PLACEHOLDER_LABEL', -354, 32, 708, 64);
+            pn.getComponent(UITransform)!.setAnchorPoint(0, 1);
+            const pl = pn.addComponent(Label);
+            pl.fontSize = 22; pl.lineHeight = 32; pl.color = this.color('#A99278');
+            pl.horizontalAlign = Label.HorizontalAlign.CENTER; pl.verticalAlign = Label.VerticalAlign.CENTER;
+            pl.overflow = Label.Overflow.CLAMP; pl.enableWrapText = false;
+            const eb = box.addComponent(EditBox);
+            eb.inputMode = EditBox.InputMode.SINGLE_LINE; eb.returnType = EditBox.KeyboardReturnType.DONE;
+            eb.textLabel = tl; eb.placeholderLabel = pl; eb.maxLength = maxLen; eb.placeholder = ph; eb.string = initVal;
+            box.active = true;
+            return eb;
+        };
+
+        const nameEb = makeSingleInput('刻字名字', 16, this.petDisplayName(petId), 10, '输入宠物名字');
+        const epitaphEb = makeSingleInput('纪念墓志铭', -120, '永远记得陪我度过的每一个晴天', 28, '写下想对它说的话');
+
+        const confirmBtn = this.shopArt(panel, 'buy', -160, -390, 270, 270 * 120 / 321);
+        confirmBtn.name = '弹窗按钮-确认立碑';
+        this.headerText(confirmBtn, '确认立碑', 0, 0, 220, 44, 28);
+        this.shopButton(confirmBtn, () => {
+            const tomb = findTombstone(selectedTomb)!;
+            const owned = (this.data.tombstoneInventory || {})[selectedTomb] || 0;
+            if (owned <= 0 && this.data.gems < tomb.priceGems) {
+                this.closeDialog(); this.showGemDialog(); return;
+            }
+            const customName = (nameEb.string || '').trim() || this.petDisplayName(petId);
+            const epitaph = (epitaphEb.string || '').trim() || '永远怀念你，我的好伙伴';
+            const c = this.dailyCandidate();
+            c.tombstoneInventory = { ...(c.tombstoneInventory || {}) };
+            if (owned > 0) c.tombstoneInventory[selectedTomb] = owned - 1;
+            else c.gems -= tomb.priceGems;
+            const nextRec: MemorialRecord = {
+                petId, tombstoneId: selectedTomb, customName, epitaph,
+                diedAt: pet.diedAt || Date.now(), deathReason: pet.deathReason || '已离开庭院', erectedAt: Date.now(),
+            };
+            c.memorials = [...(c.memorials || []).filter(m => m.petId !== petId), nextRec];
+            if (!this.commitShop(c)) return;
+            this.closeDialog();
+            this.renderHeader();
+            this.refreshMemorialEntry();
+            if (this.sheet && isValid(this.sheet, true)) { this.sheet.removeFromParent(); this.sheet.destroy(); this.sheet = null; }
+            this.open('memorial');
+            this.toast('已为「' + customName + '」立碑纪念');
+        });
+
+        const cancelBtn = this.shopArt(panel, 'buy', 160, -390, 270, 270 * 120 / 321);
+        cancelBtn.name = '弹窗按钮-取消';
+        this.headerText(cancelBtn, '取消', 0, 0, 220, 44, 28);
+        this.shopButton(cancelBtn, () => this.closeDialog());
+        this.layoutDialog();
+    }
+
+    private showMemorialDetailDialog(rec: MemorialRecord) {
+        if (this.dialog) this.closeDialog();
+        const pet = this.data.pets.find(p => p.id === rec.petId);
+        const breed = BREEDS[rec.petId];
+        const tomb = findTombstone(rec.tombstoneId) || TOMBSTONE_CATALOG[0];
+        const highlights = (this.data.adventureLogs || []).filter(l => l.petId === rec.petId).slice(0, 3);
+
+        const overlay = this.uiNode(this.ui, '通用弹窗遮罩', 0, 0, this.width, this.height);
+        this.dialog = overlay;
+        overlay.addComponent(Graphics); this.intercept(overlay);
+        const panel = this.uiNode(overlay, '通用弹窗面板', 0, 0, 860, 980);
+        this.intercept(panel);
+        const bg = panel.addComponent(Graphics);
+        bg.fillColor = this.color('#FFFDF5'); bg.strokeColor = this.color('#9BB086'); bg.lineWidth = 6;
+        bg.roundRect(-430, -490, 860, 980, 32); bg.fill(); bg.stroke();
+        this.headerText(panel, `怀念 · ${rec.customName}`, 0, 428, 480, 48, 34).node.name = '弹窗独立标题';
+        const close = this.shopArt(panel, 'close', 376, 428, 68, 69);
+        this.shopButton(close, () => this.closeDialog());
+
+        // 左侧墓碑 + 右侧生平全身照
+        const tsp = this.uiNode(panel, '追思墓碑图', -180, 240, 200, 200).addComponent(Sprite);
+        tsp.sizeMode = Sprite.SizeMode.CUSTOM;
+        resources.load('art/memorial/' + tomb.artKey + '/spriteFrame', SpriteFrame, (e, f) => { if (!e && f && isValid(tsp, true)) tsp.spriteFrame = f; });
+        const photoFrame = this.uiNode(panel, '生平照片框', 170, 240, 230, 230);
+        const pfg = photoFrame.addComponent(Graphics);
+        pfg.fillColor = this.color('#FFF4DA'); pfg.strokeColor = this.color('#C89858'); pfg.lineWidth = 4;
+        pfg.roundRect(-115, -115, 230, 230, 22); pfg.fill(); pfg.stroke();
+        const psp = this.uiNode(photoFrame, '生平全身照', 0, 0, 198, 198).addComponent(Sprite);
+        psp.sizeMode = Sprite.SizeMode.CUSTOM;
+        void this.loadPetPortrait(breed.skin).then(f => { if (f && isValid(psp, true)) psp.spriteFrame = f; });
+
+        // 墓志铭铭牌
+        const epBox = this.uiNode(panel, '墓志铭卡片', 0, 48, 740, 118);
+        const ebg = epBox.addComponent(Graphics);
+        ebg.fillColor = this.color('#F5F2E6'); ebg.strokeColor = this.color('#C8BEA6'); ebg.lineWidth = 2.5;
+        ebg.roundRect(-370, -59, 740, 118, 18); ebg.fill(); ebg.stroke();
+        const epLbl = this.text(epBox, `“ ${rec.epitaph} ”`, 0, 14, 700, 52, 24, '#4E3422'); epLbl.isBold = true; epLbl.enableWrapText = true;
+        this.text(epBox, `${tomb.name} · 离别原因：${rec.deathReason}`, 0, -34, 700, 28, 18, '#8A745E');
+
+        // 冒险高光记录
+        this.headerText(panel, '生平冒险高光记录', 0, -48, 360, 36, 24);
+        if (!highlights.length) {
+            this.text(panel, '它曾静静陪伴你度过庭院里的温暖时光。', 0, -148, 700, 40, 21, C.muted);
+        } else {
+            highlights.forEach((h, i) => {
+                const hl = this.text(panel, `• [${eventBadgeMeta(h.type).label}] ${h.text}`, 0, -104 - i * 68, 740, 58, 19, '#5E4028');
+                hl.horizontalAlign = Label.HorizontalAlign.LEFT; hl.enableWrapText = true; hl.lineHeight = 24;
+            });
+        }
+
+        if (pet?.dead) {
+            const rev = this.shopArt(panel, 'buy', -156, -402, 260, 260 * 120 / 321);
+            this.headerText(rev, '看广告复活', 0, 0, 210, 40, 26);
+            this.shopButton(rev, () => this.revivePetByAd(rec.petId));
+        }
+        const ok = this.shopArt(panel, 'buy', pet?.dead ? 156 : 0, -402, 260, 260 * 120 / 321);
+        this.headerText(ok, '收起怀念', 0, 0, 210, 40, 26);
+        this.shopButton(ok, () => this.closeDialog());
+        this.layoutDialog();
     }
     private layoutNotice() {
         const panel = this.notice?.node.parent;
@@ -4724,12 +5554,19 @@ export class Main extends Component {
         });
     }
 
-    public triggerPetDeath(pet: Pet) {
+    public triggerPetDeath(pet: Pet, reason = '长期未喂养/清洁导致重病') {
         if (pet.dead) return;
         pet.dead = true;
         pet.health = 0;
+        pet.deathReason = reason;
+        pet.diedAt = Date.now();
         this.dirty = true;
         this.persist();
+        this.recordAdventureLog({
+            petId: pet.id, petName: this.petDisplayName(pet.id), type: 'death_sick',
+            title: '重病离世', text: `「${this.petDisplayName(pet.id)}」因${reason}离开了庭院……`, resolved: false,
+        });
+        this.refreshMemorialEntry();
         const actor = this.actors.find(a => a.pet.id === pet.id);
         const inYard = this.page === 'home' || this.page === 'pet';
         if (this.selected === pet.id && (this.page === 'pet' || this.page === 'bag')) {
@@ -4739,7 +5576,7 @@ export class Main extends Component {
             if (inYard) {
                 actor.dying = 0.001;
                 actor.ghostSpawned = false;
-                this.toast('「' + this.petDisplayName(pet.id) + '」因长期未照顾生病离开了庭院…');
+                this.toast('「' + this.petDisplayName(pet.id) + '」因' + reason + '离开了庭院…');
             } else {
                 actor.node.active = false;
                 actor.node.destroy();
@@ -4778,6 +5615,15 @@ export class Main extends Component {
             if (aliveActors.length) {
                 const chosen = aliveActors[Math.floor(Math.random() * aliveActors.length)];
                 this.spawnYardPoop(chosen.pet.id, chosen.node.position.x, chosen.node.position.z);
+            }
+        }
+        // 每隔 45 秒自动触发一次伙伴林间冒险见闻事件，丰富冒险日记并带回食物/玩具/宝藏
+        if (this.elapsed > 0 && this.elapsed % 45 === 0) {
+            const candidates = this.data.pets.filter(p => !p.dead && !p.lost);
+            if (candidates.length) {
+                const chosen = candidates[Math.floor(Math.random() * candidates.length)];
+                const out = rollAdventureEvent(this.petDisplayName(chosen.id), BREEDS[chosen.id].kind, chosen.health, chosen.joy);
+                this.triggerAdventureOutcome(chosen, out);
             }
         }
         if (this.elapsed % 10 === 0 && this.dirty) this.persist();
@@ -5300,6 +6146,7 @@ export class Main extends Component {
         this.syncYardPoops(delta);
         this.updateGhosts(delta);
         this.updateBrooms(delta);
+        this.updateAdventureScene(delta);
         this.updateProfilePreview(delta);
         if (Date.now() < this.noticeUntil) this.layoutNotice();
     }

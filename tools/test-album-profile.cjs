@@ -605,6 +605,85 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
     console.log('after-death vanish check:', JSON.stringify(afterDeath));
     assert.deepEqual(afterDeath, { stillInActors: false, ghostCleared: true });
 
+    // 16) Looping Idle Adventure + Glowing Treasure Chest + Diary (Item Cards & Crisis) + Shop Tombstones + Memorial Corner!
+    await page.evaluate(() => {
+      main.data.gems = 800;
+      main.data.adventureIdleStart = Date.now() - 6 * 3600000; // 6 hours idle
+      const p0 = main.data.pets.find(p => p.id === 0);
+      // Record a food item find + a lost event so Diary shows both visual item card & action buttons
+      main.triggerAdventureOutcome(p0, {
+        type: 'food', title: '捡到美味食物',
+        text: '「奶糖猫」在草丛野餐垫旁发现了完好的【去刺熟鱼】，开心叼回仓库！',
+        item: { id: 'fish', name: '去刺熟鱼', appliesTo: 'both', currency: 'coins', price: 180, effects: { hunger: 40, joy: 5 }, category: 'food', weight: 3, limit: 2 },
+        itemCount: 1, joyDelta: 6,
+      });
+      main.open('adventure');
+    });
+    await page.waitForTimeout(550);
+    const advCheck = await page.evaluate(() => ({
+      roadTiles: main.advRoadTiles.length,
+      marchers: main.advMarchers.length,
+      auraActive: !!main.advChestAura?.active,
+      hasClaimBtn: !!walk(main.sheet).find(n => n.name === '领取冒险宝箱按钮'),
+      hasDiaryEntryOnHome: !!main.ui.getChildByName('冒险日记入口'),
+      hasMemorialEntryOnHome: !!main.ui.getChildByName('后院纪念角入口'),
+    }));
+    console.log('adventure loop check:', JSON.stringify(advCheck));
+    assert.deepEqual(advCheck, { roadTiles: 2, marchers: 4, auraActive: true, hasClaimBtn: true, hasDiaryEntryOnHome: true, hasMemorialEntryOnHome: true });
+    await page.screenshot({ path: path.join(OUT_DIR, 'verify-adventure-loop.png') });
+
+    // Claim idle treasure chest -> verify coins/gems reward & dialog
+    const chestRes = await page.evaluate(() => {
+      const c0 = main.data.coins, g0 = main.data.gems;
+      const ok = main.claimAdventureChest();
+      return { ok, coinGain: main.data.coins - c0, gemGain: main.data.gems - g0, dialogOpen: !!main.dialog };
+    });
+    console.log('adventure chest claim check:', JSON.stringify(chestRes));
+    assert.ok(chestRes.ok && chestRes.coinGain > 500 && chestRes.gemGain >= 20 && chestRes.dialogOpen, '6h idle chest must grant rich coins & gems');
+
+    // Open Adventure Diary -> verify item card + death log
+    await page.evaluate(() => { main.closeDialog(); main.open('diary'); });
+    await page.waitForTimeout(450);
+    const diaryCheck = await page.evaluate(() => ({
+      logCount: (main.data.adventureLogs || []).length,
+      hasItemCard: !!walk(main.sheet).find(n => n.name.startsWith('日志实物卡-')),
+    }));
+    console.log('adventure diary check:', JSON.stringify(diaryCheck));
+    assert.ok(diaryCheck.logCount >= 3 && diaryCheck.hasItemCard, 'diary must show logs and embedded visual item card');
+    await page.screenshot({ path: path.join(OUT_DIR, 'verify-adventure-diary.png') });
+
+    // Open Shop -> switch to Tombstones tab -> buy tomb_angel -> verify
+    await page.evaluate(() => { main.shopTab = 'tombstones'; main.open('shop'); });
+    await page.waitForTimeout(450);
+    const tombShop = await page.evaluate(() => ({
+      tombCards: walk(main.sheet).filter(n => n.name.startsWith('墓碑商品卡-')).length,
+      bought: main.buyTombstone('tomb_angel'),
+      ownedAngel: main.data.tombstoneInventory?.tomb_angel || 0,
+    }));
+    console.log('shop tombstones check:', JSON.stringify(tombShop));
+    assert.deepEqual(tombShop, { tombCards: 3, bought: true, ownedAngel: 1 });
+    await page.screenshot({ path: path.join(OUT_DIR, 'verify-shop-tombstones.png') });
+
+    // Open Memorial Corner -> erect tombstone for dead pet #1 with custom epitaph -> verify!
+    await page.evaluate(() => {
+      main.open('memorial');
+      main.showErectTombstoneDialog(1);
+    });
+    await page.waitForTimeout(300);
+    const memRes = await page.evaluate(() => {
+      const okBtn = walk(main.dialog).find(n => n.name === '弹窗按钮-确认立碑');
+      okBtn.emit('touch-end', {});
+      return {
+        memorials: (main.data.memorials || []).length,
+        tombId: main.data.memorials?.[0]?.tombstoneId,
+        epitaph: main.data.memorials?.[0]?.epitaph,
+      };
+    });
+    console.log('memorial erect check:', JSON.stringify(memRes));
+    assert.deepEqual(memRes, { memorials: 1, tombId: 'tomb_angel', epitaph: '永远记得陪我度过的每一个晴天' });
+    await page.waitForTimeout(400);
+    await page.screenshot({ path: path.join(OUT_DIR, 'verify-memorial-corner.png') });
+
     assert.deepEqual(errors, [], 'zero pageerrors');
     assert.deepEqual(failures, [], 'zero HTTP errors');
     console.log('ALL ALBUM + PROFILE + 12-BREED + TRAITS + 3D OUTFITS CHECKS PASSED!');
