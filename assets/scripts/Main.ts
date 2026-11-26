@@ -144,7 +144,7 @@ interface Actor {
     dying?: number;
     ghostSpawned?: boolean;
     activity?: {
-        type: 'sleep' | 'eat' | 'play';
+        type: 'sleep' | 'eat' | 'clean' | 'play';
         furnitureUid: number;
         until: number;
         tickAcc: number;
@@ -5498,18 +5498,21 @@ export class Main extends Component {
 
         const isSakura = def.id === 'deco_swing_tree';
         const isFerris = def.id === 'play_park_ferris';
+        const isSpa = def.id === 'bath_spa_limited';
 
-        // 轻盈环绕星芒 / 飘浮樱花瓣 / 微光光点（完全不遮挡草坪）
+        // 轻盈环绕星芒 / 飘浮樱花瓣 / 虹彩泡泡 / 微光光点（完全不遮挡草坪）
         const ring = new Node('家具特效环');
         ring.layer = Layers.Enum.DEFAULT;
         root.addChild(ring);
         ring.setPosition(0, sz * 0.44, 0);
         const colors = isSakura
             ? ['#FFB0CE', '#FFD6E8', '#FFE880', '#FFFFFF', '#FF98BF']
-            : isFerris
-                ? ['#FF8DA8', '#FFE066', '#7CE09B', '#7CC6FF', '#D6A8FF', '#FFFFFF']
-                : ['#FFF4A8', '#FFE066', '#9CD6FF', '#FFFFFF', '#FFD24D'];
-        const count = isSakura || isFerris ? 16 : 14;
+            : isSpa
+                ? ['#9AE8FF', '#FFD1EC', '#D5B8FF', '#FFF6B8', '#FFFFFF', '#A8F5E8']
+                : isFerris
+                    ? ['#FF8DA8', '#FFE066', '#7CE09B', '#7CC6FF', '#D6A8FF', '#FFFFFF']
+                    : ['#FFF4A8', '#FFE066', '#9CD6FF', '#FFFFFF', '#FFD24D'];
+        const count = isSakura || isFerris || isSpa ? 16 : 14;
         for (let i = 0; i < count; i++) {
             const rad = (i / count) * Math.PI * 2;
             const r = sz * (0.46 + (i % 3) * 0.09);
@@ -5522,6 +5525,10 @@ export class Main extends Component {
             if (isSakura && i % 2 === 1) {
                 // 轻盈飘落樱花瓣
                 this.shape(sp, 'sphere', col, [0, 0, 0], [0.16, 0.11, 0.045], [24, i * 36, 30]);
+            } else if (isSpa && i % 2 === 0) {
+                // 梦幻虹彩飘浮温泉泡泡
+                const bsz = 0.11 + (i % 3) * 0.035;
+                this.shape(sp, 'sphere', col, [0, 0, 0], [bsz, bsz, bsz]);
             } else if (i % 3 === 2) {
                 // 轻盈微光萤火小光珠
                 this.shape(sp, 'sphere', col, [0, 0, 0], [0.09, 0.09, 0.09]);
@@ -5731,12 +5738,12 @@ export class Main extends Component {
         });
     }
 
-    /** 宠物自动消耗 1 个匹配的照顾道具（食物或玩具），供猫盆/狗盆/乐园自主互动使用 */
-    private autoConsumeCareItem(pet: Pet, category: 'food' | 'toy', bonusMult = 0): boolean {
+    /** 宠物自动消耗 1 个匹配的照顾道具（食物、清洁或玩具），供猫盆/狗盆/猫砂盆/澡盆/乐园自主互动使用 */
+    private autoConsumeCareItem(pet: Pet, category: 'food' | 'soap' | 'toy', bonusMult = 0): boolean {
         const kind = BREEDS[pet.id].kind;
         const legacyCount = this.data[category] || 0;
         let chosenItem: ItemDefinition | null = null;
-        let chosenLegacy: 'food' | 'toy' | null = null;
+        let chosenLegacy: 'food' | 'soap' | 'toy' | null = null;
         if (legacyCount > 0) {
             chosenItem = this.legacyItem(category);
             chosenLegacy = category;
@@ -5756,8 +5763,8 @@ export class Main extends Component {
             target[stat] = Math.max(0, Math.min(100, target[stat] + d));
         });
         c.xp = Math.min(100000000, c.xp + 12);
-        recordDaily(c.daily, category === 'food' ? (kind === 'cat' ? 'feedCat' : 'feedDog') : 'play');
-        recordAchievement(c.achievements!, category === 'food' ? 'feed' : 'play');
+        recordDaily(c.daily, category === 'food' ? (kind === 'cat' ? 'feedCat' : 'feedDog') : category === 'soap' ? 'clean' : 'play');
+        recordAchievement(c.achievements!, category === 'food' ? 'feed' : category === 'soap' ? 'clean' : 'play');
         if (!this.commitShop(c)) return false;
         const act = this.actors.find(a => a.pet.id === pet.id);
         if (act) act.pet = target;
@@ -5775,7 +5782,7 @@ export class Main extends Component {
         if (!placed.length) return false;
         const kind = BREEDS[a.pet.id].kind;
         const occupied = new Set(this.actors.filter(o => o !== a && o.activity).map(o => o.activity!.furnitureUid));
-        const pickFurn = (cat: 'bed' | 'bowl' | 'park') => {
+        const pickFurn = (cat: 'bed' | 'bowl' | 'clean' | 'park') => {
             const list = placed.filter(pf => {
                 if (occupied.has(pf.uid)) return false;
                 const def = findFurniture(pf.id);
@@ -5807,7 +5814,18 @@ export class Main extends Component {
                 return true;
             }
         }
-        // 3) 心情 <68 且体力充足 -> 自主进游玩乐园玩耍
+        // 3) 清洁度 <68 -> 自主前往猫砂盆 / 暖木澡盆 / 智能猫砂舱 / 泡泡温泉池洗护清洁
+        if (a.pet.clean < 68 && Math.random() < 0.55) {
+            const cleanFurn = pickFurn('clean');
+            if (cleanFurn) {
+                const off = findFurniture(cleanFurn.id)?.entryOffset || [0, 0.52];
+                a.activity = { type: 'clean', furnitureUid: cleanFurn.uid, until: this.socialTime + 12, tickAcc: 0, zzzTimer: 0, arrived: false };
+                a.target.set(cleanFurn.x + off[0], 0, cleanFurn.z + off[1]);
+                a.walkAge = 0;
+                return true;
+            }
+        }
+        // 4) 心情 <68 且体力充足 -> 自主进游玩乐园玩耍
         if (a.pet.joy < 68 && a.pet.energy >= 28 && Math.random() < 0.45) {
             const park = pickFurn('park');
             if (park) {
@@ -9189,6 +9207,17 @@ export class Main extends Component {
                                 if (!a.activity.consumed) {
                                     a.activity.consumed = true;
                                     this.autoConsumeCareItem(a.pet, 'food', fdef?.feedBonus || 0);
+                                }
+                            } else if (a.activity.type === 'clean') {
+                                a.activity.until = this.socialTime + 2.8;
+                                if (fdef?.hideInside && isValid(a.visual, true)) a.visual.active = false;
+                                if (!a.activity.consumed) {
+                                    a.activity.consumed = true;
+                                    if (!this.autoConsumeCareItem(a.pet, 'soap', fdef?.cleanBonus || 0)) {
+                                        const gain = Math.round(6 * (1 + (fdef?.cleanBonus || 0)));
+                                        a.pet.clean = Math.min(100, a.pet.clean + gain);
+                                        this.dirty = true;
+                                    }
                                 }
                             } else if (a.activity.type === 'play') {
                                 a.activity.until = this.socialTime + 3.2;

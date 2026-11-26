@@ -1,7 +1,7 @@
 import { PetKind } from './ItemCatalog';
 import { SlotBgTheme } from './AdventureSystem';
 
-export type FurnitureCategory = 'bed' | 'bowl' | 'park' | 'decor';
+export type FurnitureCategory = 'bed' | 'bowl' | 'clean' | 'park' | 'decor';
 export type FurnitureCurrency = 'coins' | 'gems';
 
 export type FurnitureId =
@@ -14,6 +14,10 @@ export type FurnitureId =
     | 'dog_bowl_basic'
     | 'cat_bowl_fancy'
     | 'dog_bowl_fancy'
+    | 'cat_litter_basic'
+    | 'dog_bath_basic'
+    | 'cat_litter_auto'
+    | 'bath_spa_limited'
     | 'play_park_basic'
     | 'play_park_slide'
     | 'play_park_ferris'
@@ -36,6 +40,7 @@ export interface FurnitureDef {
     effectTag: string;
     sleepRate?: number;    // 每秒睡眠恢复体力
     feedBonus?: number;    // 自动进食饱腹加成
+    cleanBonus?: number;   // 自动清洁/洗护清洁度加成
     playBonus?: number;    // 游玩乐园心情加成
     radius: number;        // 庭院摆放占地半径（用于点击选中与防重叠参考）
     entryOffset?: [number, number]; // 宠物对齐入口/垫子前方的偏移 [dx, dz]，杜绝穿模
@@ -64,6 +69,13 @@ export const FURNITURE_CATALOG: readonly FurnitureDef[] = [
     { id: 'cloud_bed_limited', name: '云朵梦境大床', category: 'bed', appliesTo: 'both', price: 0, currency: 'gems', unlockMode: 'ad', limited: true, slotTheme: 'rainbow', effectTag: '通用 · 约5分极速回满', sleepRate: 0.33, radius: 0.92, entryOffset: [0.0, 0.34], desc: '限定 · 猫狗通用的星月云朵大床，约 5 分钟即可极速恢复满体力。' },
     { id: 'cat_bowl_fancy', name: '陶瓷双格猫盆', category: 'bowl', appliesTo: 'cat', price: 240, currency: 'coins', slotTheme: 'gem', effectTag: '猫盆 · 饱腹+20%', feedBonus: 0.20, radius: 0.58, entryOffset: [0.0, 0.58], desc: '粉嫩蝴蝶结陶瓷双碗，小猫自动进食时饱腹回复额外 +20%。' },
     { id: 'dog_bowl_fancy', name: '皇家餐台狗盆', category: 'bowl', appliesTo: 'dog', price: 260, currency: 'coins', slotTheme: 'gem', effectTag: '狗盆 · 饱腹+20%', feedBonus: 0.20, radius: 0.60, entryOffset: [0.0, 0.60], desc: '实木皇冠垫高双餐台，小狗自动进食时饱腹回复额外 +20%。' },
+
+    // 清洁洗护建筑（猫砂盆 / 澡盆 / 智能猫砂舱 / 限定泡泡温泉池）
+    { id: 'cat_litter_basic', name: '清新猫砂盆', category: 'clean', appliesTo: 'cat', price: 130, currency: 'coins', starter: true, slotTheme: 'heal', effectTag: '猫砂盆 · 自动清洁', cleanBonus: 0, radius: 0.60, entryOffset: [0.0, 0.50], desc: '薄荷绿奶油猫砂盆，小猫清洁度偏低时会自动前来如厕整理毛发，消耗清洁用品。' },
+    { id: 'dog_bath_basic', name: '暖木澡盆', category: 'clean', appliesTo: 'dog', price: 140, currency: 'coins', slotTheme: 'general', effectTag: '澡盆 · 自动洗护', cleanBonus: 0, radius: 0.64, entryOffset: [0.0, 0.52], desc: '飘满泡泡和小黄鸭的暖木狗澡盆，小狗脏了会自动前来泡澡恢复清洁。' },
+    { id: 'cat_litter_auto', name: '智能星空猫砂舱', category: 'clean', appliesTo: 'cat', price: 65, currency: 'gems', slotTheme: 'epic', effectTag: '猫砂舱 · 清洁+25%', cleanBonus: 0.25, radius: 0.72, entryOffset: [-0.26, 0.48], hideInside: true, desc: '香芋星空球形全自动猫砂舱，小猫自动清洁时清洁度回复额外 +25%。' },
+    { id: 'bath_spa_limited', name: '泡泡云朵温泉池', category: 'clean', appliesTo: 'both', price: 0, currency: 'gems', unlockMode: 'ad', limited: true, slotTheme: 'rainbow', effectTag: '限定SPA · 清洁+45%', cleanBonus: 0.45, radius: 0.90, entryOffset: [0.0, 0.58], desc: '限定 · 猫狗通用的贝壳彩虹泡泡温泉池，自动洗护时清洁度回复额外 +45%，自带梦幻泡泡星光特效。' },
+
     { id: 'play_park_slide', name: '彩虹滑梯乐园', category: 'park', appliesTo: 'both', price: 75, currency: 'gems', slotTheme: 'coin', effectTag: '乐园 · 心情+25%', playBonus: 0.25, radius: 1.05, entryOffset: [-0.24, 0.64], desc: '七彩大滑梯宠物游乐场，猫狗自动游玩时心情恢复额外 +25%。' },
     { id: 'play_park_ferris', name: '摩天轮梦幻乐园', category: 'park', appliesTo: 'both', price: 0, currency: 'gems', unlockMode: 'ad', limited: true, slotTheme: 'rainbow', effectTag: '梦幻乐园 · 心情+40%', playBonus: 0.40, radius: 1.12, entryOffset: [0.0, 0.66], desc: '限定 · 自带小摩天轮的梦幻宠物乐园，猫狗游玩心情恢复额外 +40%。' },
 
@@ -89,6 +101,7 @@ export function defaultPlacedFurniture(): PlacedFurniture[] {
         { uid: 3, id: 'cat_bowl_basic', x: -4.2, z: 3.6 },
         { uid: 4, id: 'dog_bowl_basic', x: 4.2, z: 3.6 },
         { uid: 5, id: 'play_park_basic', x: 0.0, z: 0.4 },
+        { uid: 6, id: 'cat_litter_basic', x: -4.4, z: 0.6 },
     ];
 }
 
