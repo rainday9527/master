@@ -270,7 +270,7 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
     }));
     console.log('GM panel check:', JSON.stringify(gmCheck));
     assert.equal(gmCheck.open, true, 'GM debug panel must open');
-    assert.equal(gmCheck.btnCount, 18, 'GM debug panel must show all 18 quick debug buttons');
+    assert.equal(gmCheck.btnCount, 22, 'GM debug panel must show all 22 quick debug buttons');
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-gm-panel.png') });
     // Trigger GM "解锁全部 18 伙伴" and test 18-pet roaming freedom over 2.5 seconds!
     await page.evaluate(() => {

@@ -3908,7 +3908,7 @@ export class Main extends Component {
                 c.pets = c.pets.map(p => {
                     if (!p.dead) return p;
                     revived++;
-                    return { ...p, dead: false, health: 100, hunger: 85, clean: 85, energy: 90, joy: 85 };
+                    return { ...p, dead: false, injured: false, health: 100, hunger: 85, clean: 85, energy: 90, joy: 85 };
                 });
                 if (this.commitShop(c)) {
                     c.pets.forEach(p => {
@@ -3917,13 +3917,61 @@ export class Main extends Component {
                     refreshVisible(); this.toast(revived > 0 ? 'GM：已复活 ' + revived + ' 只伙伴并满血回归！' : 'GM：全部伙伴均健在');
                 }
             }],
+            ['全部家具 +1', () => {
+                const c = this.dailyCandidate();
+                const inv = { ...(c.furnitureInventory || {}) };
+                FURNITURE_CATALOG.forEach(f => { inv[f.id] = (inv[f.id] || 0) + 1; });
+                c.furnitureInventory = inv;
+                if (this.commitShop(c)) {
+                    refreshVisible();
+                    this.toast('GM：全部 ' + FURNITURE_CATALOG.length + ' 款家具/装饰均已 +1 存入仓库！');
+                }
+            }],
+            ['模拟激励视频通过', () => {
+                if (this.rewardedVideoProvider) {
+                    this.rewardedVideoProvider = null;
+                    this.toast('GM：已关闭激励视频模拟（恢复未接入拦截）');
+                } else {
+                    this.rewardedVideoProvider = { show: cb => cb('completed') };
+                    this.toast('GM：已开启激励视频模拟，所有「看广告解锁」均可直接通过！');
+                }
+            }],
+            ['全宠去睡觉(Zzz)', () => {
+                const c = this.dailyCandidate();
+                c.pets = c.pets.map(p => p.dead || p.lost || p.adventuring ? p : { ...p, energy: 18 });
+                if (this.commitShop(c)) {
+                    this.closeGmPanel();
+                    this.open('home');
+                    this.actors.forEach(a => {
+                        const updated = this.data.pets.find(p => p.id === a.pet.id);
+                        if (updated) a.pet = updated;
+                        if (!a.pet.dead && !a.pet.lost && !a.pet.adventuring) {
+                            a.activity = undefined;
+                            this.tryStartFurnitureActivity(a);
+                        }
+                    });
+                    this.toast('GM：已将体力降至 18，猫狗正自动前往猫窝/狗窝睡觉！');
+                }
+            }],
+            ['触发庭院打架', () => {
+                this.closeGmPanel();
+                this.open('home');
+                const alive = this.actors.filter(a => isValid(a.node, true) && a.node.active && !a.pet.dead && !a.pet.lost && !a.pet.adventuring);
+                if (alive.length < 2) { this.toast('庭院至少需要 2 只在场伙伴才能打架'); return; }
+                const a = alive[0], b = alive[1];
+                a.activity = undefined; b.activity = undefined;
+                if (isValid(a.visual, true)) a.visual.active = true;
+                if (isValid(b.visual, true)) b.visual.active = true;
+                a.node.setPosition(-0.4, 0, 1.4); b.node.setPosition(0.4, 0, 1.4);
+                this.triggerYardFight(a, b);
+            }],
         ];
 
         actions.forEach(([title, run], idx) => {
             const col = idx % 2, row = Math.floor(idx / 2);
             const x = col === 0 ? -195 : 195;
-            const y = 416 - row * 94;
-            const btn = this.bagButton(card, title, x, y, 360, 74, run);
+            const y = 420 - row * 78;
+            const btn = this.bagButton(card, title, x, y, 360, 66, run);
             btn.name = 'GM按钮-' + title;
         });
 
