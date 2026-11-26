@@ -579,15 +579,15 @@ export class Main extends Component {
         const previewCamNode = new Node('宠物主页预览相机'); this.node.addChild(previewCamNode);
         this.previewCamera = previewCamNode.addComponent(Camera);
         this.previewCamera.projection = Camera.ProjectionType.ORTHO;
-        this.previewCamera.orthoHeight = 1.16;
+        this.previewCamera.orthoHeight = 1.52;
         this.previewCamera.near = 0.1; this.previewCamera.far = 40;
         this.previewCamera.visibility = this.previewLayer;
         this.previewCamera.clearFlags = Camera.ClearFlag.SOLID_COLOR;
         this.previewCamera.clearColor = new Color(0, 0, 0, 0);
         this.previewCamera.priority = 2;
         this.previewCamera.targetTexture = previewRT;
-        previewCamNode.setPosition(0.55, 1.32, 3.8);
-        previewCamNode.lookAt(new Vec3(0, 0.96, 0.02));
+        previewCamNode.setPosition(0.55, 1.48, 4.2);
+        previewCamNode.lookAt(new Vec3(0, 1.12, 0.02));
         this.previewCamera.enabled = false;
     }
 
@@ -816,40 +816,45 @@ export class Main extends Component {
         const root = new Node('宠物装扮-' + outfit);
         root.layer = Layers.Enum.DEFAULT;
         parent.addChild(root);
-        // 按优化后的颈部收束与头围精准贴合佩戴，比例自然可爱、绝不夸张突兀。
+        // 按猫狗头骨、耳距(x=±0.39~0.47, y=0.36~0.72)、面颊(z≈0.70)与背部轮廓精准避让佩戴，零穿模且轮廓饱满。
         if (outfit === 'bell_collar') {
-            this.shape(root, 'torus', '#E04338', [0, 0.64, 0.30], [0.96, 0.44, 0.94], [24, 0, 0]);
-            this.shape(root, 'sphere', '#C82D26', [0, 0.56, 0.85], [0.13, 0.10, 0.10]);
-            this.shape(root, 'sphere', '#F8CA42', [0, 0.46, 0.88], [0.22, 0.22, 0.22]);
-            this.shape(root, 'box', '#7A4E14', [0, 0.42, 0.98], [0.09, 0.035, 0.035]);
+            this.shape(root, 'torus', '#E04338', [0, 0.72, 0.34], [1.04, 0.44, 1.02], [24, 0, 0]);
+            this.shape(root, 'sphere', '#C82D26', [0, 0.62, 0.90], [0.13, 0.10, 0.10]);
+            this.shape(root, 'sphere', '#F8CA42', [0, 0.51, 0.94], [0.22, 0.22, 0.22]);
+            this.shape(root, 'box', '#7A4E14', [0, 0.47, 1.04], [0.09, 0.035, 0.035]);
         } else if (outfit === 'blue_scarf') {
-            this.shape(root, 'torus', '#4E9AE6', [0, 0.65, 0.30], [1.00, 0.52, 0.98], [24, 0, 0]);
-            this.shape(root, 'torus', '#F5FAFF', [0, 0.62, 0.31], [0.99, 0.24, 0.97], [24, 0, 0]);
-            this.shape(root, 'cone', '#5EA9F4', [0, 0.42, 0.86], [0.46, 0.38, 0.12], [166, 0, 0]);
-            this.shape(root, 'sphere', '#F4FAFF', [0, 0.30, 0.90], [0.09, 0.09, 0.08]);
+            this.shape(root, 'torus', '#4E9AE6', [0, 0.72, 0.34], [1.06, 0.52, 1.04], [24, 0, 0]);
+            this.shape(root, 'torus', '#F5FAFF', [0, 0.69, 0.35], [1.05, 0.24, 1.03], [24, 0, 0]);
+            this.shape(root, 'cone', '#5EA9F4', [0, 0.48, 0.92], [0.46, 0.38, 0.12], [164, 0, 0]);
+            this.shape(root, 'sphere', '#F4FAFF', [0, 0.36, 0.96], [0.09, 0.09, 0.08]);
         } else if (outfit === 'pink_bow') {
             const bow = new Node('耳畔蝴蝶结');
             bow.layer = Layers.Enum.DEFAULT;
             root.addChild(bow);
-            bow.setPosition(-0.28, 0.52, 0.24);
-            bow.setRotationFromEuler(8, -14, 24);
-            this.shape(bow, 'sphere', '#F47EA2', [-0.14, 0, 0], [0.25, 0.17, 0.12], [0, 0, 14]);
-            this.shape(bow, 'sphere', '#F47EA2', [0.14, 0, 0], [0.25, 0.17, 0.12], [0, 0, -14]);
-            this.shape(bow, 'sphere', '#FFD1DF', [0, 0, 0.04], [0.12, 0.12, 0.12]);
-            this.shape(bow, 'box', '#F47EA2', [-0.07, -0.10, 0.02], [0.06, 0.14, 0.04], [0, 0, 16]);
-            this.shape(bow, 'box', '#F47EA2', [0.07, -0.10, 0.02], [0.06, 0.14, 0.04], [0, 0, -16]);
+            bow.setPosition(-0.22, 0.63, 0.32);
+            bow.setRotationFromEuler(8, -18, 22);
+            this.shape(bow, 'sphere', '#F47EA2', [-0.14, 0, 0], [0.24, 0.16, 0.11], [0, 0, 14]);
+            this.shape(bow, 'sphere', '#F47EA2', [0.14, 0, 0], [0.24, 0.16, 0.11], [0, 0, -14]);
+            this.shape(bow, 'sphere', '#FFD1DF', [0, 0, 0.04], [0.11, 0.11, 0.11]);
+            this.shape(bow, 'box', '#F47EA2', [-0.07, -0.10, 0.02], [0.055, 0.13, 0.04], [0, 0, 16]);
+            this.shape(bow, 'box', '#F47EA2', [0.07, -0.10, 0.02], [0.055, 0.13, 0.04], [0, 0, -16]);
         } else if (outfit === 'straw_hat') {
-            this.shape(root, 'cylinder', '#F0CC70', [0, 0.59, 0.03], [1.14, 0.05, 1.10], [-6, 0, 0]);
-            this.shape(root, 'cylinder', '#E4B854', [0, 0.70, 0.02], [0.64, 0.22, 0.62], [-6, 0, 0]);
-            this.shape(root, 'sphere', '#E8BF5E', [0, 0.78, 0.01], [0.62, 0.16, 0.60], [-6, 0, 0]);
-            this.shape(root, 'cylinder', '#DF5446', [0, 0.63, 0.03], [0.67, 0.07, 0.65], [-6, 0, 0]);
-            this.shape(root, 'sphere', '#FFF4CE', [0.32, 0.64, 0.18], [0.12, 0.12, 0.10]);
+            const hat = new Node('田园小草帽');
+            hat.layer = Layers.Enum.DEFAULT;
+            root.addChild(hat);
+            hat.setPosition(0, 0.77, 0.04);
+            hat.setRotationFromEuler(-5, 0, -4);
+            this.shape(hat, 'cylinder', '#F0CC70', [0, 0, 0], [0.68, 0.05, 0.66]);
+            this.shape(hat, 'cylinder', '#E4B854', [0, 0.11, 0], [0.44, 0.20, 0.42]);
+            this.shape(hat, 'sphere', '#E8BF5E', [0, 0.19, 0], [0.42, 0.14, 0.40]);
+            this.shape(hat, 'cylinder', '#DF5446', [0, 0.045, 0], [0.46, 0.06, 0.44]);
+            this.shape(hat, 'sphere', '#FFF4CE', [0.21, 0.06, 0.13], [0.10, 0.10, 0.09]);
         } else if (outfit === 'gold_crown') {
             const crown = new Node('迷你小皇冠');
             crown.layer = Layers.Enum.DEFAULT;
             root.addChild(crown);
-            crown.setPosition(0.04, 0.61, 0.05);
-            crown.setRotationFromEuler(-4, 0, -10);
+            crown.setPosition(0.02, 0.71, 0.05);
+            crown.setRotationFromEuler(-4, 0, -8);
             this.shape(crown, 'cylinder', '#F4C23D', [0, 0, 0], [0.42, 0.17, 0.42]);
             for (const ang of [0, 72, 144, 216, 288]) {
                 const rad = ang * Math.PI / 180;
@@ -857,34 +862,50 @@ export class Main extends Component {
             }
             this.shape(crown, 'sphere', '#E85D75', [0, 0.01, 0.21], [0.09, 0.09, 0.07]);
         } else if (outfit === 'flower_wreath') {
-            this.shape(root, 'torus', '#6AB05C', [0, 0.57, 0.04], [0.84, 0.22, 0.80], [-8, 0, 0]);
+            const wreath = new Node('春日花环');
+            wreath.layer = Layers.Enum.DEFAULT;
+            root.addChild(wreath);
+            wreath.setPosition(0, 0.72, 0.06);
+            wreath.setRotationFromEuler(-6, 0, 0);
+            this.shape(wreath, 'torus', '#6AB05C', [0, 0, 0], [0.64, 0.20, 0.60]);
             const cols = ['#F79AB5', '#FFE066', '#8CC8F5', '#FFA8C4', '#FFF2A6', '#A6D8FA'];
             for (let i = 0; i < 6; i++) {
                 const rad = (i * 60) * Math.PI / 180;
-                this.shape(root, 'sphere', cols[i], [Math.sin(rad) * 0.40, 0.60, 0.04 + Math.cos(rad) * 0.38], [0.14, 0.12, 0.14]);
+                this.shape(wreath, 'sphere', cols[i], [Math.sin(rad) * 0.30, 0.04, Math.cos(rad) * 0.28], [0.13, 0.11, 0.13]);
             }
         } else if (outfit === 'star_glasses') {
-            this.shape(root, 'sphere', '#E8A238', [-0.24, 0.15, 0.64], [0.24, 0.22, 0.08]);
-            this.shape(root, 'sphere', '#E8A238', [0.24, 0.15, 0.64], [0.24, 0.22, 0.08]);
-            this.shape(root, 'box', '#7A4C1E', [0, 0.16, 0.64], [0.18, 0.04, 0.04]);
+            this.shape(root, 'sphere', '#E8A238', [-0.23, 0.03, 0.80], [0.24, 0.22, 0.06]);
+            this.shape(root, 'sphere', '#FFE38A', [-0.23, 0.03, 0.82], [0.16, 0.15, 0.04]);
+            this.shape(root, 'sphere', '#E8A238', [0.23, 0.03, 0.80], [0.24, 0.22, 0.06]);
+            this.shape(root, 'sphere', '#FFE38A', [0.23, 0.03, 0.82], [0.16, 0.15, 0.04]);
+            this.shape(root, 'box', '#7A4C1E', [0, 0.04, 0.80], [0.18, 0.04, 0.04]);
+            this.shape(root, 'box', '#7A4C1E', [-0.40, 0.04, 0.62], [0.04, 0.04, 0.36], [0, -14, 0]);
+            this.shape(root, 'box', '#7A4C1E', [0.40, 0.04, 0.62], [0.04, 0.04, 0.36], [0, 14, 0]);
         } else if (outfit === 'wizard_hat') {
-            this.shape(root, 'cylinder', '#3E5394', [0, 0.58, 0.02], [1.10, 0.05, 1.06], [-6, 0, 0]);
-            this.shape(root, 'cone', '#384B8A', [0, 0.90, 0.0], [0.68, 0.62, 0.66], [-10, 0, 6]);
-            this.shape(root, 'cylinder', '#F4C244', [0, 0.63, 0.02], [0.68, 0.08, 0.66], [-6, 0, 0]);
-            this.shape(root, 'sphere', '#FFE168', [0.14, 0.84, 0.22], [0.10, 0.10, 0.08]);
+            const wiz = new Node('魔法巫师帽');
+            wiz.layer = Layers.Enum.DEFAULT;
+            root.addChild(wiz);
+            wiz.setPosition(0, 0.78, 0.03);
+            wiz.setRotationFromEuler(-4, 0, -5);
+            this.shape(wiz, 'cylinder', '#3E5394', [0, 0, 0], [0.66, 0.05, 0.64]);
+            this.shape(wiz, 'cone', '#384B8A', [0, 0.27, 0], [0.46, 0.52, 0.44], [-8, 0, 6]);
+            this.shape(wiz, 'cylinder', '#F4C244', [0, 0.045, 0], [0.46, 0.07, 0.44]);
+            this.shape(wiz, 'sphere', '#FFE168', [0.10, 0.24, 0.16], [0.09, 0.09, 0.08]);
         } else if (outfit === 'angel_halo') {
-            this.shape(root, 'torus', '#FFE066', [0, 0.92, 0.02], [0.76, 0.24, 0.72], [8, 0, 0]);
-            this.shape(root, 'sphere', '#FFF9E8', [-0.46, 0.82, -0.02], [0.24, 0.14, 0.10], [0, 0, 24]);
-            this.shape(root, 'sphere', '#FFF9E8', [0.46, 0.82, -0.02], [0.24, 0.14, 0.10], [0, 0, -24]);
+            this.shape(root, 'torus', '#FFE066', [0, 1.06, 0.02], [0.74, 0.22, 0.70], [8, 0, 0]);
+            this.shape(root, 'sphere', '#FFF9E8', [-0.46, 0.96, -0.02], [0.24, 0.14, 0.09], [0, 0, 24]);
+            this.shape(root, 'sphere', '#FFF9E8', [0.46, 0.96, -0.02], [0.24, 0.14, 0.09], [0, 0, -24]);
         } else if (outfit === 'butterfly_wings') {
-            this.shape(root, 'sphere', '#F7A8D4', [-0.46, 0.84, -0.18], [0.46, 0.34, 0.08], [10, 22, 24]);
-            this.shape(root, 'sphere', '#A6DEFA', [-0.36, 0.62, -0.22], [0.34, 0.26, 0.08], [10, 20, -14]);
-            this.shape(root, 'sphere', '#F7A8D4', [0.46, 0.84, -0.18], [0.46, 0.34, 0.08], [10, -22, -24]);
-            this.shape(root, 'sphere', '#A6DEFA', [0.36, 0.62, -0.22], [0.34, 0.26, 0.08], [10, -20, 14]);
+            this.shape(root, 'sphere', '#FFF2A6', [0, 0.92, -0.32], [0.18, 0.18, 0.12]);
+            this.shape(root, 'sphere', '#F7A8D4', [-0.74, 1.12, -0.34], [0.58, 0.44, 0.08], [10, 18, 28]);
+            this.shape(root, 'sphere', '#A6DEFA', [-0.58, 0.80, -0.38], [0.44, 0.32, 0.08], [10, 16, -18]);
+            this.shape(root, 'sphere', '#F7A8D4', [0.74, 1.12, -0.34], [0.58, 0.44, 0.08], [10, -18, -28]);
+            this.shape(root, 'sphere', '#A6DEFA', [0.58, 0.80, -0.38], [0.44, 0.32, 0.08], [10, -16, 18]);
         } else if (outfit === 'royal_cape') {
-            this.shape(root, 'box', '#8F6AD6', [0, 0.62, -0.34], [0.88, 0.56, 0.16], [28, 0, 0]);
-            this.shape(root, 'torus', '#F5CA4C', [0, 0.66, 0.26], [0.96, 0.36, 0.92], [24, 0, 0]);
-            this.shape(root, 'sphere', '#FFE066', [0, 0.56, 0.76], [0.16, 0.16, 0.10]);
+            this.shape(root, 'box', '#8F6AD6', [0, 0.82, -0.44], [1.08, 0.62, 0.10], [42, 0, 0]);
+            this.shape(root, 'box', '#F5CA4C', [0, 0.60, -0.64], [1.10, 0.08, 0.11], [42, 0, 0]);
+            this.shape(root, 'torus', '#F5CA4C', [0, 0.74, 0.32], [1.02, 0.36, 0.98], [24, 0, 0]);
+            this.shape(root, 'sphere', '#FFE066', [0, 0.64, 0.84], [0.16, 0.16, 0.10]);
         }
         return root;
     }
@@ -2910,21 +2931,21 @@ export class Main extends Component {
         this.recruitBackground.setSiblingIndex(0);
         // 招牌向左移并与左上玩家头像左缘对齐（(-236-300)*0.9551 ≈ -512 ≈ 头像框左缘 -511）。
         this.recruitArt(panel, 'title', -236, 606, 600, 230);
-        // 按1536源图真实内区映射：主牌与下方副条独立定位，不用节点矩形猜测。
-        this.dailyText(panel, '猫狗招募', -236, 621, 400, 78, 64, false, true).node.name = '招募大标题';
-        this.dailyText(panel, '与可爱的毛孩子相遇吧！', -232, 531, 350, 29, 24).node.name = '招募标题描述';
+        // 按1536源图真实内区映射：主牌与下方副条独立定位，居中落入木牌与丝带框内。
+        this.dailyText(panel, '猫狗招募', -236, 632, 400, 78, 62, false, true).node.name = '招募大标题';
+        this.dailyText(panel, '与可爱的毛孩子相遇吧！', -236, 536, 350, 29, 24).node.name = '招募标题描述';
         // 招募奖励整个功能面板向右移，与左侧招牌形成舒展对称留白，不遮挡中央猫狗立绘。
         const reward = this.uiNode(panel, '领取招募累计奖励', 388, 592, 300, 222);
         this.recruitArt(reward, 'description', 0, 0, 300, 222);
-        void this.navArt(reward, 'label0', 20, 50, 150, 70);
-        this.recruitArt(reward, 'chest', -88, 50, 40, 38);
-        this.dailyText(reward, '招募奖励', 20, 50, 112, 30, 25).node.name = '招募奖励标题';
-        const hint = this.dailyText(reward, '', 0, -14, 225, 52, 20);
+        void this.navArt(reward, 'label0', 22, 52, 152, 64);
+        this.recruitArt(reward, 'chest', -86, 52, 40, 38);
+        this.dailyText(reward, '招募奖励', 22, 54, 118, 30, 24).node.name = '招募奖励标题';
+        const hint = this.dailyText(reward, '', 0, -8, 228, 52, 20);
         hint.node.name = '招募奖励说明'; hint.enableWrapText = true;
-        const track = this.recruitArt(reward, 'progress-track', 0, -65, 240, 240 * 120 / 588);
+        const track = this.recruitArt(reward, 'progress-track', -18, -66, 204, 204 * 120 / 588);
         track.name = '招募累计进度槽';
-        // 新槽真实内区约源像素525×58；填充仅适配内槽，不叠加第二层底板。
-        const bar = this.uiNode(reward, '招募累计进度填充', 0, -65, 214, 23.6);
+        // 填充仅适配内槽，右侧留出独立放大镜图标位避免压槽出框。
+        const bar = this.uiNode(reward, '招募累计进度填充', -18, -66, 182, 22);
         const fill = bar.addComponent(Sprite); fill.sizeMode = Sprite.SizeMode.CUSTOM;
         resources.load('art/header/xp-fit/spriteFrame', SpriteFrame, (error, frame) => {
             if (error || !frame || !isValid(fill, true)) return;
@@ -2936,10 +2957,10 @@ export class Main extends Component {
         reward.on(Node.EventType.TOUCH_END, () => this.recruitTransaction('reward'), this);
         this.recruitBadge = this.recruitArt(reward, 'badge', 131, 92, 40, 43);
         this.recruitBadge.active = false;
-        this.recruitProgress = this.dailyText(reward, '', -24, -65, 166, 34, 24);
+        this.recruitProgress = this.dailyText(reward, '', -18, -66, 156, 32, 22);
         this.recruitProgress.node.name = '招募累计进度文字';
-        const search = this.uiNode(reward, '查看累计招募奖励', 96, -65, 54, 54);
-        this.recruitArt(search, 'search', 0, 0, 48, 48);
+        const search = this.uiNode(reward, '查看累计招募奖励', 108, -66, 48, 48);
+        this.recruitArt(search, 'search', 0, 0, 42, 42);
         this.intercept(search); this.pressVisualFeedback(search);
         search.on(Node.EventType.TOUCH_END, () => this.showRecruitRewards(), this);
         // 两个固定热区只缩放内部美术，价格使用原有钻石图标。
@@ -2948,33 +2969,33 @@ export class Main extends Component {
         const ten = this.recruitButton(panel, '', 'advanced', 240, -334, 460, 216, () => this.recruitTransaction('ten'));
         ten.name = '招募按钮-高级招募 · 2700钻 / 10次';
         for (const [node, cost, count] of [[single, '300', '1'], [ten, '2700', '10']] as const) {
-            const diamond = this.uiNode(node, '招募价格钻石', -66, 62, 46, 46 * 315 / 353);
+            const diamond = this.uiNode(node, '招募价格钻石', -64, 64, 44, 44 * 315 / 353);
             this.headerArt(diamond, 'diamond-icon');
-            this.dailyText(node, '×' + cost, 32, 62, 140, 38, 31);
-            this.dailyText(node, '招募' + count + '次', 0, -2, 300, 62, 46, false, true);
-            this.dailyText(node, '随机获得伙伴本体', 0, node === single ? -53 : -57, 285, 28, 23);
+            this.dailyText(node, '×' + cost, 30, 64, 140, 38, 30);
+            this.dailyText(node, '招募' + count + '次', 0, 2, 300, 62, 46, false, true);
+            this.dailyText(node, '随机获得伙伴本体', 0, -50, 285, 28, 22);
         }
-        this.recruitArt(ten, 'discount', 170, 80, 96, 30);
-        this.dailyText(ten, '9折', 170, 80, 62, 26, 22).node.name = '十抽9折文字牌';
-        const preview = this.uiNode(panel, '招募预览横栏', 0, -592, 964, 286);
-        const previewArt = this.uiNode(preview, '招募预览半透明底板', 0, 0, 964, 286);
+        this.recruitArt(ten, 'discount', 170, 80, 96, 32);
+        this.dailyText(ten, '9折', 170, 81, 62, 26, 22).node.name = '十抽9折文字牌';
+        const preview = this.uiNode(panel, '招募预览横栏', 0, -594, 964, 296);
+        const previewArt = this.uiNode(preview, '招募预览半透明底板', 0, 0, 964, 296);
         const previewFill = previewArt.addComponent(Graphics);
         previewFill.fillColor = new Color(111, 72, 43, 185);
-        previewFill.roundRect(-482, -143, 964, 286, 26); previewFill.fill();
-        this.dailyText(preview, '宠物预览', -326, 114, 260, 38, 28, true).node.name = '宠物预览标题';
-        const swipeHint = this.text(preview, '左右滑动卡片浏览 · 点击看详情', -30, 114, 340, 28, 19, '#FFF3DC');
+        previewFill.roundRect(-482, -148, 964, 296, 26); previewFill.fill();
+        this.dailyText(preview, '宠物预览', -340, 112, 220, 38, 28, true).node.name = '宠物预览标题';
+        const swipeHint = this.text(preview, '左右滑动卡片浏览 · 点击看详情', -20, 112, 340, 28, 19, '#FFF3DC');
         swipeHint.node.name = '招募预览滑动提示';
         swipeHint.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
         swipeHint.outlineColor = this.color('#4A2B14'); swipeHint.outlineWidth = 1.5;
-        const details = this.uiNode(preview, '查看招募卡池', 356, 112, 226, 62);
-        void this.navArt(details, 'label0', 0, 0, 170, 80);
-        this.dailyText(details, '查看详情 ›', 0, 0, 132, 32, 24);
+        const details = this.uiNode(preview, '查看招募卡池', 368, 112, 200, 56);
+        void this.navArt(details, 'label0', 0, 0, 168, 62);
+        this.dailyText(details, '查看详情 ›', 0, 2, 132, 30, 23);
         this.intercept(details); this.pressVisualFeedback(details, details.children.slice());
         details.on(Node.EventType.TOUCH_END, () => this.showRecruitPoolDialog(), this);
 
         // 招募预览采用正式手绘稀有度图鉴卡片 + 横向流畅滑动条，展示全部 12 位猫狗伙伴。
         const viewW = 928, viewH = 204;
-        const viewport = this.uiNode(preview, '招募预览可视窗口', 0, -24, viewW, viewH);
+        const viewport = this.uiNode(preview, '招募预览可视窗口', 0, -28, viewW, viewH);
         viewport.addComponent(Mask).type = Mask.Type.GRAPHICS_RECT;
         const strip = this.uiNode(viewport, '招募预览滚动内容', -viewW / 2, 0, viewW, viewH);
         strip.getComponent(UITransform)!.setAnchorPoint(0, 0.5);
@@ -3870,9 +3891,9 @@ export class Main extends Component {
         // 全屏温馨宠物房间背景（1080×1920，猫爬架、木柜、发光爪印地毯、食盆、橙色背包）
         this.albumArt(panel, 'profile-bg', 0, 0, 1080, 1920, '宠物主页底板');
 
-        // 中央发光地毯上的实时 3D 宠物展示舞台（持久保留，换装/升星/切换页签时不闪烁不重建）
-        const stageBox = this.uiNode(panel, '宠物3D预览舞台', 0, 262, 470, 440);
-        const stageView = this.uiNode(stageBox, '宠物3D预览画面', 0, 0, 450, 450);
+        // 中央发光地毯上的实时 3D 宠物展示舞台（扩大至 580×560 视野，确保巫师帽/光环/翅膀/披风全貌完整呈现）
+        const stageBox = this.uiNode(panel, '宠物3D预览舞台', 0, 335, 580, 560);
+        const stageView = this.uiNode(stageBox, '宠物3D预览画面', 0, 0, 560, 560);
         const stageSprite = stageView.addComponent(Sprite);
         stageSprite.sizeMode = Sprite.SizeMode.CUSTOM;
         if (this.previewFrame) stageSprite.spriteFrame = this.previewFrame;
