@@ -6267,6 +6267,14 @@ export class Main extends Component {
         const cand = this.dailyCandidate();
         const info = signInViewInfo(cand.signIn!, cand.shop.day);
 
+        // 全屏暖色半透明面板背景遮罩（突出签到弹窗层次并隔离庭院点击）
+        const backdrop = this.uiNode(panel, '签到弹窗遮罩', 0, 0, 3200, 3200);
+        const bdg = backdrop.addComponent(Graphics);
+        bdg.fillColor = new Color(34, 22, 12, 148);
+        bdg.rect(-1600, -1600, 3200, 3200);
+        bdg.fill();
+        this.intercept(backdrop);
+
         // 专属生图绘本风签到弹窗底板
         const bgNode = this.uiNode(panel, '签到面板底图', 0, 0, 1024, 1400);
         const bgSp = bgNode.addComponent(Sprite); bgSp.sizeMode = Sprite.SizeMode.CUSTOM;
@@ -6279,26 +6287,44 @@ export class Main extends Component {
         this.dailySprite(close, 'close', 0, 0, 112, 112, false, '关闭图标');
         this.shopButton(close, () => this.open('home'));
 
-        const subLbl = this.dailyText(panel, `累计签到 ${info.totalDays} 天 · 第 ${info.cycle} 轮 · 签到越多钻石越丰厚`, 0, 248, 700, 36, 23);
-        subLbl.color = this.color('#7A451C');
+        // 顶部累计签到横幅条
+        const subBar = this.uiNode(panel, '签到副标题条', 0, 248, 690, 44);
+        const sbg = subBar.addComponent(Graphics);
+        sbg.fillColor = this.color('#F5E2BD');
+        sbg.strokeColor = this.color('#D8B580');
+        sbg.lineWidth = 2;
+        sbg.roundRect(-345, -22, 690, 44, 22); sbg.fill(); sbg.stroke();
+        const subLbl = this.dailyText(subBar, `累计签到 ${info.totalDays} 天 · 第 ${info.cycle} 轮 · 签到越多钻石越丰厚`, 0, 0, 660, 36, 22);
+        subLbl.color = this.color('#6E3C16');
+
+        // 7日奖励区暖色内衬底板（让 7 张签到卡更有立体层次感）
+        const tray = this.uiNode(panel, '签到奖励区底板', 0, -90, 722, 616);
+        const tg = tray.addComponent(Graphics);
+        tg.fillColor = this.color('#F4E5C8');
+        tg.strokeColor = this.color('#D8B886');
+        tg.lineWidth = 3;
+        tg.roundRect(-361, -308, 722, 616, 28); tg.fill(); tg.stroke();
 
         // 1~6 天网格（两行三列）
         for (let i = 0; i < 6; i++) {
             const d = info.days[i];
             const col = i % 3;
             const row = Math.floor(i / 3);
-            const cx = (col - 1) * 236;
-            const cy = row === 0 ? 112 : -108;
-            const card = this.uiNode(panel, '签到卡片-' + d.day, cx, cy, 218, 204);
+            const cx = (col - 1) * 234;
+            const cy = row === 0 ? 110 : -106;
+            const card = this.uiNode(panel, '签到卡片-' + d.day, cx, cy, 214, 198);
             const g = card.addComponent(Graphics);
-            g.fillColor = this.color(d.claimed ? '#F1E6D2' : d.isToday ? '#FFF3C4' : '#FFFDF5');
-            g.strokeColor = this.color(d.isToday ? '#E68A1E' : d.claimed ? '#B8A286' : '#D7B98E');
+            // 柔和底阴影
+            g.fillColor = new Color(138, 96, 48, 42);
+            g.roundRect(-107, -104, 214, 198, 24); g.fill();
+            g.fillColor = this.color(d.claimed ? '#EFE3CC' : d.isToday ? '#FFF4C2' : '#FFFDF6');
+            g.strokeColor = this.color(d.isToday ? '#E68A1E' : d.claimed ? '#B8A286' : '#CFA874');
             g.lineWidth = d.isToday ? 5 : 2.5;
-            g.roundRect(-109, -102, 218, 204, 24); g.fill(); g.stroke();
+            g.roundRect(-107, -99, 214, 198, 24); g.fill(); g.stroke();
 
-            this.pillBadge(card, `第 ${d.day} 天`, 0, 74, 118, 30, d.isToday ? '#E68A1E' : d.claimed ? '#8F9E78' : '#7E644C', C.white, 18);
+            this.pillBadge(card, `第 ${d.day} 天`, 0, 72, 116, 30, d.isToday ? '#E68A1E' : d.claimed ? '#8F9E78' : '#7E644C', C.white, 18);
 
-            const gemNode = this.uiNode(card, '钻石图标', 0, 14, 66, 66);
+            const gemNode = this.uiNode(card, '钻石图标', 0, 13, 64, 64);
             const gsp = gemNode.addComponent(Sprite); gsp.sizeMode = Sprite.SizeMode.CUSTOM;
             resources.load('art/header/diamond-icon/spriteFrame', SpriteFrame, (e, f) => {
                 if (!e && f && isValid(gsp, true)) gsp.spriteFrame = f;
@@ -6309,11 +6335,11 @@ export class Main extends Component {
 
             const statusText = d.claimed ? '✓ 已签到' : d.isToday ? '今日可领' : '待解锁';
             const statusColor = d.claimed ? '#4A8C4A' : d.isToday ? '#D65A16' : '#9B826A';
-            const stLbl = this.text(card, statusText, 0, -76, 180, 30, 19, statusColor);
+            const stLbl = this.text(card, statusText, 0, -74, 180, 30, 19, statusColor);
             stLbl.isBold = d.isToday || d.claimed; stLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
 
             if (d.isToday) {
-                const dot = this.drawRedDot(card, '今日红点', 94, 86, 10);
+                const dot = this.drawRedDot(card, '今日红点', 92, 84, 10);
                 dot.active = true;
                 this.intercept(card); this.pressVisualFeedback(card);
                 card.on(Node.EventType.TOUCH_END, () => this.claimSignIn(), this);
@@ -6322,12 +6348,14 @@ export class Main extends Component {
 
         // 第 7 天超级大奖宽卡
         const d7 = info.days[6];
-        const card7 = this.uiNode(panel, '签到卡片-7', 0, -302, 690, 150);
+        const card7 = this.uiNode(panel, '签到卡片-7', 0, -300, 684, 148);
         const g7 = card7.addComponent(Graphics);
+        g7.fillColor = new Color(138, 96, 48, 46);
+        g7.roundRect(-342, -79, 684, 148, 26); g7.fill();
         g7.fillColor = this.color(d7.claimed ? '#EFE3CC' : d7.isToday ? '#FFE9A8' : '#FFF7DC');
         g7.strokeColor = this.color(d7.isToday ? '#E07A12' : '#D99E30');
         g7.lineWidth = d7.isToday ? 5.5 : 3.5;
-        g7.roundRect(-345, -75, 690, 150, 26); g7.fill(); g7.stroke();
+        g7.roundRect(-342, -74, 684, 148, 26); g7.fill(); g7.stroke();
 
         this.pillBadge(card7, '第 7 天 · 七日大奖', -208, 32, 224, 34, d7.isToday ? '#E06818' : '#D98E24', C.white, 19);
         const sub7 = this.text(card7, `本轮终极大礼 · 第 ${info.cycle} 轮`, -208, -22, 240, 34, 21, '#7A451C');
