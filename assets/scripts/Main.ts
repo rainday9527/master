@@ -2,7 +2,10 @@ import { _decorator, Component, Node, Camera, Canvas, UITransform, Graphics, Lab
 
 import { ITEM_CATALOG, ItemDefinition, ItemCategory, PetStat, ShopSlot, findItem, itemApplies, effectText, drawShopSlots } from './ItemCatalog';
 
-import { DAILY_TASKS, DAILY_PACK, DailyState, DailyTaskId, newDaily, restoreDaily, advanceDaily, recordDaily } from './DailyTasks';
+import {
+    DAILY_TASKS, DAILY_PACK, DailyState, DailyTaskId, newDaily, restoreDaily, advanceDaily, recordDaily,
+    ACHIEVEMENTS, AchievementId, AchievementState, newAchievements, restoreAchievements, recordAchievement, achievementTierInfo,
+} from './DailyTasks';
 
 import { RecruitState, RECRUIT_CONFIG, restoreRecruit, drawRecruit, grantRecruit, nextMilestone } from './Recruitment';
 
@@ -89,6 +92,7 @@ interface Save {
     memorials?: MemorialRecord[];
     placedFurniture?: PlacedFurniture[];
     furnitureInventory?: Record<string, number>;
+    achievements?: AchievementState;
 }
 type RigPartName = 'body' | 'head' | 'face' | 'earL' | 'earR' | 'legFL' | 'legFR' | 'legBL' | 'legBR' | 'tail';
 interface PetRigAsset {
@@ -215,6 +219,7 @@ export class Main extends Component {
     private advChestOpenUntil = 0;
     private advLogNextId = 1;
     private shopTab: 'items' | 'outfits' | 'furniture' | 'tombstones' = 'items';
+    private taskTab: 'daily' | 'achievement' = 'daily';
     private furnitureLayer: Node | null = null;
     private furnitureVisuals = new Map<number, { node: Node; id: FurnitureId; ring: Node; vfx: Node | null }>();
     private furnitureNextUid = 10;
@@ -368,7 +373,7 @@ export class Main extends Component {
                 text: `「${BREEDS[0].name}」摇着尾巴悄悄钻过庭院木门，踏上了阳光花径的冒险之旅！`,
             }],
             tombstoneInventory: {}, outfitInventory: {}, coatInventory: {}, memorials: [],
-            placedFurniture: defaultPlacedFurniture(), furnitureInventory: {} };
+            placedFurniture: defaultPlacedFurniture(), furnitureInventory: {}, achievements: newAchievements() };
     }
 
     private load(): Save {
@@ -499,6 +504,7 @@ export class Main extends Component {
             s.shop = this.restoreShop(s.shop, Object.prototype.hasOwnProperty.call(s, 'shop'));
             s.shop = this.advanceShop(s.shop, Date.now());
             s.daily = restoreDaily(s.daily, s.shop.day, Object.prototype.hasOwnProperty.call(s, 'daily'));
+            s.achievements = restoreAchievements((s as any).achievements);
             s.recruit = restoreRecruit(s.recruit, s.pets.map(p => p.id), BREEDS.map((_, id) => id), Object.prototype.hasOwnProperty.call(s, 'recruit'));
             const albumClaimed: Record<string, boolean> = {};
             if (s.albumClaimed && typeof s.albumClaimed === 'object') {
@@ -562,7 +568,13 @@ export class Main extends Component {
 
     private dailyCandidate(now = Date.now()): Save {
         const shop = this.advanceShop(this.data.shop, now);
-        return { ...this.data, shop, daily: advanceDaily(this.data.daily, shop.day), lastSeen: now };
+        const ach = restoreAchievements(this.data.achievements);
+        return {
+            ...this.data, shop,
+            daily: advanceDaily(this.data.daily, shop.day),
+            achievements: { counts: { ...ach.counts }, claimedTier: { ...ach.claimedTier } },
+            lastSeen: now,
+        };
     }
 
     private commitShop(candidate: Save): boolean {
@@ -3012,7 +3024,13 @@ export class Main extends Component {
         if (legacy && legacy !== 'rest' && legacy !== 'medicine') candidate[legacy]--;
         else if (item) candidate.itemInventory[item.id] = count - 1;
         const category = legacy === 'rest' ? 'rest' : item?.category;
-        if (category && category !== 'medicine') recordDaily(candidate.daily, category === 'food' ? (BREEDS[p.id].kind === 'cat' ? 'feedCat' : 'feedDog') : category === 'soap' ? 'clean' : category === 'toy' ? 'play' : 'rest');
+        if (category === 'medicine') {
+            recordDaily(candidate.daily, 'heal');
+            recordAchievement(candidate.achievements!, 'heal');
+        } else if (category) {
+            recordDaily(candidate.daily, category === 'food' ? (BREEDS[p.id].kind === 'cat' ? 'feedCat' : 'feedDog') : category === 'soap' ? 'clean' : category === 'toy' ? 'play' : 'rest');
+            recordAchievement(candidate.achievements!, category === 'food' ? 'feed' : category === 'soap' ? 'clean' : category === 'toy' ? 'play' : 'rest');
+        }
         if (!this.commitShop(candidate)) return;
         const actor = this.actors.find(a => a.pet.id === p.id);
         if (actor) { actor.pet = nextPet; actor.timer = -1.2; actor.tailExcite = 1; }
@@ -3115,6 +3133,8 @@ export class Main extends Component {
                 });
             }
             const candidate = { ...base, gems: this.data.gems - cost, pets, recruit };
+            recordDaily(candidate.daily, 'recruit', ids.length);
+            recordAchievement(candidate.achievements!, 'recruit', ids.length);
             if (!this.commitShop(candidate)) return;
             toSpawn.forEach(p => {
                 const existingActor = this.actors.find(a => a.pet.id === p.id);
@@ -4145,6 +4165,7 @@ export class Main extends Component {
             pets: this.data.pets.map(p => p.id === petId ? nextPet : p),
             recruit: nextRecruit,
         };
+        recordAchievement(candidate.achievements!, 'star');
         if (!this.commitShop(candidate)) return false;
         const actor = this.actors.find(a => a.pet.id === petId);
         if (actor) { actor.pet = nextPet; actor.timer = -1.3; }
@@ -5010,10 +5031,13 @@ export class Main extends Component {
         const count = this.data.itemInventory[id] || 0;
         if (count >= 100000000) { this.toast('背包已经装满啦'); return; }
         if (shop.revision >= Number.MAX_SAFE_INTEGER - 1) { this.toast('商店计数已达上限，无法购买'); return; }
-        const candidate: Save = { ...this.data, [item.currency]: this.data[item.currency] - item.price, lastSeen: now,
+        const base = this.dailyCandidate(now);
+        const candidate: Save = { ...base, [item.currency]: this.data[item.currency] - item.price, lastSeen: now,
             itemInventory: { ...this.data.itemInventory, [id]: count + 1 },
             shop: { ...shop, revision: shop.revision + 1,
                 slots: shop.slots.map(entry => entry.id === id ? { ...entry, remaining: entry.remaining - 1 } : entry) } };
+        recordDaily(candidate.daily, 'shopBuy');
+        recordAchievement(candidate.achievements!, 'shop');
         if (!this.commitShop(candidate)) return;
         this.updateShopLabels(); this.renderHeader(); this.toast('已购买' + item.name);
     }
@@ -5278,6 +5302,9 @@ export class Main extends Component {
         const c = this.dailyCandidate();
         if (def.currency === 'coins') c.coins -= def.price; else c.gems -= def.price;
         c.furnitureInventory = { ...(c.furnitureInventory || {}), [id]: ((c.furnitureInventory || {})[id] || 0) + 1 };
+        recordDaily(c.daily, 'shopBuy');
+        recordAchievement(c.achievements!, 'shop');
+        recordAchievement(c.achievements!, 'furniture');
         if (!this.commitShop(c)) return false;
         this.renderHeader();
         if (def.price > 0) this.showRewardToast([{ kind: def.currency, amount: -def.price }], '消耗');
@@ -5425,7 +5452,7 @@ export class Main extends Component {
         });
     }
 
-    /** 为限定家具构建专属 3D 实时动态特效（脚底魔法流光圈 + 环绕闪烁星芒/飘落樱花瓣） */
+    /** 为限定家具构建轻盈通透的 3D 实时动态特效（去掉厚重底盘，仅保留环绕闪烁星芒、微光萤火与飘浮樱花瓣） */
     private buildFurnitureVfxNode(def: FurnitureDef, parent: Node, sz: number): Node {
         const root = new Node('限定家具特效-' + def.id);
         root.layer = Layers.Enum.DEFAULT;
@@ -5434,44 +5461,37 @@ export class Main extends Component {
         const isSakura = def.id === 'deco_swing_tree';
         const isFerris = def.id === 'play_park_ferris';
 
-        // 1) 贴地双层魔法流光圈
-        const base = new Node('家具底光环');
-        base.layer = Layers.Enum.DEFAULT;
-        root.addChild(base);
-        base.setPosition(0, 0.04, 0.04);
-        const outerCol = isSakura ? '#FFB4D6' : isFerris ? '#FFA6D4' : '#FFE278';
-        const innerCol = isSakura ? '#FFE8A6' : isFerris ? '#8EE4FF' : '#9ED8FF';
-        this.shape(base, 'torus', outerCol, [0, 0, 0], [sz * 0.92, 0.032, sz * 0.92]);
-        this.shape(base, 'torus', innerCol, [0, 0.02, 0], [sz * 0.78, 0.024, sz * 0.78]);
-
-        // 2) 环绕闪烁星芒 / 飘浮樱花瓣粒子环
+        // 轻盈环绕星芒 / 飘浮樱花瓣 / 微光光点（完全不遮挡草坪）
         const ring = new Node('家具特效环');
         ring.layer = Layers.Enum.DEFAULT;
         root.addChild(ring);
         ring.setPosition(0, sz * 0.44, 0);
         const colors = isSakura
-            ? ['#FFB0CE', '#FFD4E6', '#FFE680', '#FFFFFF', '#FF9EC2']
+            ? ['#FFB0CE', '#FFD6E8', '#FFE880', '#FFFFFF', '#FF98BF']
             : isFerris
                 ? ['#FF8DA8', '#FFE066', '#7CE09B', '#7CC6FF', '#D6A8FF', '#FFFFFF']
                 : ['#FFF4A8', '#FFE066', '#9CD6FF', '#FFFFFF', '#FFD24D'];
-        const count = isSakura || isFerris ? 12 : 10;
+        const count = isSakura || isFerris ? 16 : 14;
         for (let i = 0; i < count; i++) {
             const rad = (i / count) * Math.PI * 2;
-            const r = sz * (0.48 + (i % 2) * 0.12);
-            const py = ((i % 3) - 1) * (sz * 0.16);
+            const r = sz * (0.46 + (i % 3) * 0.09);
+            const py = ((i % 4) - 1.5) * (sz * 0.14);
             const col = colors[i % colors.length];
             const sp = new Node('家具粒子-' + i);
             sp.layer = Layers.Enum.DEFAULT;
             ring.addChild(sp);
             sp.setPosition(Math.cos(rad) * r, py, Math.sin(rad) * r);
             if (isSakura && i % 2 === 1) {
-                // 樱花飘落花瓣
-                this.shape(sp, 'sphere', col, [0, 0, 0], [0.18, 0.13, 0.055], [24, i * 36, 30]);
+                // 轻盈飘落樱花瓣
+                this.shape(sp, 'sphere', col, [0, 0, 0], [0.16, 0.11, 0.045], [24, i * 36, 30]);
+            } else if (i % 3 === 2) {
+                // 轻盈微光萤火小光珠
+                this.shape(sp, 'sphere', col, [0, 0, 0], [0.09, 0.09, 0.09]);
             } else {
                 // 闪耀立体十字星芒
-                this.shape(sp, 'box', col, [0, 0, 0], [0.22, 0.05, 0.05]);
-                this.shape(sp, 'box', col, [0, 0, 0], [0.05, 0.22, 0.05]);
-                this.shape(sp, 'box', col, [0, 0, 0], [0.05, 0.05, 0.22]);
+                this.shape(sp, 'box', col, [0, 0, 0], [0.20, 0.042, 0.042]);
+                this.shape(sp, 'box', col, [0, 0, 0], [0.042, 0.20, 0.042]);
+                this.shape(sp, 'box', col, [0, 0, 0], [0.042, 0.042, 0.20]);
             }
         }
         return root;
@@ -5482,18 +5502,12 @@ export class Main extends Component {
         this.furnitureVisuals.forEach((vis, uid) => {
             const vfx = vis.vfx;
             if (!vfx || !isValid(vfx, true)) return;
-            const base = vfx.getChildByName('家具底光环');
-            if (base && isValid(base, true)) {
-                const pulse = 1 + Math.sin(t * 2.8 + uid) * 0.045;
-                base.setScale(pulse, 1, pulse);
-                base.setRotationFromEuler(0, (t * 24 + uid * 30) % 360, 0);
-            }
             const ring = vfx.getChildByName('家具特效环');
             if (ring && isValid(ring, true)) {
                 const isSakura = vis.id === 'deco_swing_tree';
-                ring.setRotationFromEuler(Math.sin(t * 1.4 + uid) * 5, (t * (isSakura ? 38 : 52) + uid * 40) % 360, Math.cos(t * 1.2) * 5);
+                ring.setRotationFromEuler(Math.sin(t * 1.4 + uid) * 5, (t * (isSakura ? 34 : 46) + uid * 40) % 360, Math.cos(t * 1.2) * 5);
                 ring.children.forEach((ch, idx) => {
-                    const s = 0.72 + Math.sin(t * 5.2 + idx * 1.25 + uid) * 0.36;
+                    const s = 0.65 + Math.sin(t * 5.0 + idx * 1.15 + uid) * 0.42;
                     ch.setScale(s, s, s);
                 });
             }
@@ -5514,6 +5528,8 @@ export class Main extends Component {
         const c = this.dailyCandidate();
         c.furnitureInventory = { ...(c.furnitureInventory || {}), [id]: (bag[id] || 1) - 1 };
         c.placedFurniture = [...(c.placedFurniture || []), { uid, id, x, z }];
+        recordDaily(c.daily, 'furniture');
+        recordAchievement(c.achievements!, 'furniture');
         if (!this.commitShop(c)) return false;
         this.selectedFurnitureUid = uid;
         this.syncYardFurniture();
@@ -5702,6 +5718,8 @@ export class Main extends Component {
             target[stat] = Math.max(0, Math.min(100, target[stat] + d));
         });
         c.xp = Math.min(100000000, c.xp + 12);
+        recordDaily(c.daily, category === 'food' ? (kind === 'cat' ? 'feedCat' : 'feedDog') : 'play');
+        recordAchievement(c.achievements!, category === 'food' ? 'feed' : 'play');
         if (!this.commitShop(c)) return false;
         const act = this.actors.find(a => a.pet.id === pet.id);
         if (act) act.pet = target;
@@ -6068,101 +6086,198 @@ export class Main extends Component {
 
     private goDaily(id: DailyTaskId) {
         if (id === 'adventure') { this.open('adventure'); return; }
+        if (id === 'shopBuy') { this.shopTab = 'items'; this.open('shop'); return; }
+        if (id === 'recruit') { this.open('recruit'); return; }
+        if (id === 'furniture') { this.open('layout'); return; }
         const kind = id === 'feedCat' ? 'cat' : id === 'feedDog' ? 'dog' : null;
-        const pet = this.data.pets.find(p => (!kind || BREEDS[p.id].kind === kind) && p[id === 'clean' ? 'clean' : id === 'play' ? 'joy' : id === 'rest' ? 'energy' : 'hunger'] < 100)
-            || this.data.pets.find(p => !kind || BREEDS[p.id].kind === kind);
+        const statKey = id === 'clean' ? 'clean' : id === 'play' ? 'joy' : id === 'rest' ? 'energy' : id === 'heal' ? 'health' : 'hunger';
+        const pet = this.data.pets.find(p => !p.dead && (!kind || BREEDS[p.id].kind === kind) && p[statKey] < 100)
+            || this.data.pets.find(p => !p.dead && (!kind || BREEDS[p.id].kind === kind));
         if (!pet) return;
         this.selected = pet.id; this.open('pet');
-        if (id !== 'rest') { this.bagFilter = id === 'clean' ? 'soap' : id === 'play' ? 'toy' : 'food'; this.bagPage = 0; this.open('bag'); }
+        if (id !== 'rest') { this.bagFilter = id === 'clean' ? 'soap' : id === 'play' ? 'toy' : id === 'heal' ? 'medicine' : 'food'; this.bagPage = 0; this.open('bag'); }
+    }
+
+    public claimAchievement(id: AchievementId): boolean {
+        const def = ACHIEVEMENTS.find(a => a.id === id);
+        if (!def) return false;
+        const c = this.dailyCandidate();
+        const info = achievementTierInfo(c.achievements!, def);
+        if (!info.claimable) return false;
+        c.gems = Math.min(100000000, c.gems + info.rewardGems);
+        c.achievements!.claimedTier[id] = info.tier + 1;
+        if (!this.commitShop(c)) return false;
+        this.renderHeader();
+        this.showRewardToast([{ kind: 'gems', amount: info.rewardGems }], `成就 Lv.${info.level} 达成`);
+        if (this.page === 'daily' && this.sheet && isValid(this.sheet, true)) {
+            this.sheet.removeAllChildren();
+            this.renderDaily();
+        }
+        return true;
     }
 
     private renderDaily() {
         const panel = this.sheet!;
-        const daily = this.dailyCandidate().daily;
+        const cand = this.dailyCandidate();
+        const daily = cand.daily;
+        const ach = cand.achievements!;
         this.dailySprite(panel, 'panel-clean', 0, 0, 1024, 1400, true);
         // 1024×1400 九宫格缩放后木牌中心位于 y=382，文字完全居中不超框。
         this.dailyText(panel, '任务', 0, 382, 440, 58, 42, false, true);
         const close = this.uiNode(panel, '收起', 420, 390, 128, 128);
         this.dailySprite(close, 'close', 0, 0, 112, 112, false, '关闭图标');
         this.shopButton(close, () => this.open('home'));
-        const countdown = this.dailyText(panel, '', -12, 280, 650, 36, 24);
-        const updateCountdown = () => {
-            if (!isValid(countdown, true)) { this.unschedule(updateCountdown); return; }
-            const seconds = Math.max(0, Math.ceil(((this.shopDay(Date.now()) + 1) * 86400000 - 8 * 3600000 - Date.now()) / 1000));
-            const pad = (n: number) => ('0' + n).slice(-2);
-            countdown.string = pad(Math.floor(seconds / 3600)) + ':' + pad(Math.floor(seconds / 60) % 60) + ':' + pad(seconds % 60) + ' 后刷新（UTC+8）';
-        };
-        updateCountdown(); this.schedule(updateCountdown, 1);
-        // 六行各占 110，高度包含行间距；第七行礼包完全位于遮罩之外。
-        const viewport = this.uiNode(panel, '每日任务可视窗口', -12, -149, 740, 660);
-        viewport.addComponent(Mask).type = Mask.Type.GRAPHICS_RECT;
-        const content = this.uiNode(viewport, '每日任务滚动内容', 0, 330, 740, 770);
-        content.getComponent(UITransform)!.setAnchorPoint(0.5, 1);
-        const scroll = viewport.addComponent(ScrollView);
-        scroll.content = content; scroll.horizontal = false; scroll.vertical = true;
-        scroll.cancelInnerEvents = true; scroll.elastic = false; scroll.inertia = false;
-        this.dailyScroll = scroll;
-        this.scheduleOnce(() => {
-            if (isValid(scroll, true)) scroll.scrollToOffset(new Vec2(0, this.dailyScrollOffset), 0);
-        }, 0);
-        DAILY_TASKS.forEach((task, index) => {
-            const row = this.uiNode(content, '每日任务-' + task.id, 0, -55 - index * 110, 740, 102);
-            this.dailySprite(row, 'row-clean', 0, 0, 740, 102, true);
-            // 0.24 倍九宫格的浅色内区：x=-356..358、y=-31..42，文字均置于其中。
-            this.dailySprite(row, task.id === 'feedCat' ? 'feed-cat' : task.id === 'feedDog' ? 'feed-dog' : task.id, -315, 6, 64, 64, false, '每日任务图标');
-            this.dailyText(row, task.title, -173, 22, 180, 38, 26, true);
-            const progress = this.dailyText(row, daily.progress[task.id] + '/' + task.target, -173, -14, 180, 32, 24, true);
-            this.dailyText(row, String(task.amount), 0, 6, 64, 40, 26);
-            const currency = this.uiNode(row, '奖励货币', 52, 6, 36, 36);
-            const sprite = currency.addComponent(Sprite); sprite.sizeMode = Sprite.SizeMode.CUSTOM;
-            resources.load('art/header/' + (task.currency === 'coins' ? 'coin-icon' : 'diamond-icon') + '/spriteFrame', SpriteFrame, (error, frame) => {
-                if (error || !frame || !isValid(currency, true)) return;
-                sprite.spriteFrame = frame;
-                const scale = Math.min(36 / frame.originalSize.width, 36 / frame.originalSize.height);
-                currency.getComponent(UITransform)!.setContentSize(frame.originalSize.width * scale, frame.originalSize.height * scale);
+
+        // 双页签切换：每日任务 | 成就任务
+        for (const [tabKey, label, tx] of [['daily', '每日任务', -168], ['achievement', '成就任务', 144]] as const) {
+            const active = this.taskTab === tabKey;
+            const tabNode = this.uiNode(panel, '任务页签-' + tabKey, tx, 286, 260, 58);
+            const tg = tabNode.addComponent(Graphics);
+            tg.fillColor = this.color(active ? '#F5B841' : '#EFE0C2');
+            tg.strokeColor = this.color(active ? '#7A451C' : '#B8976B');
+            tg.lineWidth = active ? 4 : 2.5;
+            tg.roundRect(-130, -29, 260, 58, 26); tg.fill(); tg.stroke();
+            const tl = this.text(tabNode, label, 0, 0, 230, 38, 26, active ? '#4E2912' : '#7D5E40');
+            tl.isBold = true; tl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+            this.intercept(tabNode); this.pressVisualFeedback(tabNode);
+            tabNode.on(Node.EventType.TOUCH_END, () => {
+                if (this.taskTab === tabKey) return;
+                this.taskTab = tabKey;
+                this.dailyScrollOffset = 0;
+                panel.removeAllChildren();
+                this.renderDaily();
+            }, this);
+        }
+
+        const subLbl = this.dailyText(panel, '', -12, 224, 680, 34, 22);
+        if (this.taskTab === 'daily') {
+            const updateCountdown = () => {
+                if (!isValid(subLbl, true) || this.taskTab !== 'daily') { this.unschedule(updateCountdown); return; }
+                const seconds = Math.max(0, Math.ceil(((this.shopDay(Date.now()) + 1) * 86400000 - 8 * 3600000 - Date.now()) / 1000));
+                const pad = (n: number) => ('0' + n).slice(-2);
+                subLbl.string = pad(Math.floor(seconds / 3600)) + ':' + pad(Math.floor(seconds / 60) % 60) + ':' + pad(seconds % 60) + ' 后刷新（UTC+8）';
+            };
+            updateCountdown(); this.schedule(updateCountdown, 1);
+
+            const vpH = 620;
+            const totalH = Math.max(vpH, (DAILY_TASKS.length + 1) * 110 + 18);
+            const viewport = this.uiNode(panel, '每日任务可视窗口', -12, -138, 740, vpH);
+            viewport.addComponent(Mask).type = Mask.Type.GRAPHICS_RECT;
+            const content = this.uiNode(viewport, '每日任务滚动内容', 0, vpH / 2, 740, totalH);
+            content.getComponent(UITransform)!.setAnchorPoint(0.5, 1);
+            const scroll = viewport.addComponent(ScrollView);
+            scroll.content = content; scroll.horizontal = false; scroll.vertical = true;
+            scroll.cancelInnerEvents = true; scroll.elastic = true; scroll.inertia = true;
+            this.dailyScroll = scroll;
+            this.scheduleOnce(() => {
+                if (isValid(scroll, true)) scroll.scrollToOffset(new Vec2(0, this.dailyScrollOffset), 0);
+            }, 0);
+
+            DAILY_TASKS.forEach((task, index) => {
+                const row = this.uiNode(content, '每日任务-' + task.id, 0, -56 - index * 110, 740, 102);
+                this.dailySprite(row, 'row-clean', 0, 0, 740, 102, true);
+                this.dailySprite(row, task.icon, -315, 6, 64, 64, false, '每日任务图标');
+                this.dailyText(row, task.title, -158, 22, 220, 38, 24, true);
+                const progress = this.dailyText(row, daily.progress[task.id] + '/' + task.target, -158, -14, 220, 32, 23, true);
+                this.dailyText(row, String(task.amount), 4, 6, 64, 40, 26);
+                const currency = this.uiNode(row, '奖励货币', 54, 6, 36, 36);
+                const sprite = currency.addComponent(Sprite); sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+                resources.load('art/header/' + (task.currency === 'coins' ? 'coin-icon' : 'diamond-icon') + '/spriteFrame', SpriteFrame, (error, frame) => {
+                    if (error || !frame || !isValid(currency, true)) return;
+                    sprite.spriteFrame = frame;
+                    const scale = Math.min(36 / frame.originalSize.width, 36 / frame.originalSize.height);
+                    currency.getComponent(UITransform)!.setContentSize(frame.originalSize.width * scale, frame.originalSize.height * scale);
+                });
+                const button = this.dailyButton(row, '前往', 182, 6, 100, 68, () => {
+                    const state = this.dailyCandidate().daily;
+                    if (state.claimed[task.id]) return;
+                    if (state.progress[task.id] >= task.target) this.claimDaily(task.id);
+                    else this.goDaily(task.id);
+                }, 22);
+                const adButton = this.dailyButton(row, '广告双倍', 300, 6, 108, 68, () => this.watchDailyRewardedVideo(task.id), 20);
+                const title = button.getChildByName('文字')!.getComponent(Label)!;
+                const background = button.getChildByName('每日任务底图')!;
+                const adTitle = adButton.getChildByName('文字')!.getComponent(Label)!;
+                const adBackground = adButton.getChildByName('每日任务底图')!;
+                this.dailyRows.set(task.id, state => {
+                    const claimed = state.claimed[task.id];
+                    const complete = state.progress[task.id] >= task.target;
+                    const text = claimed ? '已领取' : complete ? '领取' : '前往';
+                    progress.string = state.progress[task.id] + '/' + task.target;
+                    const ready = claimed || complete;
+                    progress.color = this.statusColor(ready);
+                    title.color = this.statusColor(ready);
+                    button.name = text; title.string = text; background.active = !claimed;
+                    adButton.active = complete;
+                    adButton.name = state.adClaimed[task.id] ? '已双倍' : '广告双倍';
+                    adTitle.string = adButton.name;
+                    adTitle.color = this.statusColor(state.adClaimed[task.id]);
+                    adBackground.active = !state.adClaimed[task.id];
+                });
             });
-            const button = this.dailyButton(row, '前往', 182, 6, 100, 68, () => {
-                const state = this.dailyCandidate().daily;
-                if (state.claimed[task.id]) return;
-                if (state.progress[task.id] >= task.target) this.claimDaily(task.id);
-                else this.goDaily(task.id);
-            }, 22);
-            const adButton = this.dailyButton(row, '广告双倍', 300, 6, 108, 68, () => this.watchDailyRewardedVideo(task.id), 20);
+            const pack = this.uiNode(content, '每日免费照顾包', 0, -56 - DAILY_TASKS.length * 110, 740, 102);
+            this.dailySprite(pack, 'row-clean', 0, 0, 740, 102, true);
+            this.dailySprite(pack, 'adventure', -315, 6, 64, 64, false, '每日礼包图标');
+            this.dailyText(pack, '每日免费照顾包', -50, 22, 430, 38, 28, true);
+            this.dailyText(pack, '食物×2  清洁×1  球×1', -50, -14, 430, 32, 24, true);
+            const button = this.dailyButton(pack, '免费领取', 282, 6, 150, 68, () => this.claimDaily('pack'));
             const title = button.getChildByName('文字')!.getComponent(Label)!;
             const background = button.getChildByName('每日任务底图')!;
-            const adTitle = adButton.getChildByName('文字')!.getComponent(Label)!;
-            const adBackground = adButton.getChildByName('每日任务底图')!;
-            this.dailyRows.set(task.id, state => {
-                const claimed = state.claimed[task.id];
-                const complete = state.progress[task.id] >= task.target;
-                const text = claimed ? '已领取' : complete ? '领取' : '前往';
-                progress.string = state.progress[task.id] + '/' + task.target;
-                const ready = claimed || complete;
-                progress.color = this.statusColor(ready);
-                title.color = this.statusColor(ready);
-                button.name = text; title.string = text; background.active = !claimed;
-                adButton.active = complete;
-                adButton.name = state.adClaimed[task.id] ? '已双倍' : '广告双倍';
-                adTitle.string = adButton.name;
-                adTitle.color = this.statusColor(state.adClaimed[task.id]);
-                adBackground.active = !state.adClaimed[task.id];
+            this.dailyRows.set('pack', state => {
+                button.name = state.packClaimed ? '已领取' : '免费领取';
+                title.string = button.name; title.color = this.statusColor(true);
+                background.active = !state.packClaimed;
             });
-        });
-        const pack = this.uiNode(content, '每日免费照顾包', 0, -715, 740, 102);
-        this.dailySprite(pack, 'row-clean', 0, 0, 740, 102, true);
-        this.dailySprite(pack, 'adventure', -315, 6, 64, 64, false, '每日礼包图标');
-        this.dailyText(pack, '每日免费照顾包', -50, 22, 430, 38, 28, true);
-        this.dailyText(pack, '食物×2  清洁×1  球×1', -50, -14, 430, 32, 24, true);
-        const button = this.dailyButton(pack, '免费领取', 282, 6, 150, 68, () => this.claimDaily('pack'));
-        const title = button.getChildByName('文字')!.getComponent(Label)!;
-        const background = button.getChildByName('每日任务底图')!;
-        this.dailyRows.set('pack', state => {
-            button.name = state.packClaimed ? '已领取' : '免费领取';
-            title.string = button.name; title.color = this.statusColor(true);
-            background.active = !state.packClaimed;
-        });
-        this.updateDailyRows(daily);
-        this.dailyText(panel, '上下滑动查看免费补给 · 完成后手动领奖', -12, -530, 680, 36, 24);
+            this.updateDailyRows(daily);
+            this.dailyText(panel, '上下滑动查看全部 10 项每日任务与免费补给', -12, -530, 680, 36, 22);
+        } else {
+            // 成就任务页签：永久累计次数，按任务阶位领取递增钻石奖励
+            const totalClaimed = ACHIEVEMENTS.reduce((s, a) => s + (ach.claimedTier[a.id] || 0), 0);
+            const maxTotal = ACHIEVEMENTS.reduce((s, a) => s + a.targets.length, 0);
+            subLbl.string = `已达成成就阶位 ${totalClaimed}/${maxTotal} · 等级越高钻石越丰厚`;
+
+            const vpH = 620;
+            const totalH = Math.max(vpH, ACHIEVEMENTS.length * 114 + 18);
+            const viewport = this.uiNode(panel, '成就任务可视窗口', -12, -138, 740, vpH);
+            viewport.addComponent(Mask).type = Mask.Type.GRAPHICS_RECT;
+            const content = this.uiNode(viewport, '成就任务滚动内容', 0, vpH / 2, 740, totalH);
+            content.getComponent(UITransform)!.setAnchorPoint(0.5, 1);
+            const scroll = viewport.addComponent(ScrollView);
+            scroll.content = content; scroll.horizontal = false; scroll.vertical = true;
+            scroll.cancelInnerEvents = true; scroll.elastic = true; scroll.inertia = true;
+
+            ACHIEVEMENTS.forEach((def, index) => {
+                const info = achievementTierInfo(ach, def);
+                const row = this.uiNode(content, '成就任务-' + def.id, 0, -58 - index * 114, 740, 106);
+                this.dailySprite(row, 'row-clean', 0, 0, 740, 106, true);
+                this.dailySprite(row, def.icon, -315, 6, 62, 62, false, '成就图标');
+                this.pillBadge(row, 'Lv.' + info.level, -238, 22, 68, 28, info.maxed ? '#D99124' : '#5882B8', C.white, 17);
+                this.dailyText(row, def.title, -104, 22, 186, 36, 24, true);
+                const progLbl = this.dailyText(row, `${def.verb} ${info.count}/${info.target}`, -148, -16, 272, 30, 20, true);
+                progLbl.color = this.statusColor(info.claimable || info.maxed);
+
+                if (!info.maxed) {
+                    this.dailyText(row, String(info.rewardGems), 86, 6, 68, 38, 26);
+                    const gemNode = this.uiNode(row, '成就钻石图标', 138, 6, 34, 34);
+                    const gsp = gemNode.addComponent(Sprite); gsp.sizeMode = Sprite.SizeMode.CUSTOM;
+                    resources.load('art/header/diamond-icon/spriteFrame', SpriteFrame, (e, f) => {
+                        if (!e && f && isValid(gsp, true)) gsp.spriteFrame = f;
+                    });
+                }
+
+                const btnText = info.maxed ? '已满阶' : info.claimable ? '领取钻石' : '进行中';
+                const btn = this.dailyButton(row, btnText, 268, 6, 152, 68, () => {
+                    if (info.claimable) this.claimAchievement(def.id);
+                    else if (!info.maxed) this.toast(`还需 ${Math.max(0, info.target - info.count)} 次即可领取 Lv.${info.level} 钻石奖励！`);
+                }, 22);
+                btn.name = '成就按钮-' + def.id;
+                const bl = btn.getChildByName('文字')?.getComponent(Label);
+                if (bl) bl.color = this.statusColor(info.claimable || info.maxed);
+                const bbg = btn.getChildByName('每日任务底图');
+                if (bbg) bbg.active = info.claimable;
+            });
+            this.dailyText(panel, '所有操作次数永久保存 · 每阶完成自动解锁更高钻石奖励', -12, -530, 680, 36, 22);
+        }
     }
 
     private adventureAction() {
@@ -6846,6 +6961,7 @@ export class Main extends Component {
         c.itemInventory = { ...c.itemInventory };
         bonusItems.forEach(bi => { c.itemInventory[bi.id] = (c.itemInventory[bi.id] || 0) + bi.count; });
         recordDaily(c.daily, 'adventure');
+        recordAchievement(c.achievements!, 'adventure');
         if (!this.commitShop(c)) return false;
 
         // 切换为开启发光宝箱（在开箱弹跳瞬间翻盖）+ 记录到冒险日记
@@ -7038,6 +7154,11 @@ export class Main extends Component {
         const actor = this.actors.find(a => a.pet.id === petId);
         if (actor) actor.pet = pet;
         if (out) {
+            // 宠物自主或手动外出冒险即算完成 1 次冒险任务与成就累计！
+            this.data.daily = advanceDaily(this.data.daily, this.advanceShop(this.data.shop, Date.now()).day);
+            recordDaily(this.data.daily, 'adventure');
+            if (!this.data.achievements) this.data.achievements = newAchievements();
+            recordAchievement(this.data.achievements, 'adventure');
             const dep = makeDepartOutcome(this.petDisplayName(pet.id));
             this.recordAdventureLog({ petId: pet.id, petName: this.petDisplayName(pet.id), type: dep.type, title: dep.title, text: dep.text });
             if (this.selected === petId && (this.page === 'pet' || this.page === 'bag')) this.open('home');
@@ -7779,6 +7900,7 @@ export class Main extends Component {
             if (actor) actor.pet = targetPet;
         }
         recordDaily(c.daily, 'clean');
+        recordAchievement(c.achievements!, 'clean');
         if (!this.commitShop(c)) return;
         this.playBroomSweep(new Vec3(poop.x, 0.16, poop.z));
         const vis = this.poopVisuals.get(poopId);
@@ -8733,6 +8855,10 @@ export class Main extends Component {
                                     a.activity = undefined;
                                     if (isValid(a.visual, true)) a.visual.active = true;
                                     a.timer = 0.5;
+                                    recordDaily(this.data.daily, 'rest');
+                                    if (!this.data.achievements) this.data.achievements = newAchievements();
+                                    recordAchievement(this.data.achievements, 'rest');
+                                    this.dirty = true;
                                 }
                             } else if (this.socialTime >= a.activity.until) {
                                 a.activity = undefined;
