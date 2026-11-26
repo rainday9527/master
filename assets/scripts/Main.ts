@@ -808,6 +808,10 @@ export class Main extends Component {
     }
 
     private buildOutfitNode(outfit: OutfitId, rig: ActorRig): Node | null {
+        // 全包式大帽（草帽、巫师帽）宽檐直接盖住头顶并收纳双耳，彻底零穿模且还原手绘大帽廓形；换回其他装扮自动恢复双耳。
+        const coversEars = outfit === 'straw_hat' || outfit === 'wizard_hat';
+        if (isValid(rig.earL, true)) rig.earL.active = !coversEars;
+        if (isValid(rig.earR, true)) rig.earR.active = !coversEars;
         if (outfit === 'none') return null;
         const headMounted = outfit === 'pink_bow' || outfit === 'straw_hat' || outfit === 'gold_crown'
             || outfit === 'flower_wreath' || outfit === 'star_glasses' || outfit === 'wizard_hat' || outfit === 'angel_halo';
@@ -816,96 +820,166 @@ export class Main extends Component {
         const root = new Node('宠物装扮-' + outfit);
         root.layer = Layers.Enum.DEFAULT;
         parent.addChild(root);
-        // 按猫狗头骨、耳距(x=±0.39~0.47, y=0.36~0.72)、面颊(z≈0.70)与背部轮廓精准避让佩戴，零穿模且轮廓饱满。
+        // 严格对照 2D 手绘图标配色与造型还原 3D 挂件。
         if (outfit === 'bell_collar') {
-            this.shape(root, 'torus', '#E04338', [0, 0.72, 0.34], [1.04, 0.44, 1.02], [24, 0, 0]);
+            this.shape(root, 'torus', '#E24B3E', [0, 0.72, 0.34], [1.04, 0.44, 1.02], [24, 0, 0]);
             this.shape(root, 'sphere', '#C82D26', [0, 0.62, 0.90], [0.13, 0.10, 0.10]);
-            this.shape(root, 'sphere', '#F8CA42', [0, 0.51, 0.94], [0.22, 0.22, 0.22]);
-            this.shape(root, 'box', '#7A4E14', [0, 0.47, 1.04], [0.09, 0.035, 0.035]);
+            this.shape(root, 'sphere', '#F8C944', [0, 0.50, 0.94], [0.24, 0.24, 0.24]);
+            this.shape(root, 'torus', '#FFE278', [0, 0.50, 0.94], [0.24, 0.08, 0.24]);
+            this.shape(root, 'sphere', '#6E4214', [0, 0.46, 1.05], [0.06, 0.06, 0.04]);
+            this.shape(root, 'box', '#6E4214', [0, 0.46, 1.04], [0.14, 0.025, 0.03]);
         } else if (outfit === 'blue_scarf') {
             this.shape(root, 'torus', '#4E9AE6', [0, 0.72, 0.34], [1.06, 0.52, 1.04], [24, 0, 0]);
-            this.shape(root, 'torus', '#F5FAFF', [0, 0.69, 0.35], [1.05, 0.24, 1.03], [24, 0, 0]);
-            this.shape(root, 'cone', '#5EA9F4', [0, 0.48, 0.92], [0.46, 0.38, 0.12], [164, 0, 0]);
-            this.shape(root, 'sphere', '#F4FAFF', [0, 0.36, 0.96], [0.09, 0.09, 0.08]);
+            this.shape(root, 'torus', '#88C4FA', [0, 0.69, 0.35], [1.05, 0.22, 1.03], [24, 0, 0]);
+            this.shape(root, 'cone', '#5EA9F4', [0, 0.46, 0.92], [0.50, 0.42, 0.12], [164, 0, 0]);
+            // 还原图标中的奶白小猫爪印花
+            this.shape(root, 'sphere', '#FFF8E2', [0, 0.48, 0.98], [0.10, 0.09, 0.04]);
+            for (const [px, py] of [[-0.08, 0.56], [-0.03, 0.59], [0.03, 0.59], [0.08, 0.56]] as const) {
+                this.shape(root, 'sphere', '#FFF8E2', [px, py, 0.98], [0.042, 0.048, 0.03]);
+            }
         } else if (outfit === 'pink_bow') {
             const bow = new Node('耳畔蝴蝶结');
             bow.layer = Layers.Enum.DEFAULT;
             root.addChild(bow);
             bow.setPosition(-0.22, 0.63, 0.32);
             bow.setRotationFromEuler(8, -18, 22);
-            this.shape(bow, 'sphere', '#F47EA2', [-0.14, 0, 0], [0.24, 0.16, 0.11], [0, 0, 14]);
-            this.shape(bow, 'sphere', '#F47EA2', [0.14, 0, 0], [0.24, 0.16, 0.11], [0, 0, -14]);
-            this.shape(bow, 'sphere', '#FFD1DF', [0, 0, 0.04], [0.11, 0.11, 0.11]);
-            this.shape(bow, 'box', '#F47EA2', [-0.07, -0.10, 0.02], [0.055, 0.13, 0.04], [0, 0, 16]);
-            this.shape(bow, 'box', '#F47EA2', [0.07, -0.10, 0.02], [0.055, 0.13, 0.04], [0, 0, -16]);
+            this.shape(bow, 'sphere', '#F47EA2', [-0.14, 0, 0], [0.25, 0.17, 0.11], [0, 0, 14]);
+            this.shape(bow, 'sphere', '#F47EA2', [0.14, 0, 0], [0.25, 0.17, 0.11], [0, 0, -14]);
+            this.shape(bow, 'sphere', '#FFD1DF', [0, 0, 0.04], [0.12, 0.12, 0.12]);
+            this.shape(bow, 'box', '#E5638B', [-0.07, -0.10, 0.02], [0.06, 0.14, 0.04], [0, 0, 18]);
+            this.shape(bow, 'box', '#E5638B', [0.07, -0.10, 0.02], [0.06, 0.14, 0.04], [0, 0, -18]);
         } else if (outfit === 'straw_hat') {
+            // 宽檐大草帽：比头更宽、圆润帽冠盖住头顶与双耳，搭配红丝带与右侧双红果饰扣（还原 straw_hat.png）
             const hat = new Node('田园小草帽');
             hat.layer = Layers.Enum.DEFAULT;
             root.addChild(hat);
-            hat.setPosition(0, 0.77, 0.04);
-            hat.setRotationFromEuler(-5, 0, -4);
-            this.shape(hat, 'cylinder', '#F0CC70', [0, 0, 0], [0.68, 0.05, 0.66]);
-            this.shape(hat, 'cylinder', '#E4B854', [0, 0.11, 0], [0.44, 0.20, 0.42]);
-            this.shape(hat, 'sphere', '#E8BF5E', [0, 0.19, 0], [0.42, 0.14, 0.40]);
-            this.shape(hat, 'cylinder', '#DF5446', [0, 0.045, 0], [0.46, 0.06, 0.44]);
-            this.shape(hat, 'sphere', '#FFF4CE', [0.21, 0.06, 0.13], [0.10, 0.10, 0.09]);
+            hat.setPosition(0, 0.44, 0.02);
+            hat.setRotationFromEuler(-8, 0, 0);
+            this.shape(hat, 'cylinder', '#F4D178', [0, 0, 0], [1.62, 0.07, 1.56]);
+            this.shape(hat, 'cylinder', '#E8BD5A', [0, 0.16, 0], [1.14, 0.30, 1.10]);
+            this.shape(hat, 'sphere', '#F0C96A', [0, 0.28, 0], [1.12, 0.42, 1.08]);
+            this.shape(hat, 'cylinder', '#E24F42', [0, 0.08, 0], [1.17, 0.11, 1.13]);
+            // 右前侧双小红球饰扣
+            this.shape(hat, 'sphere', '#EE5C4E', [0.38, 0.11, 0.46], [0.15, 0.15, 0.12]);
+            this.shape(hat, 'sphere', '#EE5C4E', [0.49, 0.08, 0.39], [0.12, 0.12, 0.10]);
         } else if (outfit === 'gold_crown') {
+            // 还原 gold_crown.png：金冠+尖顶金珠+居中红宝石+底带双蓝宝石
             const crown = new Node('迷你小皇冠');
             crown.layer = Layers.Enum.DEFAULT;
             root.addChild(crown);
-            crown.setPosition(0.02, 0.71, 0.05);
-            crown.setRotationFromEuler(-4, 0, -8);
-            this.shape(crown, 'cylinder', '#F4C23D', [0, 0, 0], [0.42, 0.17, 0.42]);
+            crown.setPosition(0.02, 0.69, 0.06);
+            crown.setRotationFromEuler(-4, 0, -6);
+            this.shape(crown, 'cylinder', '#F6C946', [0, 0, 0], [0.48, 0.18, 0.48]);
+            this.shape(crown, 'cylinder', '#FFE27A', [0, -0.06, 0], [0.50, 0.08, 0.50]);
             for (const ang of [0, 72, 144, 216, 288]) {
                 const rad = ang * Math.PI / 180;
-                this.shape(crown, 'cone', '#FFD75E', [Math.sin(rad) * 0.18, 0.13, Math.cos(rad) * 0.18], [0.11, 0.16, 0.11]);
+                const sx = Math.sin(rad) * 0.20, sz = Math.cos(rad) * 0.20;
+                this.shape(crown, 'cone', '#F6C946', [sx, 0.15, sz], [0.12, 0.20, 0.12]);
+                this.shape(crown, 'sphere', '#FFE885', [sx, 0.26, sz], [0.075, 0.075, 0.075]);
             }
-            this.shape(crown, 'sphere', '#E85D75', [0, 0.01, 0.21], [0.09, 0.09, 0.07]);
+            this.shape(crown, 'sphere', '#EB4F66', [0, 0.03, 0.24], [0.10, 0.10, 0.07]);
+            this.shape(crown, 'sphere', '#4EA8F0', [-0.13, -0.06, 0.22], [0.065, 0.065, 0.05]);
+            this.shape(crown, 'sphere', '#4EA8F0', [0.13, -0.06, 0.22], [0.065, 0.065, 0.05]);
         } else if (outfit === 'flower_wreath') {
+            // 还原 flower_wreath.png：嫩绿藤环+粉/黄/天蓝多瓣小花与嫩叶
             const wreath = new Node('春日花环');
             wreath.layer = Layers.Enum.DEFAULT;
             root.addChild(wreath);
-            wreath.setPosition(0, 0.72, 0.06);
-            wreath.setRotationFromEuler(-6, 0, 0);
-            this.shape(wreath, 'torus', '#6AB05C', [0, 0, 0], [0.64, 0.20, 0.60]);
-            const cols = ['#F79AB5', '#FFE066', '#8CC8F5', '#FFA8C4', '#FFF2A6', '#A6D8FA'];
-            for (let i = 0; i < 6; i++) {
-                const rad = (i * 60) * Math.PI / 180;
-                this.shape(wreath, 'sphere', cols[i], [Math.sin(rad) * 0.30, 0.04, Math.cos(rad) * 0.28], [0.13, 0.11, 0.13]);
+            wreath.setPosition(0, 0.60, 0.06);
+            wreath.setRotationFromEuler(-10, 0, 0);
+            this.shape(wreath, 'torus', '#7BBF66', [0, 0, 0], [0.96, 0.18, 0.90]);
+            const cols = ['#F79AB5', '#FFE066', '#8CC8F5', '#FFA6C1', '#FFE066', '#8CC8F5', '#F79AB5'];
+            for (let i = 0; i < 7; i++) {
+                const rad = (i * (360 / 7)) * Math.PI / 180;
+                const fx = Math.sin(rad) * 0.45, fz = Math.cos(rad) * 0.42;
+                const fl = new Node('花朵-' + i); fl.layer = Layers.Enum.DEFAULT; wreath.addChild(fl);
+                fl.setPosition(fx, 0.03, fz);
+                fl.setRotationFromEuler(0, i * (360 / 7), 0);
+                this.shape(fl, 'sphere', '#FFE46B', [0, 0.02, 0.03], [0.065, 0.065, 0.05]);
+                for (let p = 0; p < 5; p++) {
+                    const pr = (p * 72) * Math.PI / 180;
+                    this.shape(fl, 'sphere', cols[i], [Math.cos(pr) * 0.065, 0.02 + Math.sin(pr) * 0.065, 0.01], [0.075, 0.075, 0.045]);
+                }
+                // 侧边嫩叶
+                this.shape(fl, 'sphere', '#8ED174', [0.11, -0.02, 0], [0.09, 0.045, 0.04], [0, 0, 26]);
             }
         } else if (outfit === 'star_glasses') {
-            this.shape(root, 'sphere', '#E8A238', [-0.23, 0.03, 0.80], [0.24, 0.22, 0.06]);
-            this.shape(root, 'sphere', '#FFE38A', [-0.23, 0.03, 0.82], [0.16, 0.15, 0.04]);
-            this.shape(root, 'sphere', '#E8A238', [0.23, 0.03, 0.80], [0.24, 0.22, 0.06]);
-            this.shape(root, 'sphere', '#FFE38A', [0.23, 0.03, 0.82], [0.16, 0.15, 0.04]);
-            this.shape(root, 'box', '#7A4C1E', [0, 0.04, 0.80], [0.18, 0.04, 0.04]);
-            this.shape(root, 'box', '#7A4C1E', [-0.40, 0.04, 0.62], [0.04, 0.04, 0.36], [0, -14, 0]);
-            this.shape(root, 'box', '#7A4C1E', [0.40, 0.04, 0.62], [0.04, 0.04, 0.36], [0, 14, 0]);
+            // 还原 star_glasses.png：真正五角星造型金色墨镜（每只镜片由 5 枚星芒组成）+ 金色鼻梁与镜腿
+            for (const cx of [-0.24, 0.24]) {
+                const star = new Node('星形镜片');
+                star.layer = Layers.Enum.DEFAULT;
+                root.addChild(star);
+                star.setPosition(cx, 0.03, 0.80);
+                this.shape(star, 'sphere', '#E89E34', [0, 0, 0], [0.15, 0.15, 0.05]);
+                for (let k = 0; k < 5; k++) {
+                    const deg = k * 72;
+                    const rad = deg * Math.PI / 180;
+                    this.shape(star, 'cone', '#E49428', [Math.sin(rad) * 0.09, Math.cos(rad) * 0.09, 0], [0.09, 0.15, 0.05], [0, 0, -deg]);
+                    this.shape(star, 'cone', '#FCD36C', [Math.sin(rad) * 0.065, Math.cos(rad) * 0.065, 0.015], [0.06, 0.10, 0.035], [0, 0, -deg]);
+                }
+            }
+            this.shape(root, 'box', '#C47B22', [0, 0.05, 0.80], [0.16, 0.035, 0.035]);
+            this.shape(root, 'box', '#C47B22', [-0.41, 0.05, 0.62], [0.035, 0.035, 0.36], [0, -14, 0]);
+            this.shape(root, 'box', '#C47B22', [0.41, 0.05, 0.62], [0.035, 0.035, 0.36], [0, 14, 0]);
         } else if (outfit === 'wizard_hat') {
+            // 宽檐大巫师帽：比头更宽、盖住双耳，配金色丝带、右侧弯折帽尖与满天金星点缀（还原 wizard_hat.png）
             const wiz = new Node('魔法巫师帽');
             wiz.layer = Layers.Enum.DEFAULT;
             root.addChild(wiz);
-            wiz.setPosition(0, 0.78, 0.03);
-            wiz.setRotationFromEuler(-4, 0, -5);
-            this.shape(wiz, 'cylinder', '#3E5394', [0, 0, 0], [0.66, 0.05, 0.64]);
-            this.shape(wiz, 'cone', '#384B8A', [0, 0.27, 0], [0.46, 0.52, 0.44], [-8, 0, 6]);
-            this.shape(wiz, 'cylinder', '#F4C244', [0, 0.045, 0], [0.46, 0.07, 0.44]);
-            this.shape(wiz, 'sphere', '#FFE168', [0.10, 0.24, 0.16], [0.09, 0.09, 0.08]);
+            wiz.setPosition(0, 0.44, 0.02);
+            wiz.setRotationFromEuler(-6, 0, 0);
+            this.shape(wiz, 'cylinder', '#455A9C', [0, 0, 0], [1.66, 0.07, 1.60]);
+            this.shape(wiz, 'cylinder', '#F6C648', [0, 0.08, 0], [1.14, 0.11, 1.10]);
+            this.shape(wiz, 'cone', '#405494', [0, 0.42, 0], [1.12, 0.66, 1.08], [-4, 0, -10]);
+            // 右侧优雅弯垂的巫师帽尖
+            this.shape(wiz, 'cone', '#3B4E8C', [0.24, 0.68, -0.02], [0.44, 0.48, 0.42], [0, 0, -58]);
+            // 散落金色小星星点缀（帽身与帽檐）
+            for (const [sx, sy, sz] of [
+                [-0.28, 0.24, 0.36], [0.16, 0.38, 0.30], [-0.06, 0.52, 0.20], [0.34, 0.22, 0.26],
+                [-0.58, 0.05, 0.36], [0.56, 0.05, 0.34], [0.02, 0.05, 0.66],
+            ] as const) {
+                this.shape(wiz, 'sphere', '#FFE169', [sx, sy, sz], [0.085, 0.085, 0.06]);
+            }
         } else if (outfit === 'angel_halo') {
-            this.shape(root, 'torus', '#FFE066', [0, 1.06, 0.02], [0.74, 0.22, 0.70], [8, 0, 0]);
-            this.shape(root, 'sphere', '#FFF9E8', [-0.46, 0.96, -0.02], [0.24, 0.14, 0.09], [0, 0, 24]);
-            this.shape(root, 'sphere', '#FFF9E8', [0.46, 0.96, -0.02], [0.24, 0.14, 0.09], [0, 0, -24]);
+            // 还原 angel_halo.png：发光金环 + 两侧多层羽翼小翅膀
+            this.shape(root, 'torus', '#FFE066', [0, 1.06, 0.02], [0.78, 0.22, 0.72], [8, 0, 0]);
+            for (const side of [-1, 1]) {
+                this.shape(root, 'sphere', '#FFFBF0', [side * 0.48, 0.94, -0.02], [0.26, 0.14, 0.09], [0, 0, -side * 34]);
+                this.shape(root, 'sphere', '#FFF4DC', [side * 0.56, 0.86, -0.03], [0.20, 0.11, 0.08], [0, 0, -side * 16]);
+                this.shape(root, 'sphere', '#FFFBF0', [side * 0.40, 0.82, -0.02], [0.16, 0.13, 0.09], [0, 0, -side * 8]);
+            }
         } else if (outfit === 'butterfly_wings') {
-            this.shape(root, 'sphere', '#FFF2A6', [0, 0.92, -0.32], [0.18, 0.18, 0.12]);
-            this.shape(root, 'sphere', '#F7A8D4', [-0.74, 1.12, -0.34], [0.58, 0.44, 0.08], [10, 18, 28]);
-            this.shape(root, 'sphere', '#A6DEFA', [-0.58, 0.80, -0.38], [0.44, 0.32, 0.08], [10, 16, -18]);
-            this.shape(root, 'sphere', '#F7A8D4', [0.74, 1.12, -0.34], [0.58, 0.44, 0.08], [10, -18, -28]);
-            this.shape(root, 'sphere', '#A6DEFA', [0.58, 0.80, -0.38], [0.44, 0.32, 0.08], [10, -16, 18]);
+            // 还原 butterfly_wings.png：粉边+浅天蓝渐层燕尾蝶翼 + 两侧金色星芒
+            this.shape(root, 'sphere', '#FFE89A', [0, 0.92, -0.32], [0.14, 0.22, 0.10]);
+            for (const side of [-1, 1]) {
+                // 上翅：粉色外瓣 + 浅天蓝内纹
+                this.shape(root, 'sphere', '#F7B0D8', [side * 0.78, 1.16, -0.34], [0.64, 0.46, 0.07], [10, -side * 18, -side * 30]);
+                this.shape(root, 'sphere', '#BCE8FC', [side * 0.68, 1.12, -0.30], [0.42, 0.28, 0.06], [10, -side * 18, -side * 30]);
+                // 下翅 + 燕尾小尖
+                this.shape(root, 'sphere', '#F7B0D8', [side * 0.60, 0.80, -0.38], [0.44, 0.34, 0.07], [10, -side * 16, side * 18]);
+                this.shape(root, 'sphere', '#BCE8FC', [side * 0.54, 0.82, -0.34], [0.28, 0.20, 0.06], [10, -side * 16, side * 18]);
+                this.shape(root, 'cone', '#F5A4D0', [side * 0.58, 0.56, -0.40], [0.11, 0.24, 0.06], [180, 0, side * 14]);
+                // 浮空金星点缀
+                this.shape(root, 'sphere', '#FFE066', [side * 0.96, 1.38, -0.26], [0.09, 0.09, 0.06]);
+            }
         } else if (outfit === 'royal_cape') {
-            this.shape(root, 'box', '#8F6AD6', [0, 0.82, -0.44], [1.08, 0.62, 0.10], [42, 0, 0]);
-            this.shape(root, 'box', '#F5CA4C', [0, 0.60, -0.64], [1.10, 0.08, 0.11], [42, 0, 0]);
-            this.shape(root, 'torus', '#F5CA4C', [0, 0.74, 0.32], [1.02, 0.36, 0.98], [24, 0, 0]);
-            this.shape(root, 'sphere', '#FFE066', [0, 0.64, 0.84], [0.16, 0.16, 0.10]);
+            // 还原 royal_cape.png：薰衣草紫翻领披风 + 金色弯月胸扣 + 金边垂坠披肩 + 金星点缀
+            this.shape(root, 'torus', '#A684E0', [0, 0.74, 0.32], [1.06, 0.44, 1.02], [24, 0, 0]);
+            // 金色弯月胸扣
+            this.shape(root, 'sphere', '#F8CB48', [0, 0.64, 0.86], [0.17, 0.17, 0.08]);
+            this.shape(root, 'sphere', '#8F6AD6', [0.05, 0.66, 0.89], [0.12, 0.12, 0.07]);
+            // 环绕双肩与背部的宽幅紫色披风 + 金边镶饰
+            this.shape(root, 'box', '#9A76D8', [0, 0.80, -0.42], [1.14, 0.64, 0.10], [40, 0, 0]);
+            this.shape(root, 'box', '#F6C948', [0, 0.56, -0.62], [1.16, 0.08, 0.11], [40, 0, 0]);
+            // 左右垂肩片（正面可见紫色金边披肩）
+            for (const side of [-1, 1]) {
+                this.shape(root, 'box', '#9A76D8', [side * 0.52, 0.56, 0.16], [0.22, 0.44, 0.54], [12, side * 12, -side * 18]);
+                this.shape(root, 'box', '#F6C948', [side * 0.44, 0.54, 0.42], [0.06, 0.42, 0.08], [12, side * 12, -side * 16]);
+                this.shape(root, 'sphere', '#FFE168', [side * 0.56, 0.58, 0.24], [0.08, 0.08, 0.06]);
+            }
+            for (const [sx, sy, sz] of [[-0.32, 0.78, -0.50], [0.30, 0.74, -0.52], [0, 0.88, -0.44]] as const) {
+                this.shape(root, 'sphere', '#FFE168', [sx, sy, sz], [0.09, 0.09, 0.07]);
+            }
         }
         return root;
     }
