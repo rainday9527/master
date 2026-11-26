@@ -1,19 +1,39 @@
 import { ITEM_CATALOG, ItemDefinition, PetKind, itemApplies } from './ItemCatalog';
 
-export type TombstoneId = 'tomb_stone' | 'tomb_wood' | 'tomb_angel';
+export type TombstoneId =
+    | 'tomb_stone'
+    | 'tomb_wood'
+    | 'tomb_wreath'
+    | 'tomb_cat'
+    | 'tomb_dog'
+    | 'tomb_sleep'
+    | 'tomb_angel'
+    | 'tomb_star'
+    | 'tomb_rose';
+
+export type SlotBgTheme = 'general' | 'heal' | 'gem' | 'epic' | 'coin' | 'rainbow';
 
 export interface TombstoneDef {
     id: TombstoneId;
     name: string;
     priceGems: number;
+    unlockMode: 'gems' | 'ad';
+    limited?: boolean;
+    slotTheme: SlotBgTheme;
     artKey: string;
     desc: string;
 }
 
 export const TOMBSTONE_CATALOG: readonly TombstoneDef[] = [
-    { id: 'tomb_stone', name: '简约石碑', priceGems: 80, artKey: 'tomb-stone', desc: '温润青灰小石碑，刻有爪印与小雏菊' },
-    { id: 'tomb_wood', name: '花环木碑', priceGems: 150, artKey: 'tomb-wood', desc: '暖木纪念牌，盛开四季花环寄托思念' },
-    { id: 'tomb_angel', name: '天使猫狗雕像碑', priceGems: 280, artKey: 'tomb-angel', desc: '洁白羽翼天使雕像，守护最珍贵的回忆' },
+    { id: 'tomb_stone', name: '简约爪印石碑', priceGems: 60, unlockMode: 'gems', slotTheme: 'general', artKey: 'tomb-stone', desc: '温润青灰小石碑，刻有可爱爪印' },
+    { id: 'tomb_wood', name: '花草木质碑', priceGems: 90, unlockMode: 'gems', slotTheme: 'heal', artKey: 'tomb-wood', desc: '暖木庭院纪念牌，小花青草相伴' },
+    { id: 'tomb_wreath', name: '四季花环碑', priceGems: 120, unlockMode: 'gems', slotTheme: 'heal', artKey: 'tomb-wreath', desc: '青苔石碑点缀绚丽四季花环' },
+    { id: 'tomb_cat', name: '猫耳幸运碑', priceGems: 150, unlockMode: 'gems', slotTheme: 'gem', artKey: 'tomb-cat', desc: '猫耳造型石碑，四叶草与小鱼骨环绕' },
+    { id: 'tomb_dog', name: '骨头项圈碑', priceGems: 150, unlockMode: 'gems', slotTheme: 'gem', artKey: 'tomb-dog', desc: '骨头石雕与缤纷项圈，守护忠诚记忆' },
+    { id: 'tomb_sleep', name: '暖阳眠猫碑', priceGems: 220, unlockMode: 'gems', slotTheme: 'epic', artKey: 'tomb-sleep', desc: '常春藤金石台座，甜睡小猫静守庭院' },
+    { id: 'tomb_angel', name: '天使羽翼碑', priceGems: 0, unlockMode: 'ad', limited: true, slotTheme: 'coin', artKey: 'tomb-angel', desc: '限定 · 洁白羽翼大理石碑与暖灯守望' },
+    { id: 'tomb_star', name: '星光水晶罩', priceGems: 0, unlockMode: 'ad', limited: true, slotTheme: 'epic', artKey: 'tomb-star', desc: '限定 · 琉璃星愿花境，满载璀璨回忆' },
+    { id: 'tomb_rose', name: '玫瑰圣光拱门', priceGems: 0, unlockMode: 'ad', limited: true, slotTheme: 'rainbow', artKey: 'tomb-rose', desc: '限定 · 玫瑰藤蔓拱门与金色光环永恒祝福' },
 ];
 
 export function findTombstone(id: string): TombstoneDef | undefined {

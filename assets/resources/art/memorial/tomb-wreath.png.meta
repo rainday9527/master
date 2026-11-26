@@ -1,0 +1,134 @@
+{
+  "ver": "1.0.27",
+  "importer": "image",
+  "imported": true,
+  "uuid": "48307165-db5d-455e-bab0-4958f6b7c384",
+  "files": [
+    ".json",
+    ".png"
+  ],
+  "subMetas": {
+    "6c48a": {
+      "importer": "texture",
+      "uuid": "48307165-db5d-455e-bab0-4958f6b7c384@6c48a",
+      "displayName": "tomb-wreath",
+      "id": "6c48a",
+      "name": "texture",
+      "userData": {
+        "wrapModeS": "clamp-to-edge",
+        "wrapModeT": "clamp-to-edge",
+        "imageUuidOrDatabaseUri": "48307165-db5d-455e-bab0-4958f6b7c384",
+        "isUuid": true,
+        "visible": false,
+        "minfilter": "linear",
+        "magfilter": "linear",
+        "mipfilter": "none",
+        "anisotropy": 0
+      },
+      "ver": "1.0.22",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "f9941": {
+      "importer": "sprite-frame",
+      "uuid": "48307165-db5d-455e-bab0-4958f6b7c384@f9941",
+      "displayName": "tomb-wreath",
+      "id": "f9941",
+      "name": "spriteFrame",
+      "userData": {
+        "trimThreshold": 1,
+        "rotated": false,
+        "offsetX": 0,
+        "offsetY": 0,
+        "trimX": 36,
+        "trimY": 8,
+        "width": 184,
+        "height": 240,
+        "rawWidth": 256,
+        "rawHeight": 256,
+        "borderTop": 0,
+        "borderBottom": 0,
+        "borderLeft": 0,
+        "borderRight": 0,
+        "packable": true,
+        "pixelsToUnit": 100,
+        "pivotX": 0.5,
+        "pivotY": 0.5,
+        "meshType": 0,
+        "vertices": {
+          "rawPosition": [
+            -92,
+            -120,
+            0,
+            92,
+            -120,
+            0,
+            -92,
+            120,
+            0,
+            92,
+            120,
+            0
+          ],
+          "indexes": [
+            0,
+            1,
+            2,
+            2,
+            1,
+            3
+          ],
+          "uv": [
+            36,
+            248,
+            220,
+            248,
+            36,
+            8,
+            220,
+            8
+          ],
+          "nuv": [
+            0.140625,
+            0.03125,
+            0.859375,
+            0.03125,
+            0.140625,
+            0.96875,
+            0.859375,
+            0.96875
+          ],
+          "minPos": [
+            -92,
+            -120,
+            0
+          ],
+          "maxPos": [
+            92,
+            120,
+            0
+          ]
+        },
+        "isUuid": true,
+        "imageUuidOrDatabaseUri": "48307165-db5d-455e-bab0-4958f6b7c384@6c48a",
+        "atlasUuid": "",
+        "trimType": "auto"
+      },
+      "ver": "1.0.12",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    }
+  },
+  "userData": {
+    "type": "sprite-frame",
+    "fixAlphaTransparencyArtifacts": false,
+    "hasAlpha": true,
+    "redirect": "48307165-db5d-455e-bab0-4958f6b7c384@6c48a"
+  }
+}

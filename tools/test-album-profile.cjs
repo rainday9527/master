@@ -717,16 +717,31 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
     assert.ok(diaryCheck.logCount >= 3 && diaryCheck.hasItemCard && diaryCheck.sheetY === -10, 'diary must be centered at y=-10 and show logs with embedded visual item card');
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-adventure-diary.png') });
 
-    // Open Shop -> switch to Tombstones tab -> buy tomb_angel -> verify
+    // Open Shop -> switch to Tombstones tab -> verify 9 tombstones (3 limited ad-unlocked + 6 gem-bought), buy tomb_sleep, and verify SDK-gated ad unlock for tomb_angel!
     await page.evaluate(() => { main.shopTab = 'tombstones'; main.open('shop'); });
-    await page.waitForTimeout(450);
-    const tombShop = await page.evaluate(() => ({
-      tombCards: walk(main.sheet).filter(n => n.name.startsWith('墓碑商品卡-')).length,
-      bought: main.buyTombstone('tomb_angel'),
-      ownedAngel: main.data.tombstoneInventory?.tomb_angel || 0,
-    }));
+    await page.waitForTimeout(500);
+    const tombShop = await page.evaluate(() => {
+      const cards = walk(main.sheet).filter(n => n.name.startsWith('墓碑商品卡-'));
+      const adBtns = walk(main.sheet).filter(n => n.name.startsWith('墓碑广告按钮-'));
+      const boughtSleep = main.buyTombstone('tomb_sleep');
+      main.rewardedVideoProvider = null;
+      main.unlockTombstoneByAd('tomb_angel');
+      const blockedNotice = main.notice.string;
+      const ownedAngelBefore = main.data.tombstoneInventory?.tomb_angel || 0;
+      main.rewardedVideoProvider = { show: cb => cb('completed') };
+      main.unlockTombstoneByAd('tomb_angel');
+      return {
+        tombCards: cards.length,
+        limitedAdBtns: adBtns.length,
+        boughtSleep,
+        blockedNotice,
+        ownedAngelBefore,
+        ownedAngel: main.data.tombstoneInventory?.tomb_angel || 0,
+      };
+    });
     console.log('shop tombstones check:', JSON.stringify(tombShop));
-    assert.deepEqual(tombShop, { tombCards: 3, bought: true, ownedAngel: 1 });
+    assert.deepEqual(tombShop, { tombCards: 9, limitedAdBtns: 3, boughtSleep: true, blockedNotice: '激励视频暂未接入', ownedAngelBefore: 0, ownedAngel: 1 });
+    await page.waitForTimeout(350);
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-shop-tombstones.png') });
 
     // Open Memorial Corner -> erect tombstone for dead pet #1 with custom epitaph -> verify!
@@ -746,7 +761,7 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
       };
     });
     console.log('memorial erect check:', JSON.stringify(memRes));
-    assert.deepEqual(memRes, { memorials: 1, tombId: 'tomb_angel', epitaph: '永远记得陪我度过的每一个晴天', sheetY: -10 });
+    assert.deepEqual(memRes, { memorials: 1, tombId: 'tomb_sleep', epitaph: '永远记得陪我度过的每一个晴天', sheetY: -10 });
     await page.waitForTimeout(400);
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-memorial-corner.png') });
 

@@ -13,7 +13,7 @@ import {
 } from './PetCatalog';
 
 import {
-    TombstoneId, TOMBSTONE_CATALOG, findTombstone, MemorialRecord, AdventureLogEntry,
+    TombstoneId, SlotBgTheme, TOMBSTONE_CATALOG, findTombstone, MemorialRecord, AdventureLogEntry,
     calcIdleRewardPreview, rollIdleBonusItems, eventBadgeMeta, itemCategoryTag,
     makeDepartOutcome, makeLostOutcome, makeTraffickerDeathOutcome, rollAdventureEvent, RolledAdventureOutcome,
 } from './AdventureSystem';
@@ -1576,8 +1576,8 @@ export class Main extends Component {
         try { provider.show(finish); } catch { finish('failed'); }
     }
 
-    /** 通用道具/货币槽位背景图（不再使用单调白底）：自动按金币/钻石/医疗清洁/普通道具选配对应底框 */
-    private itemSlotBg(parent: Node, theme: 'general' | 'coin' | 'gem' | 'heal', w: number, h: number, name = '奖励卡底图') {
+    /** 通用道具/货币槽位背景图（6 套品质/主题底框：general/heal/gem/epic/coin/rainbow） */
+    private itemSlotBg(parent: Node, theme: SlotBgTheme, w: number, h: number, name = '奖励卡底图') {
         const bg = this.uiNode(parent, name, 0, 0, w, h);
         const sp = bg.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM;
         resources.load(`art/ui/item-bg-${theme}/spriteFrame`, SpriteFrame, (e, f) => {
@@ -1586,12 +1586,14 @@ export class Main extends Component {
         return bg;
     }
 
-    private rewardSlotTheme(rw: RewardGrantItem): 'general' | 'coin' | 'gem' | 'heal' {
+    private rewardSlotTheme(rw: RewardGrantItem): SlotBgTheme {
         if (rw.kind === 'coins') return 'coin';
         if (rw.kind === 'gems') return 'gem';
         if (rw.kind === 'care') return rw.careType === 'soap' ? 'heal' : 'general';
         const def = findItem(rw.itemId);
-        return def && (def.category === 'medicine' || def.category === 'soap') ? 'heal' : 'general';
+        if (!def) return 'general';
+        if (def.currency === 'gems') return 'epic';
+        return (def.category === 'medicine' || def.category === 'soap') ? 'heal' : 'general';
     }
 
     /** 通用图标+数字奖励领取弹窗（金币、钻石、道具统一可视化展示，配通用道具槽位底图） */
@@ -4733,41 +4735,87 @@ export class Main extends Component {
     }
 
     private renderShopTombstones(panel: Node, content: Node) {
-        const tip = this.text(content, '购买墓碑后可在「后院纪念角」为离世伙伴立碑刻字', 0, 260, 720, 32, 22, '#6E4B2F');
+        const tip = this.text(content, '购买或看广告解锁限定纪念碑，在「后院纪念角」立碑刻字', 0, 314, 740, 30, 20, '#6E4B2F');
         tip.isBold = true; tip.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
         const inv = this.data.tombstoneInventory || {};
+
+        // 3列可滚动展柜：展示全部 9 款高质感手绘纪念碑（含 3 款看广告解锁限定款）
+        const vp = this.uiNode(content, '墓碑商品滚动视口', 0, -48, 760, 680);
+        vp.addComponent(Mask).type = Mask.Type.GRAPHICS_RECT;
+        const rows = Math.ceil(TOMBSTONE_CATALOG.length / 3);
+        const cardW = 238, cardH = 312, gapX = 14, gapY = 14;
+        const totalH = Math.max(680, rows * (cardH + gapY) + 24);
+        const grid = this.uiNode(vp, '墓碑商品网格', 0, 340, 760, totalH);
+        grid.getComponent(UITransform)!.setAnchorPoint(0.5, 1);
+        const scroll = vp.addComponent(ScrollView);
+        scroll.content = grid; scroll.horizontal = false; scroll.vertical = true;
+        scroll.cancelInnerEvents = true; scroll.elastic = true;
+
         TOMBSTONE_CATALOG.forEach((tomb, idx) => {
-            const x = (idx - 1) * 246;
-            const card = this.shopArt(content, 'card', x, 10, 234, 410);
+            const col = idx % 3, row = Math.floor(idx / 3);
+            const x = (col - 1) * (cardW + gapX);
+            const y = -16 - cardH / 2 - row * (cardH + gapY);
+
+            const card = this.shopArt(grid, 'card', x, y, cardW, cardH);
             card.name = '墓碑商品卡-' + tomb.id;
-            const title = this.headerText(card, tomb.name, 0, 166, 220, 36, 24);
-            title.overflow = Label.Overflow.CLAMP;
-            const icon = this.uiNode(card, '墓碑图标', 0, 62, 138, 138).addComponent(Sprite);
+            const title = this.headerText(card, tomb.name, 0, 128, 224, 30, 21);
+            title.overflow = Label.Overflow.SHRINK; title.enableWrapText = false;
+
+            // 通用品质底框 + 清晰墓碑图标
+            const slotBox = this.uiNode(card, '墓碑图标槽', 0, 44, 128, 128);
+            this.itemSlotBg(slotBox, tomb.slotTheme, 128, 128, '墓碑槽底图');
+            const icon = this.uiNode(slotBox, '墓碑图标', 0, 2, 102, 102).addComponent(Sprite);
             icon.sizeMode = Sprite.SizeMode.CUSTOM;
             resources.load('art/memorial/' + tomb.artKey + '/spriteFrame', SpriteFrame, (e, f) => {
                 if (!e && f && isValid(icon, true)) icon.spriteFrame = f;
             });
-            const desc = this.text(card, tomb.desc, 0, -44, 206, 62, 18, C.muted);
-            desc.enableWrapText = true; desc.lineHeight = 22;
+
+            if (tomb.limited) {
+                this.pillBadge(card, '限定', 76, 98, 62, 26, '#D94343', C.white, 16);
+            }
+
             const owned = inv[tomb.id] || 0;
-            const ownLbl = this.text(card, '已拥有 ' + owned, 0, -96, 200, 28, 21, '#6E533C');
+            const ownLbl = this.text(card, '已拥有 ×' + owned, 0, -40, 200, 26, 19, owned > 0 ? '#228B3C' : '#6E533C');
             ownLbl.isBold = true;
-            const buy = this.shopArt(card, 'buy', 0, -148, 186, 186 * 120 / 321);
-            this.headerText(buy, String(tomb.priceGems), -20, 0, 100, 38, 28);
-            const cur = this.uiNode(buy, '墓碑钻石标', 42, 0, 36, 36 * 315 / 353).addComponent(Sprite);
-            cur.sizeMode = Sprite.SizeMode.CUSTOM;
-            this.updateShopSprite(cur, 'art/header/diamond-icon');
-            this.shopButton(buy, () => this.buyTombstone(tomb.id));
+
+            const buy = this.shopArt(card, 'buy', 0, -104, 190, 68);
+            buy.name = tomb.unlockMode === 'ad' ? '墓碑广告按钮-' + tomb.id : '墓碑购买按钮-' + tomb.id;
+            if (tomb.unlockMode === 'ad') {
+                this.headerText(buy, '看广告解锁', 0, 0, 176, 36, 22);
+                this.shopButton(buy, () => this.unlockTombstoneByAd(tomb.id));
+            } else {
+                this.addPriceTag(buy, 'gems', tomb.priceGems, 8, 0, 30, '#FFFFFF');
+                this.shopButton(buy, () => this.buyTombstone(tomb.id));
+            }
         });
+
         const goMem = this.shopArt(panel, 'buy', 0, -552, 340, 340 * 120 / 321);
         goMem.name = '商店进纪念角按钮';
         this.headerText(goMem, '前往后院纪念角 ›', 0, 0, 310, 44, 26);
         this.shopButton(goMem, () => this.open('memorial'));
     }
 
+    public unlockTombstoneByAd(id: TombstoneId) {
+        const tomb = findTombstone(id);
+        if (!tomb || tomb.unlockMode !== 'ad') return;
+        this.requestRewardedAd(() => {
+            const c = this.dailyCandidate();
+            c.tombstoneInventory = { ...(c.tombstoneInventory || {}), [id]: ((c.tombstoneInventory || {})[id] || 0) + 1 };
+            if (!this.commitShop(c)) return;
+            this.renderHeader();
+            this.refreshMemorialEntry();
+            if (this.page === 'shop' && this.shopTab === 'tombstones') {
+                if (this.sheet && isValid(this.sheet, true)) { this.sheet.removeFromParent(); this.sheet.destroy(); this.sheet = null; }
+                this.open('shop');
+            }
+            this.toast('限定解锁成功！已获得「' + tomb.name + '」');
+        }, '暂未解锁限定纪念碑');
+    }
+
     private buyTombstone(id: TombstoneId): boolean {
         const tomb = findTombstone(id);
         if (!tomb) return false;
+        if (tomb.unlockMode === 'ad') { this.unlockTombstoneByAd(id); return false; }
         if (this.data.gems < tomb.priceGems) { this.showGemDialog(); return false; }
         const c = this.dailyCandidate();
         c.gems -= tomb.priceGems;
@@ -4779,6 +4827,7 @@ export class Main extends Component {
             if (this.sheet && isValid(this.sheet, true)) { this.sheet.removeFromParent(); this.sheet.destroy(); this.sheet = null; }
             this.open('shop');
         }
+        this.showRewardToast([{ kind: 'gems', amount: -tomb.priceGems }], '消耗');
         this.toast('已购入「' + tomb.name + '」，可在后院纪念角为伙伴立碑纪念');
         return true;
     }
@@ -5661,24 +5710,42 @@ export class Main extends Component {
 
         let selectedTomb: TombstoneId = TOMBSTONE_CATALOG.find(t => ((this.data.tombstoneInventory || {})[t.id] || 0) > 0)?.id || 'tomb_stone';
         const redraws: Array<() => void> = [];
+        const svVp = this.uiNode(panel, '立碑选碑视口', 0, 236, 800, 260);
+        svVp.addComponent(Mask).type = Mask.Type.GRAPHICS_RECT;
+        const slotW = 216, slotGap = 16;
+        const totalW = Math.max(800, TOMBSTONE_CATALOG.length * (slotW + slotGap) + 24);
+        const svContent = this.uiNode(svVp, '立碑选碑列表', -400, 0, totalW, 256);
+        svContent.getComponent(UITransform)!.setAnchorPoint(0, 0.5);
+        const sv = svVp.addComponent(ScrollView);
+        sv.content = svContent; sv.horizontal = true; sv.vertical = false; sv.cancelInnerEvents = true; sv.elastic = true;
+
         TOMBSTONE_CATALOG.forEach((tomb, idx) => {
-            const x = (idx - 1) * 264;
-            const slot = this.uiNode(panel, '选墓碑-' + tomb.id, x, 240, 244, 250);
+            const x = 16 + slotW / 2 + idx * (slotW + slotGap);
+            const slot = this.uiNode(svContent, '选墓碑-' + tomb.id, x, 0, slotW, 242);
             const sg = slot.addComponent(Graphics);
-            const sp = this.uiNode(slot, '墓碑预览', 0, 34, 128, 128).addComponent(Sprite);
+            const iconSlot = this.uiNode(slot, '选碑图标槽', 0, 38, 114, 114);
+            this.itemSlotBg(iconSlot, tomb.slotTheme, 114, 114, '选碑槽底图');
+            const sp = this.uiNode(iconSlot, '墓碑预览', 0, 2, 92, 92).addComponent(Sprite);
             sp.sizeMode = Sprite.SizeMode.CUSTOM;
             resources.load('art/memorial/' + tomb.artKey + '/spriteFrame', SpriteFrame, (e, f) => { if (!e && f && isValid(sp, true)) sp.spriteFrame = f; });
-            const nl = this.text(slot, tomb.name, 0, -52, 224, 30, 21, '#58351D'); nl.isBold = true;
+            if (tomb.limited) this.pillBadge(slot, '限定', 66, 94, 58, 24, '#D94343', C.white, 15);
+            const nl = this.text(slot, tomb.name, 0, -44, 200, 28, 19, '#58351D');
+            nl.isBold = true; nl.overflow = Label.Overflow.SHRINK; nl.enableWrapText = false;
             const owned = (this.data.tombstoneInventory || {})[tomb.id] || 0;
-            const pl = this.text(slot, owned > 0 ? `已拥有 ×${owned}` : `${tomb.priceGems} 钻石购买`, 0, -86, 224, 28, 19, owned > 0 ? '#228B3C' : '#C96A22');
-            pl.isBold = true;
+            if (owned > 0) {
+                const pl = this.text(slot, `已拥有 ×${owned}`, 0, -82, 196, 26, 18, '#228B3C'); pl.isBold = true;
+            } else if (tomb.unlockMode === 'ad') {
+                const pl = this.text(slot, '商店看广告解锁', 0, -82, 196, 26, 17, '#C94A29'); pl.isBold = true;
+            } else {
+                this.addPriceTag(slot, 'gems', tomb.priceGems, 4, -82, 24, '#C96A22');
+            }
             const redraw = () => {
                 const active = selectedTomb === tomb.id;
                 sg.clear();
                 sg.fillColor = this.color(active ? '#FFF1C2' : '#FFFDF7');
                 sg.strokeColor = this.color(active ? '#E69924' : '#D9BE98');
                 sg.lineWidth = active ? 4.5 : 2.5;
-                sg.roundRect(-122, -125, 244, 250, 20); sg.fill(); sg.stroke();
+                sg.roundRect(-slotW / 2, -121, slotW, 242, 20); sg.fill(); sg.stroke();
             };
             redraws.push(redraw); redraw();
             this.intercept(slot); this.pressVisualFeedback(slot);
@@ -5721,6 +5788,9 @@ export class Main extends Component {
         this.shopButton(confirmBtn, () => {
             const tomb = findTombstone(selectedTomb)!;
             const owned = (this.data.tombstoneInventory || {})[selectedTomb] || 0;
+            if (owned <= 0 && tomb.unlockMode === 'ad') {
+                this.unlockTombstoneByAd(selectedTomb); return;
+            }
             if (owned <= 0 && this.data.gems < tomb.priceGems) {
                 this.closeDialog(); this.showGemDialog(); return;
             }
