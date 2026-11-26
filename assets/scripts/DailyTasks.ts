@@ -169,3 +169,80 @@ export function achievementTierInfo(state: AchievementState, def: AchievementDef
         claimable: !maxed && count >= target,
     };
 }
+
+// ===== 每日登录签到活动（7天一轮循环递增钻石，累计签到越多钻石越丰厚，支持广告双倍） =====
+export interface SignInState {
+    totalDays: number;      // 历史累计签到天数
+    lastSignDay: number;    // 上次签到的 UTC+8 日期编号（-1 表示从未签到）
+    todayAdClaimed: boolean;// 当日是否已领取广告双倍奖励
+    todayBaseGems: number;  // 当日基础钻石奖励（供普通签到后「广告双倍补领」使用）
+}
+
+export const SIGNIN_BASE_GEMS = [20, 35, 50, 75, 100, 150, 300] as const;
+
+export function newSignIn(): SignInState {
+    return { totalDays: 0, lastSignDay: -1, todayAdClaimed: false, todayBaseGems: 0 };
+}
+
+export function restoreSignIn(value: unknown, today: number): SignInState {
+    const base = newSignIn();
+    if (!value || typeof value !== 'object') return base;
+    const raw = value as Partial<SignInState>;
+    if (typeof raw.totalDays === 'number' && Number.isSafeInteger(raw.totalDays) && raw.totalDays >= 0) {
+        base.totalDays = Math.min(100000, raw.totalDays);
+    }
+    if (typeof raw.lastSignDay === 'number' && Number.isSafeInteger(raw.lastSignDay) && raw.lastSignDay >= -1 && raw.lastSignDay <= today) {
+        base.lastSignDay = raw.lastSignDay;
+    }
+    if (base.lastSignDay === today) {
+        base.todayAdClaimed = raw.todayAdClaimed === true;
+        if (typeof raw.todayBaseGems === 'number' && Number.isSafeInteger(raw.todayBaseGems) && raw.todayBaseGems > 0) {
+            base.todayBaseGems = raw.todayBaseGems;
+        } else {
+            const signedIndex = Math.max(0, base.totalDays - 1);
+            base.todayBaseGems = signInGemsForTotalIndex(signedIndex);
+        }
+    }
+    return base;
+}
+
+/** 按第 index 次签到（0-based）计算基础钻石：7 天轮次递增，且每完成一轮额外递增 +20 钻石 */
+export function signInGemsForTotalIndex(totalIndex: number): number {
+    const safeIdx = Math.max(0, Math.floor(totalIndex));
+    const dayInCycle = safeIdx % 7;
+    const cycle = Math.floor(safeIdx / 7);
+    return SIGNIN_BASE_GEMS[dayInCycle] + cycle * 20;
+}
+
+export function signInViewInfo(state: SignInState, today: number) {
+    const signedToday = state.lastSignDay === today;
+    // 若今日已签，展示当前所属的 7 天轮次（刚签完第 7 天时仍展示本轮全部 7 天已签，次日自动进入下一轮）
+    const displayCycle = signedToday
+        ? Math.floor(Math.max(0, state.totalDays - 1) / 7)
+        : Math.floor(state.totalDays / 7);
+    const completedInCycle = signedToday
+        ? ((Math.max(1, state.totalDays) - 1) % 7) + 1
+        : state.totalDays % 7;
+    const activeDayIndex = signedToday ? completedInCycle - 1 : completedInCycle; // 0..6
+    const todayGems = signedToday
+        ? (state.todayBaseGems > 0 ? state.todayBaseGems : signInGemsForTotalIndex(Math.max(0, state.totalDays - 1)))
+        : signInGemsForTotalIndex(state.totalDays);
+    const days = Array.from({ length: 7 }, (_, i) => {
+        const totalIndex = displayCycle * 7 + i;
+        const gems = signInGemsForTotalIndex(totalIndex);
+        const claimed = i < completedInCycle;
+        const isToday = !signedToday && i === activeDayIndex;
+        const isTodaySigned = signedToday && i === activeDayIndex;
+        return { day: i + 1, totalDayNumber: totalIndex + 1, gems, claimed, isToday, isTodaySigned };
+    });
+    return {
+        signedToday,
+        canClaimBase: !signedToday,
+        canClaimAd: !signedToday || !state.todayAdClaimed,
+        adClaimedToday: signedToday && state.todayAdClaimed,
+        cycle: displayCycle + 1,
+        totalDays: state.totalDays,
+        todayGems,
+        days,
+    };
+}

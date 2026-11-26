@@ -5,6 +5,7 @@ import { ITEM_CATALOG, ItemDefinition, ItemCategory, PetStat, ShopSlot, findItem
 import {
     DAILY_TASKS, DAILY_PACK, DailyState, DailyTaskId, newDaily, restoreDaily, advanceDaily, recordDaily,
     ACHIEVEMENTS, AchievementId, AchievementState, newAchievements, restoreAchievements, recordAchievement, achievementTierInfo,
+    SignInState, newSignIn, restoreSignIn, signInViewInfo,
 } from './DailyTasks';
 
 import { RecruitState, RECRUIT_CONFIG, restoreRecruit, drawRecruit, grantRecruit, nextMilestone } from './Recruitment';
@@ -30,7 +31,7 @@ type Kind = 'cat' | 'dog';
 type Currency = 'gems' | 'coins';
 // 金币广告奖励暂与钻石一致；后续数值调整只改此处。
 const VIDEO_REWARDS: Record<Currency, number> = { gems: 200, coins: 200 };
-type Page = 'home' | 'recruit' | 'adventure' | 'album' | 'profile' | 'shop' | 'pet' | 'bag' | 'daily' | 'diary' | 'memorial' | 'layout';
+type Page = 'home' | 'recruit' | 'adventure' | 'album' | 'profile' | 'shop' | 'pet' | 'bag' | 'daily' | 'diary' | 'memorial' | 'layout' | 'signin';
 export type RewardedVideoResult = 'completed' | 'cancelled' | 'failed';
 export interface RewardedVideoProvider {
     // 可信边界：仅由宿主注入的平台适配器调用终态回调，并在游戏主线程执行。
@@ -93,6 +94,7 @@ interface Save {
     placedFurniture?: PlacedFurniture[];
     furnitureInventory?: Record<string, number>;
     achievements?: AchievementState;
+    signIn?: SignInState;
 }
 type RigPartName = 'body' | 'head' | 'face' | 'earL' | 'earR' | 'legFL' | 'legFR' | 'legBL' | 'legBR' | 'tail';
 interface PetRigAsset {
@@ -373,7 +375,7 @@ export class Main extends Component {
                 text: `「${BREEDS[0].name}」摇着尾巴悄悄钻过庭院木门，踏上了阳光花径的冒险之旅！`,
             }],
             tombstoneInventory: {}, outfitInventory: {}, coatInventory: {}, memorials: [],
-            placedFurniture: defaultPlacedFurniture(), furnitureInventory: {}, achievements: newAchievements() };
+            placedFurniture: defaultPlacedFurniture(), furnitureInventory: {}, achievements: newAchievements(), signIn: newSignIn() };
     }
 
     private load(): Save {
@@ -505,6 +507,7 @@ export class Main extends Component {
             s.shop = this.advanceShop(s.shop, Date.now());
             s.daily = restoreDaily(s.daily, s.shop.day, Object.prototype.hasOwnProperty.call(s, 'daily'));
             s.achievements = restoreAchievements((s as any).achievements);
+            s.signIn = restoreSignIn((s as any).signIn, s.shop.day);
             s.recruit = restoreRecruit(s.recruit, s.pets.map(p => p.id), BREEDS.map((_, id) => id), Object.prototype.hasOwnProperty.call(s, 'recruit'));
             const albumClaimed: Record<string, boolean> = {};
             if (s.albumClaimed && typeof s.albumClaimed === 'object') {
@@ -569,10 +572,12 @@ export class Main extends Component {
     private dailyCandidate(now = Date.now()): Save {
         const shop = this.advanceShop(this.data.shop, now);
         const ach = restoreAchievements(this.data.achievements);
+        const signIn = restoreSignIn(this.data.signIn, shop.day);
         return {
             ...this.data, shop,
             daily: advanceDaily(this.data.daily, shop.day),
             achievements: { counts: { ...ach.counts }, claimedTier: { ...ach.claimedTier } },
+            signIn: { ...signIn },
             lastSeen: now,
         };
     }
@@ -1793,8 +1798,8 @@ export class Main extends Component {
         this.refreshMemorialEntry();
         this.refreshTaskRedDots();
 
-        // 庭院布置入口：位于纪念角下方，支持自由摆放/移动/收回猫窝狗窝食盆乐园与装饰
-        const layoutBtn = this.uiNode(this.ui, '庭院布置入口', 390, 170, 190, 174);
+        // 庭院布置入口：位于左侧上方，与右侧「任务」入口水平对齐
+        const layoutBtn = this.uiNode(this.ui, '庭院布置入口', -390, 650, 190, 174);
         this.intercept(layoutBtn); this.pressFeedback(layoutBtn);
         const layIcon = this.uiNode(layoutBtn, '布置入口图标', 0, 26, 98, 98).addComponent(Sprite);
         layIcon.sizeMode = Sprite.SizeMode.CUSTOM;
@@ -1802,7 +1807,17 @@ export class Main extends Component {
         this.navCaption(layoutBtn, '布置', 3);
         layoutBtn.on(Node.EventType.TOUCH_END, () => this.open('layout'), this);
 
-        // GM 预览调试悬浮入口（位于左上头像栏下方，不遮挡顶栏/底栏与主操作区）
+        // 每日签到入口：位于左侧「布置」正下方，与右侧「日记」水平对齐，可领取时显示红点
+        const signInBtn = this.uiNode(this.ui, '每日签到入口', -390, 490, 190, 174);
+        this.intercept(signInBtn); this.pressFeedback(signInBtn);
+        const signInIcon = this.uiNode(signInBtn, '签到入口图标', 0, 26, 102, 102).addComponent(Sprite);
+        signInIcon.sizeMode = Sprite.SizeMode.CUSTOM;
+        resources.load('art/signin/icon/spriteFrame', SpriteFrame, (e, f) => { if (!e && f && isValid(signInIcon, true)) signInIcon.spriteFrame = f; });
+        this.navCaption(signInBtn, '签到', 4);
+        this.drawRedDot(signInBtn, '签到入口红点', 44, 62, 13);
+        signInBtn.on(Node.EventType.TOUCH_END, () => this.open('signin'), this);
+
+        // GM 预览调试悬浮入口（位于左侧「签到」下方，不遮挡顶栏/底栏与主操作区）
         const gm = this.uiNode(this.ui, 'GM调试入口', -440, 730, 104, 46);
         const gmg = gm.addComponent(Graphics);
         gmg.fillColor = new Color(92, 58, 36, 215); gmg.strokeColor = this.color('#F5C86B'); gmg.lineWidth = 3;
@@ -1812,7 +1827,7 @@ export class Main extends Component {
         this.intercept(gm); this.pressVisualFeedback(gm, gm.children.slice());
         gm.on(Node.EventType.TOUCH_END, () => this.toggleGmPanel(), this);
 
-        this.layout(); this.renderHeader(); this.renderNav();
+        this.layout(); this.renderHeader(); this.renderNav(); this.refreshTaskRedDots();
     }
 
     private uiNode(parent: Node, name: string, x: number, y: number, w: number, h: number): Node {
@@ -1905,9 +1920,10 @@ export class Main extends Component {
         this.ui.getChildByName('每日任务入口')?.setPosition(this.width / 2 - 4 - 190 / 2, this.height / 2 - 295, 0);
         this.ui.getChildByName('冒险日记入口')?.setPosition(this.width / 2 - 4 - 190 / 2, this.height / 2 - 458, 0);
         this.ui.getChildByName('后院纪念角入口')?.setPosition(this.width / 2 - 4 - 190 / 2, this.height / 2 - 620, 0);
-        // 庭院布置入口移至左侧，与右侧「任务」入口完全水平对齐，GM 调试按钮顺移至其下方避免遮挡
+        // 庭院布置入口移至左侧，与右侧「任务」入口完全水平对齐；「签到」在其正下方，GM 调试顺移至其下方
         this.ui.getChildByName('庭院布置入口')?.setPosition(-this.width / 2 + 4 + 190 / 2, this.height / 2 - 295, 0);
-        this.ui.getChildByName('GM调试入口')?.setPosition(-Math.min(this.width / 2 - 72, 416), this.height / 2 - 422, 0);
+        this.ui.getChildByName('每日签到入口')?.setPosition(-this.width / 2 + 4 + 190 / 2, this.height / 2 - 458, 0);
+        this.ui.getChildByName('GM调试入口')?.setPosition(-Math.min(this.width / 2 - 72, 416), this.height / 2 - 584, 0);
         this.bottom.setPosition(0, -this.height / 2 + 90, 0);
         this.layoutGmPanel();
         if (this.page !== 'home' && Date.now() > this.noticeUntil && this.notice) {
@@ -1950,12 +1966,12 @@ export class Main extends Component {
                 if (logCard) logCard.setPosition(-this.width / 2 + 24 + 185, this.height / 2 - 266 - 196, 0);
                 const chestBox = this.sheet.getChildByName('冒险右侧宝箱区');
                 if (chestBox) chestBox.setPosition(Math.min(this.width / 2 - 122, 386), -this.height / 2 + 520, 0);
-            } else if (this.page === 'shop' || this.page === 'daily' || this.page === 'bag' || this.page === 'diary' || this.page === 'memorial') {
+            } else if (this.page === 'shop' || this.page === 'daily' || this.page === 'signin' || this.page === 'bag' || this.page === 'diary' || this.page === 'memorial') {
                 this.sheet.setPosition(0, this.page === 'shop' ? -6 : -10, 0);
             }
-            if (this.page === 'shop' || this.page === 'daily' || this.page === 'bag' || this.page === 'diary' || this.page === 'memorial') {
-                const pw = this.page === 'daily' ? 1024 : this.page === 'shop' ? 960 : 921;
-                const ph = this.page === 'daily' ? 1400 : this.page === 'shop' ? 1260 : 1390;
+            if (this.page === 'shop' || this.page === 'daily' || this.page === 'signin' || this.page === 'bag' || this.page === 'diary' || this.page === 'memorial') {
+                const pw = (this.page === 'daily' || this.page === 'signin') ? 1024 : this.page === 'shop' ? 960 : 921;
+                const ph = (this.page === 'daily' || this.page === 'signin') ? 1400 : this.page === 'shop' ? 1260 : 1390;
                 const maxScale = this.page === 'shop' ? 1.06 : 1;
                 const padW = this.page === 'shop' ? 24 : 40;
                 const padH = this.page === 'shop' ? 370 : 420;
@@ -2747,6 +2763,8 @@ export class Main extends Component {
         if (diaryEntry) diaryEntry.active = page === 'home';
         const layoutEntry = this.ui.getChildByName('庭院布置入口');
         if (layoutEntry) layoutEntry.active = page === 'home';
+        const signInEntry = this.ui.getChildByName('每日签到入口');
+        if (signInEntry) signInEntry.active = page === 'home';
         this.refreshMemorialEntry();
         this.refreshTaskRedDots();
         const gmEntry = this.ui.getChildByName('GM调试入口');
@@ -2793,6 +2811,10 @@ export class Main extends Component {
         if (page === 'daily') {
             this.sheet = this.uiNode(this.ui, '每日任务面板', 0, -10, 1024, 1400);
             this.intercept(this.sheet); this.renderDaily(); this.layout(); this.animatePanelOpen(); return;
+        }
+        if (page === 'signin') {
+            this.sheet = this.uiNode(this.ui, '每日签到面板', 0, -10, 1024, 1400);
+            this.intercept(this.sheet); this.renderSignIn(); this.layout(); this.animatePanelOpen(); return;
         }
         if (page === 'shop') {
             this.sheet = this.uiNode(this.ui, '商店摊位', 0, -this.height / 2 + 850, 900, 1300);
@@ -3989,6 +4011,17 @@ export class Main extends Component {
                 if (isValid(b.visual, true)) b.visual.active = true;
                 a.node.setPosition(-0.4, 0, 1.4); b.node.setPosition(0.4, 0, 1.4);
                 this.triggerYardFight(a, b);
+            }],
+            ['重置今日签到', () => {
+                const c = this.dailyCandidate();
+                c.signIn = { ...(c.signIn || newSignIn()), lastSignDay: -1, todayAdClaimed: false, todayBaseGems: 0 };
+                if (this.commitShop(c)) {
+                    this.refreshTaskRedDots();
+                    if (this.page === 'signin' && this.sheet && isValid(this.sheet, true)) {
+                        this.sheet.removeAllChildren(); this.renderSignIn();
+                    }
+                    this.toast('GM：已重置今日签到状态，可立即测试下一天签到！');
+                }
             }],
         ];
 
@@ -6127,18 +6160,224 @@ export class Main extends Component {
         return ACHIEVEMENTS.some(def => achievementTierInfo(a, def).claimable);
     }
 
+    public hasClaimableSignIn(): boolean {
+        if (!this.data) return false;
+        const c = this.dailyCandidate();
+        return signInViewInfo(c.signIn!, c.shop.day).canClaimBase;
+    }
+
     public refreshTaskRedDots() {
         if (!this.ui || !isValid(this.ui, true) || !this.data) return;
         const dailyReady = this.hasClaimableDaily();
         const achReady = this.hasClaimableAchievement();
+        const signInReady = this.hasClaimableSignIn();
         const entryDot = this.ui.getChildByName('每日任务入口')?.getChildByName('任务入口红点');
         if (entryDot && isValid(entryDot, true)) entryDot.active = dailyReady || achReady;
+        const signInDot = this.ui.getChildByName('每日签到入口')?.getChildByName('签到入口红点');
+        if (signInDot && isValid(signInDot, true)) signInDot.active = signInReady;
         if (this.page === 'daily' && this.sheet && isValid(this.sheet, true)) {
             const dDot = this.sheet.getChildByName('任务页签-daily')?.getChildByName('页签红点');
             if (dDot && isValid(dDot, true)) dDot.active = dailyReady;
             const aDot = this.sheet.getChildByName('任务页签-achievement')?.getChildByName('页签红点');
             if (aDot && isValid(aDot, true)) aDot.active = achReady;
         }
+    }
+
+    public claimSignIn(): boolean {
+        const c = this.dailyCandidate();
+        const info = signInViewInfo(c.signIn!, c.shop.day);
+        if (!info.canClaimBase) { this.toast('今日已经签到过啦，明天再来吧！'); return false; }
+        const amount = info.todayGems;
+        if (c.gems > 100000000 - amount) { this.toast('货币接近存储上限，暂时无法领取'); return false; }
+        c.gems += amount;
+        c.signIn = {
+            totalDays: c.signIn!.totalDays + 1,
+            lastSignDay: c.shop.day,
+            todayAdClaimed: false,
+            todayBaseGems: amount,
+        };
+        if (!this.commitShop(c)) return false;
+        this.renderHeader();
+        this.refreshTaskRedDots();
+        if (this.page === 'signin' && this.sheet && isValid(this.sheet, true)) {
+            this.sheet.removeAllChildren();
+            this.renderSignIn();
+        }
+        this.showRewardGrantDialog('每日签到奖励', [{ kind: 'gems', amount }], `累计签到第 ${c.signIn.totalDays} 天达成！`);
+        return true;
+    }
+
+    public watchSignInRewardedVideo() {
+        if (this.rewardedVideoPending) { this.toast('广告播放中，请勿重复请求'); return; }
+        const initCand = this.dailyCandidate();
+        const initDay = initCand.shop.day;
+        const initInfo = signInViewInfo(initCand.signIn!, initDay);
+        if (!initInfo.canClaimAd) { this.toast('今日签到双倍奖励已领取！'); return; }
+        const provider = this.rewardedVideoProvider;
+        if (!provider) { this.toast('激励视频暂未接入'); return; }
+        this.rewardedVideoPending = true;
+        let settled = false;
+        const finish = (result: RewardedVideoResult) => {
+            if (settled) return;
+            settled = true;
+            this.rewardedVideoPending = false;
+            if (!isValid(this, true)) return;
+            if (result !== 'completed') {
+                this.toast(result === 'cancelled' ? '未完整观看广告，仍可普通签到' : '广告播放失败，仍可普通签到');
+                return;
+            }
+            const c = this.dailyCandidate();
+            if (c.shop.day !== initDay) {
+                if (this.page === 'signin' && this.sheet && isValid(this.sheet, true)) {
+                    this.sheet.removeAllChildren(); this.renderSignIn();
+                }
+                return;
+            }
+            const info = signInViewInfo(c.signIn!, c.shop.day);
+            if (!info.canClaimAd) return;
+            const amount = info.signedToday ? info.todayGems : info.todayGems * 2;
+            if (c.gems > 100000000 - amount) { this.toast('货币接近存储上限，暂时无法领取'); return; }
+            c.gems += amount;
+            c.signIn = {
+                totalDays: info.signedToday ? c.signIn!.totalDays : c.signIn!.totalDays + 1,
+                lastSignDay: c.shop.day,
+                todayAdClaimed: true,
+                todayBaseGems: info.todayGems,
+            };
+            if (!this.commitShop(c)) return;
+            this.renderHeader();
+            this.refreshTaskRedDots();
+            if (this.page === 'signin' && this.sheet && isValid(this.sheet, true)) {
+                this.sheet.removeAllChildren();
+                this.renderSignIn();
+            }
+            this.showRewardGrantDialog(
+                '签到双倍奖励',
+                [{ kind: 'gems', amount }],
+                info.signedToday
+                    ? `累计签到第 ${c.signIn.totalDays} 天双倍补领成功！`
+                    : `累计签到第 ${c.signIn.totalDays} 天双倍领取！`
+            );
+        };
+        try { provider.show(finish); } catch { finish('failed'); }
+    }
+
+    private renderSignIn() {
+        const panel = this.sheet!;
+        const cand = this.dailyCandidate();
+        const info = signInViewInfo(cand.signIn!, cand.shop.day);
+
+        // 专属生图绘本风签到弹窗底板
+        const bgNode = this.uiNode(panel, '签到面板底图', 0, 0, 1024, 1400);
+        const bgSp = bgNode.addComponent(Sprite); bgSp.sizeMode = Sprite.SizeMode.CUSTOM;
+        resources.load('art/signin/panel/spriteFrame', SpriteFrame, (e, f) => {
+            if (!e && f && isValid(bgSp, true)) bgSp.spriteFrame = f;
+        });
+
+        this.dailyText(panel, '每日签到', 0, 385, 440, 58, 42, false, true);
+        const close = this.uiNode(panel, '收起', 422, 395, 128, 128);
+        this.dailySprite(close, 'close', 0, 0, 112, 112, false, '关闭图标');
+        this.shopButton(close, () => this.open('home'));
+
+        const subLbl = this.dailyText(panel, `累计签到 ${info.totalDays} 天 · 第 ${info.cycle} 轮 · 签到越多钻石越丰厚`, 0, 248, 700, 36, 23);
+        subLbl.color = this.color('#7A451C');
+
+        // 1~6 天网格（两行三列）
+        for (let i = 0; i < 6; i++) {
+            const d = info.days[i];
+            const col = i % 3;
+            const row = Math.floor(i / 3);
+            const cx = (col - 1) * 236;
+            const cy = row === 0 ? 112 : -108;
+            const card = this.uiNode(panel, '签到卡片-' + d.day, cx, cy, 218, 204);
+            const g = card.addComponent(Graphics);
+            g.fillColor = this.color(d.claimed ? '#F1E6D2' : d.isToday ? '#FFF3C4' : '#FFFDF5');
+            g.strokeColor = this.color(d.isToday ? '#E68A1E' : d.claimed ? '#B8A286' : '#D7B98E');
+            g.lineWidth = d.isToday ? 5 : 2.5;
+            g.roundRect(-109, -102, 218, 204, 24); g.fill(); g.stroke();
+
+            this.pillBadge(card, `第 ${d.day} 天`, 0, 74, 118, 30, d.isToday ? '#E68A1E' : d.claimed ? '#8F9E78' : '#7E644C', C.white, 18);
+
+            const gemNode = this.uiNode(card, '钻石图标', 0, 14, 66, 66);
+            const gsp = gemNode.addComponent(Sprite); gsp.sizeMode = Sprite.SizeMode.CUSTOM;
+            resources.load('art/header/diamond-icon/spriteFrame', SpriteFrame, (e, f) => {
+                if (!e && f && isValid(gsp, true)) gsp.spriteFrame = f;
+            });
+
+            const amtLbl = this.text(card, `+${d.gems}`, 0, -40, 180, 38, 28, d.claimed ? '#8B7968' : '#5B3418');
+            amtLbl.isBold = true; amtLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+
+            const statusText = d.claimed ? '✓ 已签到' : d.isToday ? '今日可领' : '待解锁';
+            const statusColor = d.claimed ? '#4A8C4A' : d.isToday ? '#D65A16' : '#9B826A';
+            const stLbl = this.text(card, statusText, 0, -76, 180, 30, 19, statusColor);
+            stLbl.isBold = d.isToday || d.claimed; stLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+
+            if (d.isToday) {
+                const dot = this.drawRedDot(card, '今日红点', 94, 86, 10);
+                dot.active = true;
+                this.intercept(card); this.pressVisualFeedback(card);
+                card.on(Node.EventType.TOUCH_END, () => this.claimSignIn(), this);
+            }
+        }
+
+        // 第 7 天超级大奖宽卡
+        const d7 = info.days[6];
+        const card7 = this.uiNode(panel, '签到卡片-7', 0, -302, 690, 150);
+        const g7 = card7.addComponent(Graphics);
+        g7.fillColor = this.color(d7.claimed ? '#EFE3CC' : d7.isToday ? '#FFE9A8' : '#FFF7DC');
+        g7.strokeColor = this.color(d7.isToday ? '#E07A12' : '#D99E30');
+        g7.lineWidth = d7.isToday ? 5.5 : 3.5;
+        g7.roundRect(-345, -75, 690, 150, 26); g7.fill(); g7.stroke();
+
+        this.pillBadge(card7, '第 7 天 · 七日大奖', -208, 32, 224, 34, d7.isToday ? '#E06818' : '#D98E24', C.white, 19);
+        const sub7 = this.text(card7, `本轮终极大礼 · 第 ${info.cycle} 轮`, -208, -22, 240, 34, 21, '#7A451C');
+        sub7.isBold = true; sub7.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+
+        const gem7 = this.uiNode(card7, '七日钻石图标', 18, 0, 82, 82);
+        const gsp7 = gem7.addComponent(Sprite); gsp7.sizeMode = Sprite.SizeMode.CUSTOM;
+        resources.load('art/header/diamond-icon/spriteFrame', SpriteFrame, (e, f) => {
+            if (!e && f && isValid(gsp7, true)) gsp7.spriteFrame = f;
+        });
+        const amt7 = this.text(card7, `+${d7.gems}`, 132, 0, 146, 52, 38, d7.claimed ? '#8B7968' : '#B84A0C');
+        amt7.isBold = true; amt7.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+
+        const st7Text = d7.claimed ? '✓ 已签到' : d7.isToday ? '今日可领' : '满7天解锁';
+        const st7Color = d7.claimed ? '#4A8C4A' : d7.isToday ? '#D65A16' : '#9B7548';
+        const st7 = this.text(card7, st7Text, 272, 0, 130, 36, 21, st7Color);
+        st7.isBold = true; st7.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+
+        if (d7.isToday) {
+            const dot7 = this.drawRedDot(card7, '七日红点', 330, 62, 11);
+            dot7.active = true;
+            this.intercept(card7); this.pressVisualFeedback(card7);
+            card7.on(Node.EventType.TOUCH_END, () => this.claimSignIn(), this);
+        }
+
+        // 底部双操作按钮：立即签到 + 广告双倍（与每日任务规则一致）
+        const claimLabel = info.canClaimBase ? `立即签到 (+${info.todayGems})` : '今日已签到';
+        const claimBtn = this.dailyButton(panel, claimLabel, -170, -452, 316, 82, () => {
+            if (info.canClaimBase) this.claimSignIn();
+            else this.toast('今日已经签到过啦，明天再来吧！');
+        }, 25);
+        claimBtn.name = '签到领取按钮';
+        const cbl = claimBtn.getChildByName('文字')?.getComponent(Label);
+        if (cbl) cbl.color = this.statusColor(info.canClaimBase);
+        const cbg = claimBtn.getChildByName('每日任务底图');
+        if (cbg) cbg.active = info.canClaimBase;
+
+        const adLabel = info.adClaimedToday
+            ? '今日已双倍'
+            : info.signedToday
+                ? `广告双倍补领 (+${info.todayGems})`
+                : `广告双倍 (+${info.todayGems * 2})`;
+        const adBtn = this.dailyButton(panel, adLabel, 170, -452, 316, 82, () => this.watchSignInRewardedVideo(), 23);
+        adBtn.name = '签到双倍按钮';
+        const adl = adBtn.getChildByName('文字')?.getComponent(Label);
+        if (adl) adl.color = this.statusColor(info.adClaimedToday);
+        const adbg = adBtn.getChildByName('每日任务底图');
+        if (adbg) adbg.active = info.canClaimAd;
+
+        this.dailyText(panel, '每日 00:00 (UTC+8) 刷新 · 每满 7 天进入新一轮，全额奖励再 +20 钻石', 0, -534, 700, 34, 19);
     }
 
     public claimAchievement(id: AchievementId): boolean {
