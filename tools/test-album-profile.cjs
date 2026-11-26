@@ -747,6 +747,19 @@ const OUT_DIR = path.resolve(__dirname, '../art/generated');
     await page.waitForTimeout(350);
     await page.screenshot({ path: path.join(OUT_DIR, 'verify-shop-tombstones.png') });
 
+    // Switch to Shop Outfits tab in-place -> verify ZERO sheet rebuild & outfit cards rendered!
+    const outfitTabRes = await page.evaluate(() => {
+      const sheetBefore = main.sheet;
+      const tabBtn = walk(main.sheet).find(n => n.name === '商店页签-装扮');
+      tabBtn.emit('touch-end', {});
+      const cards = walk(main.sheet).filter(n => n.name.startsWith('装扮商品卡-')).length;
+      return { sameSheet: main.sheet === sheetBefore, cards };
+    });
+    console.log('shop outfits tab check:', JSON.stringify(outfitTabRes));
+    assert.ok(outfitTabRes.sameSheet && outfitTabRes.cards >= 8, 'shop outfits tab must switch in-place without jumping and show outfit & coat cards');
+    await page.waitForTimeout(350);
+    await page.screenshot({ path: path.join(OUT_DIR, 'verify-shop-outfits.png') });
+
     // Open Memorial Corner -> erect tombstone for dead pet #1 with custom epitaph -> verify!
     await page.evaluate(() => {
       main.open('memorial');

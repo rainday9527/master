@@ -193,7 +193,7 @@ export class Main extends Component {
     private advScrollY = 0;
     private advChestOpenUntil = 0;
     private advLogNextId = 1;
-    private shopTab: 'items' | 'tombstones' = 'items';
+    private shopTab: 'items' | 'outfits' | 'tombstones' = 'items';
     private pendingAlerts: { kind: 'lost' | 'dead'; petId: number; reason: string }[] = [];
     private socialBubbles: SocialBubble[] = [];
     private needBubbles = new Map<number, { node: Node; icon: string; until: number; urgent: boolean }>();
@@ -1470,7 +1470,7 @@ export class Main extends Component {
         // 标题独立落在猫狗中间的木牌（源图中央 y=260..300），不占正文内区。
         // 内容整体上移35设计单位；金币、钻石及其他通用弹窗共用布局。
         const content = this.uiNode(panel, '弹窗安全内容', 0, (452 - 572.5) * ratio + 35, 896 * ratio, 395 * ratio);
-        const heading = this.headerText(panel, title, 0, (452 - 280) * ratio, 460 * ratio, 62 * ratio, 40);
+        const heading = this.headerText(panel, title, 0, (452 - 240) * ratio, 460 * ratio, 62 * ratio, 40);
         heading.node.name = '弹窗独立标题';
         const bodyLabel = this.text(content, body, 0, reward ? 47 : 22 * ratio, 840 * ratio, reward ? 30 : 110 * ratio, 28, C.muted);
         bodyLabel.node.name = '弹窗正文';
@@ -1503,7 +1503,7 @@ export class Main extends Component {
             }
             this.shopButton(button, action.run);
         });
-        const close = this.shopArt(panel, 'close', 480 * ratio, (452 - 335) * ratio, 71 * ratio, 72 * ratio);
+        const close = this.shopArt(panel, 'close', 480 * ratio, (452 - 270) * ratio, 71 * ratio, 72 * ratio);
         this.shopButton(close, () => this.closeDialog());
         this.layoutDialog();
     }
@@ -4279,6 +4279,7 @@ export class Main extends Component {
         signTitle.node.name = '商店木牌标题';
 
         let tabItemsLbl!: Label;
+        let tabOutfitsLbl!: Label;
         let tabTombLbl!: Label;
         const renderTabBody = () => {
             this.shopCards = [];
@@ -4290,11 +4291,16 @@ export class Main extends Component {
             if (prevBody && isValid(prevBody, true)) { prevBody.removeFromParent(); prevBody.destroy(); }
 
             tabItemsLbl.color = this.color(this.shopTab === 'items' ? '#4E2C15' : '#8A6B4F');
+            tabOutfitsLbl.color = this.color(this.shopTab === 'outfits' ? '#4E2C15' : '#8A6B4F');
             tabTombLbl.color = this.color(this.shopTab === 'tombstones' ? '#4E2C15' : '#8A6B4F');
 
             const body = this.uiNode(panel, '商店页签内容层', 0, 0, 960, 1260);
             const content = this.uiNode(body, '商店安全内容', 0, -165, 764, 830);
 
+            if (this.shopTab === 'outfits') {
+                this.renderShopOutfits(body, content);
+                return;
+            }
             if (this.shopTab === 'tombstones') {
                 this.renderShopTombstones(body, content);
                 return;
@@ -4343,20 +4349,25 @@ export class Main extends Component {
             this.updateShopCards();
         };
 
-        const switchShopTab = (next: 'items' | 'tombstones') => {
+        const switchShopTab = (next: 'items' | 'outfits' | 'tombstones') => {
             if (this.shopTab === next) return;
             this.shopTab = next;
             // 原地切换页签内容层，不重建外框面板，彻底消除切页跳动
             renderTabBody();
         };
-        const tabItems = this.shopArt(panel, 'tab', -254, 214, 186, 68);
+        const tabItems = this.shopArt(panel, 'tab', -254, 214, 178, 66);
         tabItems.name = '商店页签-道具';
-        tabItemsLbl = this.headerText(tabItems, '道具', 0, 0, 150, 42, 28);
+        tabItemsLbl = this.headerText(tabItems, '道具', 0, 0, 144, 42, 28);
         this.shopButton(tabItems, () => switchShopTab('items'));
 
-        const tabTomb = this.shopArt(panel, 'tab', -56, 214, 186, 68);
+        const tabOutfits = this.shopArt(panel, 'tab', -64, 214, 178, 66);
+        tabOutfits.name = '商店页签-装扮';
+        tabOutfitsLbl = this.headerText(tabOutfits, '装扮', 0, 0, 144, 42, 28);
+        this.shopButton(tabOutfits, () => switchShopTab('outfits'));
+
+        const tabTomb = this.shopArt(panel, 'tab', 126, 214, 178, 66);
         tabTomb.name = '商店页签-墓碑';
-        tabTombLbl = this.headerText(tabTomb, '墓碑', 0, 0, 150, 42, 28);
+        tabTombLbl = this.headerText(tabTomb, '墓碑', 0, 0, 144, 42, 28);
         this.shopButton(tabTomb, () => switchShopTab('tombstones'));
 
         const close = this.shopArt(panel, 'close', 392, 278, 82, 83);
@@ -4458,7 +4469,7 @@ export class Main extends Component {
         // 大底板直接复用任务页已清除内置行框的正式底图，只保留这一层。
         this.dailySprite(panel, 'panel-clean', 0, 0, 921, 1390, true, '背包任务大底板');
         // 标题与内容独立绘制。
-        this.dailyText(panel, '我的背包', -14, 415, 370, 48, 38);
+        this.dailyText(panel, '我的背包', 0, 422, 370, 48, 38);
         const close = this.uiNode(panel, '收起背包', 380, 416, 84, 84);
         this.dailySprite(close, 'close', 0, 0, 78, 78);
         this.shopButton(close, () => this.open(this.petSelected ? 'pet' : 'home'));
@@ -4637,7 +4648,7 @@ export class Main extends Component {
         const daily = this.dailyCandidate().daily;
         this.dailySprite(panel, 'panel-clean', 0, 0, 1024, 1400, true);
         // 标题投影至源图 y≈249..302，完全位于原标题牌 y=240..310 内。
-        this.dailyText(panel, '任务', -12, 400, 440, 58, 42, false, true);
+        this.dailyText(panel, '任务', 0, 425, 440, 58, 42, false, true);
         const close = this.uiNode(panel, '收起', 420, 390, 128, 128);
         this.dailySprite(close, 'close', 0, 0, 112, 112, false, '关闭图标');
         this.shopButton(close, () => this.open('home'));
@@ -4763,6 +4774,147 @@ export class Main extends Component {
         if (!this.commitShop(candidate)) return;
         this.renderHeader(); this.open('adventure');
         this.toast('寻宝成功' + note + '！金币 +' + coinGain + '，钻石 +' + gemGain + '，经验 +25' + (bonusItemName ? '，带回【' + bonusItemName + '】×1' : ''));
+    }
+
+    /** 商店「装扮」页签：3D 配饰与服装皮肤展柜，支持原地切换伙伴、购买与穿戴零跳动 */
+    private renderShopOutfits(body: Node, content: Node) {
+        const alivePets = this.data.pets.filter(p => !p.dead && !p.lost);
+        if (!alivePets.some(p => p.id === this.selected) && alivePets.length) {
+            this.selected = alivePets[0].id;
+        }
+        const getTargetPet = () => this.data.pets.find(p => p.id === this.selected) || alivePets[0];
+
+        const bar = this.uiNode(content, '装扮伙伴切换栏', 0, 322, 740, 52);
+        const bgG = bar.addComponent(Graphics);
+        bgG.fillColor = this.color('#F5E8C8'); bgG.strokeColor = this.color('#CFA86E'); bgG.lineWidth = 2.5;
+        bgG.roundRect(-370, -26, 740, 52, 18); bgG.fill(); bgG.stroke();
+        const petLbl = this.text(bar, '', -96, 0, 460, 32, 22, '#4E2C15');
+        petLbl.isBold = true; petLbl.horizontalAlign = Label.HorizontalAlign.LEFT;
+
+        const switchBtn = this.bagButton(bar, '切换伙伴 ›', 256, 0, 178, 40, () => {
+            const list = this.data.pets.filter(p => !p.dead && !p.lost);
+            if (list.length <= 1) return;
+            const cur = list.findIndex(p => p.id === this.selected);
+            this.selected = list[(cur + 1) % list.length].id;
+            refreshOutfitStates();
+        });
+        switchBtn.name = '商店装扮切换伙伴';
+
+        const vp = this.uiNode(content, '装扮商品滚动视口', 0, -26, 760, 620);
+        vp.addComponent(Mask).type = Mask.Type.GRAPHICS_RECT;
+        const outfitList = PET_OUTFITS.filter(o => o.id !== 'none');
+        const coatList = PET_COATS.filter(c => c.id !== 'original');
+        type ShopOutfitEntry =
+            | { kind: 'outfit'; id: OutfitId; name: string; price: number; currency: Currency; freeAtStar?: number; theme: SlotBgTheme }
+            | { kind: 'coat'; id: CoatId; name: string; price: number; currency: Currency; color: string; theme: SlotBgTheme };
+        const entries: ShopOutfitEntry[] = [
+            ...outfitList.map(o => ({
+                kind: 'outfit' as const, id: o.id, name: o.name, price: o.price, currency: o.currency, freeAtStar: o.freeAtStar,
+                theme: (o.freeAtStar ? 'coin' : o.currency === 'gems' ? 'epic' : 'gem') as SlotBgTheme,
+            })),
+            ...coatList.map(c => ({
+                kind: 'coat' as const, id: c.id, name: c.name, price: c.price, currency: c.currency, color: c.swatch,
+                theme: (c.currency === 'gems' ? 'epic' : 'heal') as SlotBgTheme,
+            })),
+        ];
+
+        const rows = Math.ceil(entries.length / 3);
+        const cardW = 240, cardH = 300, gapX = 12, gapY = 12;
+        const totalH = Math.max(620, rows * (cardH + gapY) + 24);
+        const grid = this.uiNode(vp, '装扮商品网格', 0, 310, 760, totalH);
+        grid.getComponent(UITransform)!.setAnchorPoint(0.5, 1);
+        const scroll = vp.addComponent(ScrollView);
+        scroll.content = grid; scroll.horizontal = false; scroll.vertical = true;
+        scroll.cancelInnerEvents = true; scroll.elastic = true;
+
+        const updaters: Array<() => void> = [];
+        const refreshOutfitStates = () => {
+            const p = getTargetPet();
+            petLbl.string = p ? `当前装扮伙伴：${this.petDisplayName(p.id)}（★${p.star}）` : '暂无可装扮伙伴';
+            updaters.forEach(fn => fn());
+        };
+
+        entries.forEach((entry, idx) => {
+            const col = idx % 3, row = Math.floor(idx / 3);
+            const x = (col - 1) * (cardW + gapX);
+            const y = -12 - cardH / 2 - row * (cardH + gapY);
+
+            const card = this.shopArt(grid, 'card', x, y, cardW, cardH);
+            card.name = '装扮商品卡-' + entry.id;
+            const title = this.headerText(card, entry.name, 0, 122, 224, 30, 22);
+            title.overflow = Label.Overflow.SHRINK; title.enableWrapText = false;
+
+            const slotBox = this.uiNode(card, '装扮图标槽', 0, 42, 118, 118);
+            this.itemSlotBg(slotBox, entry.theme, 118, 118, '装扮槽底图');
+            if (entry.kind === 'outfit') {
+                const sp = this.uiNode(slotBox, '装扮商品图标', 0, 2, 92, 92).addComponent(Sprite);
+                sp.sizeMode = Sprite.SizeMode.CUSTOM;
+                resources.load('art/outfits/' + entry.id + '/spriteFrame', SpriteFrame, (e, f) => {
+                    if (!e && f && isValid(sp, true)) sp.spriteFrame = f;
+                });
+            } else {
+                const sw = this.uiNode(slotBox, '皮肤色块', 0, 0, 74, 74);
+                const swg = sw.addComponent(Graphics);
+                swg.fillColor = this.color(entry.color); swg.strokeColor = this.color('#6A4728'); swg.lineWidth = 4;
+                swg.circle(0, 0, 34); swg.fill(); swg.stroke();
+            }
+
+            const statusLbl = this.text(card, '', 0, -38, 210, 26, 19, '#6E533C');
+            statusLbl.isBold = true;
+
+            const buyBtn = this.shopArt(card, 'buy', 0, -100, 190, 66);
+            buyBtn.name = '装扮购买按钮-' + entry.id;
+            const btnOverlay = this.uiNode(buyBtn, '按钮内容', 0, 0, 184, 60);
+
+            const updateCard = () => {
+                const p = getTargetPet();
+                if (!p) return;
+                const isEquipped = entry.kind === 'outfit' ? p.outfit === entry.id : p.coat === entry.id;
+                const isOwned = entry.kind === 'outfit'
+                    ? (p.ownedOutfits.includes(entry.id) || (entry.freeAtStar !== undefined && p.star >= entry.freeAtStar))
+                    : p.ownedCoats.includes(entry.id);
+
+                statusLbl.string = isEquipped ? '当前已穿戴' : isOwned ? '已拥有' : (entry.kind === 'outfit' && entry.freeAtStar ? `★${entry.freeAtStar} 免费解锁` : '未拥有');
+                statusLbl.color = this.color(isEquipped ? '#228B3C' : isOwned ? '#3B7DD8' : '#7A5B3E');
+
+                btnOverlay.removeAllChildren();
+                if (isEquipped) {
+                    this.headerText(btnOverlay, '已穿戴', 0, 0, 168, 36, 23);
+                } else if (isOwned) {
+                    this.headerText(btnOverlay, '立即换上', 0, 0, 168, 36, 23);
+                } else {
+                    this.addPriceTag(btnOverlay, entry.currency, entry.price, 8, 0, 30, '#FFFFFF');
+                }
+            };
+            updaters.push(updateCard);
+
+            this.shopButton(buyBtn, () => {
+                const p = getTargetPet();
+                if (!p) return;
+                const wasOwned = entry.kind === 'outfit'
+                    ? (p.ownedOutfits.includes(entry.id) || (entry.freeAtStar !== undefined && p.star >= entry.freeAtStar))
+                    : p.ownedCoats.includes(entry.id);
+                const ok = entry.kind === 'outfit'
+                    ? this.selectPetOutfit(p.id, entry.id)
+                    : this.selectPetCoat(p.id, entry.id);
+                if (ok) {
+                    if (!wasOwned && entry.price > 0) {
+                        this.showRewardToast([{ kind: entry.currency, amount: -entry.price }], '消耗');
+                    }
+                    refreshOutfitStates();
+                }
+            });
+        });
+
+        const goProfile = this.shopArt(body, 'buy', 0, -534, 340, 340 * 120 / 321);
+        goProfile.name = '商店进档案试穿按钮';
+        this.headerText(goProfile, '前往 3D 档案试穿 ›', 0, 0, 310, 44, 25);
+        this.shopButton(goProfile, () => {
+            const p = getTargetPet();
+            if (p) this.openProfile(p.id, 'outfit');
+        });
+
+        refreshOutfitStates();
     }
 
     private renderShopTombstones(panel: Node, content: Node) {
@@ -5569,7 +5721,7 @@ export class Main extends Component {
     private renderAdventureDiary() {
         const panel = this.sheet!;
         this.dailySprite(panel, 'panel-clean', 0, 0, 921, 1390, true, '冒险日记底板');
-        this.dailyText(panel, '冒险日记', -14, 415, 360, 48, 38);
+        this.dailyText(panel, '冒险日记', 0, 422, 360, 48, 38);
         const close = this.uiNode(panel, '关闭日记', 380, 416, 84, 84);
         this.dailySprite(close, 'close', 0, 0, 78, 78);
         this.shopButton(close, () => this.open('home'));
@@ -5657,7 +5809,7 @@ export class Main extends Component {
     private renderMemorialCorner() {
         const panel = this.sheet!;
         this.dailySprite(panel, 'panel-clean', 0, 0, 921, 1390, true, '后院纪念角底板');
-        this.dailyText(panel, '后院纪念角', -14, 415, 360, 48, 38);
+        this.dailyText(panel, '后院纪念角', 0, 422, 360, 48, 38);
         const close = this.uiNode(panel, '关闭纪念角', 380, 416, 84, 84);
         this.dailySprite(close, 'close', 0, 0, 78, 78);
         this.shopButton(close, () => this.open('home'));
