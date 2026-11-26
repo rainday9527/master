@@ -1586,14 +1586,20 @@ export class Main extends Component {
         return bg;
     }
 
+    /** 6 阶品质槽位底框映射：普通(米白) → 优秀(嫩绿) → 精良(天蓝) → 史诗(梦幻紫) → 传说(璀璨金) → 限定/神话(粉金彩) */
+    private itemQualityTheme(def?: ItemDefinition | null): SlotBgTheme {
+        if (!def) return 'general';
+        if (def.currency === 'gems') return def.price > 25 ? 'coin' : 'epic';
+        if (def.price > 210) return 'gem';
+        if (def.price > 140) return 'heal';
+        return 'general';
+    }
+
     private rewardSlotTheme(rw: RewardGrantItem): SlotBgTheme {
         if (rw.kind === 'gems') return 'coin';
         if (rw.kind === 'coins') return 'general';
-        if (rw.kind === 'care') return rw.careType === 'soap' ? 'heal' : 'general';
-        const def = findItem(rw.itemId);
-        if (!def) return 'general';
-        if (def.currency === 'gems') return 'epic';
-        return (def.category === 'medicine' || def.category === 'soap') ? 'heal' : 'general';
+        if (rw.kind === 'care') return 'general';
+        return this.itemQualityTheme(findItem(rw.itemId));
     }
 
     /** 通用图标+数字奖励领取弹窗（金币、钻石、道具统一可视化展示，配通用道具槽位底图与大号清晰字样） */
@@ -5040,17 +5046,17 @@ export class Main extends Component {
         tg.strokeColor = this.color('#C4A16E'); tg.lineWidth = 2.5;
         tg.roundRect(-trayW / 2, -trayH / 2, trayW, trayH, 18); tg.stroke();
 
-        // 收集最近 3 件实际收获物品/货币（不足 3 件时用背包已有道具或默认展示补齐视觉）
-        const showcase: { spritePath: string; name: string }[] = [];
+        // 收集最近 3 件实际收获物品/货币（不足 3 件时用默认展示补齐视觉，按 6 阶品质配底框）
+        const showcase: { spritePath: string; name: string; theme: SlotBgTheme }[] = [];
         for (const l of logs) {
             if (showcase.length >= 3) break;
             if (l.itemId) {
                 const it = findItem(l.itemId);
-                showcase.push({ spritePath: `art/items/${l.itemId}/spriteFrame`, name: it?.name || l.itemId });
+                showcase.push({ spritePath: `art/items/${l.itemId}/spriteFrame`, name: it?.name || l.itemId, theme: this.itemQualityTheme(it) });
             } else if (l.coins) {
-                showcase.push({ spritePath: 'art/header/coin-icon/spriteFrame', name: `金币+${l.coins}` });
+                showcase.push({ spritePath: 'art/header/coin-icon/spriteFrame', name: `金币+${l.coins}`, theme: 'general' });
             } else if (l.gems) {
-                showcase.push({ spritePath: 'art/header/diamond-icon/spriteFrame', name: `钻石+${l.gems}` });
+                showcase.push({ spritePath: 'art/header/diamond-icon/spriteFrame', name: `钻石+${l.gems}`, theme: 'coin' });
             }
         }
         const fallbackIds = ['fish', 'ball', 'bone_chew'];
@@ -5058,14 +5064,13 @@ export class Main extends Component {
             if (showcase.length >= 3) break;
             if (showcase.some(s => s.spritePath === `art/items/${fid}/spriteFrame`)) continue;
             const it = findItem(fid);
-            if (it) showcase.push({ spritePath: `art/items/${it.id}/spriteFrame`, name: it.name });
+            if (it) showcase.push({ spritePath: `art/items/${it.id}/spriteFrame`, name: it.name, theme: this.itemQualityTheme(it) });
         }
 
         showcase.slice(0, 3).forEach((entry, idx) => {
             const sx = (idx - 1) * 106;
             const slot = this.uiNode(tray, `实时日志实物格-${idx}`, sx, 0, 96, 98);
-            const slotTheme = entry.spritePath.indexOf('diamond-icon') >= 0 ? 'coin' : entry.spritePath.indexOf('coin-icon') >= 0 ? 'general' : 'general';
-            this.itemSlotBg(slot, slotTheme, 96, 98, '实物格底图');
+            this.itemSlotBg(slot, entry.theme, 96, 98, '实物格底图');
 
             const iconNode = this.uiNode(slot, '实物图标', 0, 12, 54, 54);
             const sp = iconNode.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM;
@@ -5587,7 +5592,7 @@ export class Main extends Component {
                 ig.fillColor = this.color('#FFF4D6'); ig.strokeColor = this.color('#D8A85A'); ig.lineWidth = 2.5;
                 ig.roundRect(-348, -34, 696, 68, 16); ig.fill(); ig.stroke();
                 const slotBox = this.uiNode(itemCard, '日记道具槽', -306, 0, 58, 58);
-                this.itemSlotBg(slotBox, (item.category === 'medicine' || item.category === 'soap') ? 'heal' : 'general', 58, 58, '日记道具底图');
+                this.itemSlotBg(slotBox, this.itemQualityTheme(item), 58, 58, '日记道具底图');
                 this.itemIcon(slotBox, item.id, 0, 0, 44);
                 const il = this.text(itemCard, `${item.name} ×${log.itemCount || 1}`, -110, 10, 310, 28, 21, '#58351D');
                 il.isBold = true; il.horizontalAlign = Label.HorizontalAlign.LEFT;
