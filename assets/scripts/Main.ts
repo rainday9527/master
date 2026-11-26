@@ -107,8 +107,9 @@ interface Actor {
 interface SocialBubble { node: Node; actor: Actor; until: number; side: number; }
 interface PoopVisual {
     node: Node;
+    quad: Node;
     poop: YardPoop;
-    smokes: { node: Node; op: UIOpacity; phase: number }[];
+    smokes: { node: Node; mat: Material; phase: number }[];
 }
 interface GhostFloat {
     node: Node;
@@ -4366,6 +4367,17 @@ export class Main extends Component {
             return Math.abs(point.x - n.position.x) <= size.width / 2 && Math.abs(point.y - n.position.y) <= size.height / 2;
         };
         if (hits(this.top) || hits(this.bottom) || (this.sheet && hits(this.sheet))) return;
+        // 优先检测是否点中庭院 3D 便便，点击即可清理。
+        if (this.page === 'home' || this.page === 'pet') {
+            let closestPoop: YardPoop | null = null, poopDist = 56;
+            (this.data.poops || []).forEach(pp => {
+                const proj = new Vec3();
+                this.worldCamera.worldToScreen(new Vec3(pp.x, 0.16, pp.z), proj);
+                const d = Vec2.distance(location, new Vec2(proj.x, proj.y));
+                if (proj.z >= 0 && proj.z <= 1 && d < poopDist) { poopDist = d; closestPoop = pp; }
+            });
+            if (closestPoop) { this.cleanYardPoop((closestPoop as YardPoop).id); return; }
+        }
         let closest: Actor | null = null, distance = 90;
         this.actors.forEach(actor => {
             const projected = new Vec3(); this.worldCamera.worldToScreen(new Vec3(actor.node.worldPosition.x, actor.node.worldPosition.y + 0.48, actor.node.worldPosition.z), projected);
@@ -4387,6 +4399,9 @@ export class Main extends Component {
         this.data.poops.push({ id, petId, x: clampedX, z: clampedZ, createdAt: Date.now() });
         this.dirty = true;
         this.persist();
+        if (this.data.poops.length >= 3 && (this.page === 'home' || this.page === 'pet')) {
+            this.toast('庭院便便过多，伙伴清洁度正在加速下降，快点击清理吧！');
+        }
     }
 
     private cleanYardPoop(poopId: number) {
@@ -4407,6 +4422,7 @@ export class Main extends Component {
         if (!this.commitShop(c)) return;
         const vis = this.poopVisuals.get(poopId);
         if (vis) {
+            vis.smokes.forEach(s => s.mat.destroy());
             if (isValid(vis.node, true)) { vis.node.active = false; vis.node.destroy(); }
             this.poopVisuals.delete(poopId);
         }
@@ -4415,66 +4431,111 @@ export class Main extends Component {
         this.toast('清理便便成功！金币 +5，庭院更干净啦');
     }
 
+    private getPoopMaterial(): Material {
+        let mat = this.materials.get('yard:poop');
+        if (!mat) {
+            mat = new Material();
+            mat.initialize({
+                effectName: 'builtin-unlit',
+                technique: 1,
+                defines: { USE_TEXTURE: true },
+                states: {
+                    rasterizerState: { cullMode: 0 },
+                    depthStencilState: { depthTest: true, depthWrite: false },
+                },
+            });
+            mat.setProperty('mainColor', this.color(C.white));
+            this.materials.set('yard:poop', mat);
+            resources.load('art/yard/poop/texture', Texture2D, (err, tex) => {
+                if (!err && tex && isValid(this, true)) mat!.setProperty('mainTexture', tex);
+            });
+        }
+        return mat;
+    }
+
     private syncYardPoops(dt: number) {
-        if (!isValid(this.ui, true) || !this.worldCamera || !this.uiCamera) return;
+        if (!isValid(this.world, true) || !this.worldCamera) return;
         const list = this.data.poops || [];
-        const visiblePage = this.page === 'home' || this.page === 'pet';
         const activeIds = new Set(list.map(p => p.id));
 
-        // 清理已消失的便便节点
+        // 清理已消失的 3D 便便节点
         this.poopVisuals.forEach((vis, id) => {
             if (!activeIds.has(id) || !isValid(vis.node, true)) {
+                vis.smokes.forEach(s => s.mat.destroy());
                 if (isValid(vis.node, true)) { vis.node.active = false; vis.node.destroy(); }
                 this.poopVisuals.delete(id);
             }
         });
         if (!list.length) return;
-        if (!this.poopLayer || !isValid(this.poopLayer, true)) {
-            this.poopLayer = this.uiNode(this.ui, '庭院便便层', 0, 0, this.width, this.height);
-            this.poopLayer.setSiblingIndex(0);
+
+        let quadMesh = this.meshes.get('yard:poop-quad');
+        if (!quadMesh) {
+            quadMesh = utils.createMesh(primitives.quad());
+            this.meshes.set('yard:poop-quad', quadMesh);
         }
-        this.poopLayer.getComponent(UITransform)!.setContentSize(this.width, this.height);
+        let smokeMesh = this.meshes.get('yard:poop-smoke');
+        if (!smokeMesh) {
+            smokeMesh = utils.createMesh(primitives.sphere(0.072, { segments: 10 }));
+            this.meshes.set('yard:poop-smoke', smokeMesh);
+        }
+        const poopMat = this.getPoopMaterial();
+        const camRot = this.worldCamera.node.worldRotation;
 
         for (const poop of list) {
             let vis = this.poopVisuals.get(poop.id);
             if (!vis) {
-                const node = this.uiNode(this.poopLayer, '庭院便便-' + poop.id, 0, 0, 82, 82);
-                const img = this.uiNode(node, '便便图', 0, 0, 66, 66);
-                const sp = img.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM;
-                resources.load('art/yard/poop/spriteFrame', SpriteFrame, (err, frame) => {
-                    if (!err && frame && isValid(sp, true)) sp.spriteFrame = frame;
-                });
-                // 3 缕飘升臭烟粒子（绿灰暖雾，持续向上飘动并淡出）
+                // 直接挂载在 3D world 场景中，尺寸小巧（约小猫小狗的 1/3）且自带真实 3D 深度前后遮挡。
+                const root = new Node('庭院便便-' + poop.id);
+                root.layer = Layers.Enum.DEFAULT;
+                this.world.addChild(root);
+                root.setPosition(poop.x, 0, poop.z);
+
+                const quad = new Node('便便3D片');
+                quad.layer = Layers.Enum.DEFAULT;
+                root.addChild(quad);
+                quad.setPosition(0, 0.16, 0);
+                // Cocos 3.8 primitives.quad() 纹理 V 轴与 Texture2D 相反，Y 取负值使便便尖端朝上正立。
+                quad.setScale(0.38, -0.38, 0.38);
+                const mr = quad.addComponent(MeshRenderer);
+                mr.mesh = quadMesh;
+                mr.setSharedMaterial(poopMat, 0);
+                mr.shadowCastingMode = 0; mr.receiveShadow = 0;
+
+                // 3 缕 3D 飘升臭烟（随小猫小狗一起参与真实深度排序）
                 const smokes: PoopVisual['smokes'] = [];
                 for (let s = 0; s < 3; s++) {
-                    const sn = this.uiNode(node, '便便烟-' + s, 0, 18, 28, 28);
-                    const g = sn.addComponent(Graphics);
-                    g.fillColor = new Color(168, 186, 122, 185);
-                    g.circle(0, 0, 10); g.circle(-7, -3, 7); g.circle(7, -2, 7.5); g.fill();
-                    g.fillColor = new Color(216, 224, 178, 125);
-                    g.circle(0, 2, 6); g.fill();
-                    const op = sn.addComponent(UIOpacity);
-                    smokes.push({ node: sn, op, phase: s * (Math.PI * 2 / 3) });
+                    const sn = new Node('便便3D烟-' + s);
+                    sn.layer = Layers.Enum.DEFAULT;
+                    root.addChild(sn);
+                    const smr = sn.addComponent(MeshRenderer);
+                    smr.mesh = smokeMesh;
+                    const smat = new Material();
+                    smat.initialize({
+                        effectName: 'builtin-unlit',
+                        technique: 1,
+                        states: { depthStencilState: { depthTest: true, depthWrite: false } },
+                    });
+                    smat.setProperty('mainColor', new Color(172, 192, 126, 145));
+                    smr.setSharedMaterial(smat, 0);
+                    smr.shadowCastingMode = 0; smr.receiveShadow = 0;
+                    smokes.push({ node: sn, mat: smat, phase: s / 3 });
                 }
-                this.intercept(node); this.pressFeedback(node);
-                node.on(Node.EventType.TOUCH_END, () => this.cleanYardPoop(poop.id), this);
-                vis = { node, poop, smokes };
+                vis = { node: root, quad, poop, smokes };
                 this.poopVisuals.set(poop.id, vis);
             }
-            const screen = this.worldCamera.worldToScreen(new Vec3(poop.x, 0.08, poop.z), new Vec3());
-            const uiWorld = this.uiCamera.screenToWorld(screen, new Vec3());
-            const local = this.poopLayer.getComponent(UITransform)!.convertToNodeSpaceAR(uiWorld);
-            vis.node.active = visiblePage && screen.z >= 0 && screen.z <= 1;
-            vis.node.setPosition(local.x, local.y, 0);
-            // 动画更新飘升的臭烟
+            // Billboard 始终面向主摄像机
+            vis.quad.setWorldRotation(camRot);
+            // 更新 3D 飘烟上升、摇曳与淡出
             vis.smokes.forEach((sm, idx) => {
-                sm.phase = (sm.phase + dt * 0.95) % 1;
+                sm.phase = (sm.phase + dt * 0.85) % 1;
                 const t = sm.phase;
-                const sway = Math.sin((t * Math.PI * 2) + idx * 1.9) * (10 + t * 8);
-                sm.node.setPosition(sway, 18 + t * 68, 0);
-                const sc = 0.45 + t * 0.85;
-                sm.node.setScale(sc, sc, 1);
-                sm.op.opacity = Math.round(Math.sin(t * Math.PI) * 205);
+                const swayX = Math.sin(t * Math.PI * 2 + idx * 2.1) * (0.06 + t * 0.05);
+                const swayZ = Math.cos(t * Math.PI * 2 + idx * 1.7) * 0.03;
+                sm.node.setPosition(swayX, 0.24 + t * 0.56, swayZ);
+                const sc = 0.55 + t * 1.05;
+                sm.node.setScale(sc, sc * 0.85, sc);
+                const alpha = Math.round(Math.sin(t * Math.PI) * 195);
+                sm.mat.setProperty('mainColor', new Color(196, 214, 146, alpha));
             });
         }
     }
@@ -4551,7 +4612,9 @@ export class Main extends Component {
                 if (p.dead) return;
                 const tr = PET_TRAITS[p.trait];
                 p.hunger = Math.max(0, p.hunger - 1);
-                p.clean = Math.max(0, p.clean - (0.7 + poopCount * 0.35) * (tr.cleanDecayMult ?? 1));
+                // 小院便便越多，清洁度下降越快（3坨及以上触发加速惩罚）。
+                const poopPenalty = poopCount >= 3 ? poopCount * 1.15 : poopCount * 0.6;
+                p.clean = Math.max(0, p.clean - (0.7 + poopPenalty) * (tr.cleanDecayMult ?? 1));
                 p.joy = Math.max(0, p.joy - (0.5 + (p.hunger < 20 ? 0.5 : 0) + (p.clean < 30 ? 0.4 : 0)) * (tr.joyDecayMult ?? 1));
                 p.energy = Math.max(0, p.energy - 0.35 * (tr.energyDecayMult ?? 1));
                 if (p.hunger < 20 || p.clean < 30) {
@@ -5105,7 +5168,7 @@ export class Main extends Component {
         this.socialBubbles = []; this.pairCooldowns.clear();
         this.needBubbles.forEach(b => { if (isValid(b.node, true)) b.node.destroy(); });
         this.needBubbles.clear(); this.needHistory.clear(); this.needQueue.clear(); this.needZeroNextAt.clear(); this.needZeroCursor.clear();
-        this.poopVisuals.forEach(v => { if (isValid(v.node, true)) v.node.destroy(); });
+        this.poopVisuals.forEach(v => { v.smokes.forEach(s => s.mat.destroy()); if (isValid(v.node, true)) v.node.destroy(); });
         this.poopVisuals.clear();
         if (this.poopLayer && isValid(this.poopLayer, true)) this.poopLayer.destroy();
         this.poopLayer = null;
