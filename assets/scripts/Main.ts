@@ -8651,33 +8651,6 @@ export class Main extends Component {
         }
     }
 
-    private revivePetByGems(petId: number) {
-        const pet = this.data.pets.find(p => p.id === petId);
-        if (!pet || !pet.dead) { this.closeDialog(); return; }
-        const c = this.dailyCandidate();
-        if (c.gems < LOST_PET_RECOVER_GEMS) { this.closeDialog(); this.showGemDialog(); return; }
-        c.gems -= LOST_PET_RECOVER_GEMS;
-        const target = c.pets.find(p => p.id === petId);
-        if (!target) return;
-        target.dead = false; target.lost = false; target.adventuring = false; target.adventureReturnAt = undefined;
-        target.health = 100; target.hunger = 80; target.clean = 80; target.energy = 85; target.joy = 85;
-        target.deathReason = undefined; target.diedAt = undefined;
-        (c.adventureLogs || []).forEach(l => {
-            if (l.petId === petId && (l.type === 'death_trafficker' || l.type === 'death_sick')) l.resolved = true;
-        });
-        if (!this.commitShop(c)) return;
-        this.allDeadPrompted = false;
-        this.closeDialog();
-        if (!this.actors.some(a => a.pet.id === petId)) this.spawnPet(target);
-        this.syncActorVisibility();
-        this.renderHeader();
-        this.refreshMemorialEntry();
-        SoundManager.playSfx('heal');
-        this.showRewardToast([{ kind: 'gems', amount: -LOST_PET_RECOVER_GEMS }], '消耗');
-        this.toast(`奇迹发生！「${this.petDisplayName(petId)}」已重新回到庭院啦！`);
-        if (this.page === 'memorial' || this.page === 'diary') this.open(this.page);
-    }
-
     private recoverLostPet(petId: number, mode: 'ad' | 'gems') {
         const pet = this.data.pets.find(p => p.id === petId);
         if (!pet || !pet.lost) { this.closeDialog(); return; }
@@ -8697,7 +8670,11 @@ export class Main extends Component {
             this.syncActorVisibility();
             this.closeDialog();
             this.renderHeader();
-            if (this.page === 'diary') { if (this.sheet) { this.sheet.destroy(); this.sheet = null; } this.open('diary'); }
+            if (this.page === 'diary' || this.page === 'memorial') {
+                const pg = this.page;
+                if (this.sheet) { this.sheet.destroy(); this.sheet = null; }
+                this.open(pg);
+            }
             this.toast('太好了！「' + this.petDisplayName(petId) + '」已经平安回到庭院啦！');
             if (mode === 'gems') this.showRewardToast([{ kind: 'gems', amount: -LOST_PET_RECOVER_GEMS }], '消耗');
         };
@@ -8880,14 +8857,13 @@ export class Main extends Component {
                 rg.fillColor = this.color('#FFF5EA'); rg.strokeColor = this.color('#D89A6C'); rg.lineWidth = 3;
                 rg.roundRect(-370, -64, 740, 128, 22); rg.fill(); rg.stroke();
                 this.petAvatar(row, pet.id, -296, 0, 88);
-                const nl = this.text(row, `${this.petDisplayName(pet.id)}（${pet.deathReason || '已离世'}）`, -96, 20, 290, 32, 22, '#58351D');
+                const nl = this.text(row, `${this.petDisplayName(pet.id)}（${pet.deathReason || '已离世'}）`, -40, 20, 360, 32, 22, '#58351D');
                 nl.isBold = true; nl.horizontalAlign = Label.HorizontalAlign.LEFT;
-                const sl = this.text(row, `可立碑纪念，或广告/${LOST_PET_RECOVER_GEMS}钻复活`, -96, -18, 290, 26, 18, '#7A5B3E');
+                const sl = this.text(row, '可为其立碑纪念，或观看广告复活', -40, -18, 360, 26, 18, '#7A5B3E');
                 sl.horizontalAlign = Label.HorizontalAlign.LEFT;
-                const erectBtn = this.bagButton(row, '立碑纪念', 128, 26, 136, 42, () => this.showErectTombstoneDialog(pet.id));
+                const erectBtn = this.bagButton(row, '立碑纪念', 248, 26, 168, 42, () => this.showErectTombstoneDialog(pet.id));
                 erectBtn.name = '立碑按钮-' + pet.id;
-                this.bagButton(row, '广告复活', 128, -26, 136, 42, () => this.revivePetByAd(pet.id));
-                this.bagButton(row, `${LOST_PET_RECOVER_GEMS}钻找回`, 282, 0, 152, 92, () => this.revivePetByGems(pet.id));
+                this.bagButton(row, '广告复活', 248, -26, 168, 42, () => this.revivePetByAd(pet.id));
             });
         }
 
