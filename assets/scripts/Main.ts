@@ -200,6 +200,7 @@ export class Main extends Component {
     private worldCamera!: Camera;
     private uiCamera!: Camera;
     private actors: Actor[] = [];
+    private advGuestActors: Actor[] = [];
     public petNodeScale = 0.48;
     public petCollisionRadius = 0.54;
     private readonly yardMinX = -6.2;
@@ -4137,7 +4138,8 @@ export class Main extends Component {
                 if (this.commitShop(c)) {
                     this.closeGmPanel();
                     this.open('home');
-                    this.actors.forEach(a => {
+                    const animActors = this.page === 'adventure' ? [...this.actors, ...this.advGuestActors] : this.actors;
+            animActors.forEach(a => {
                         const updated = this.data.pets.find(p => p.id === a.pet.id);
                         if (updated) a.pet = updated;
                         if (!a.pet.dead && !a.pet.lost && !a.pet.adventuring) {
@@ -4184,7 +4186,8 @@ export class Main extends Component {
         const resetBtn = this.bagButton(card, '清空存档重置初始态', 0, -492, 460, 68, () => {
             const fresh = this.fresh();
             if (!this.commitShop(fresh)) return;
-            this.actors.forEach(a => { if (isValid(a.node, true)) a.node.destroy(); });
+            const animActors = this.page === 'adventure' ? [...this.actors, ...this.advGuestActors] : this.actors;
+            animActors.forEach(a => { if (isValid(a.node, true)) a.node.destroy(); });
             this.actors = [];
             this.data.pets.forEach(p => this.spawnPet(p));
         this.scheduleOnce(() => { if (isValid(this, true)) this.checkMainCityAlerts(); }, 0.35);
@@ -7739,7 +7742,7 @@ export class Main extends Component {
 
     /** 计算并摆放冒险道路上的 3D 宠物队列（与右侧宝箱齐平，snap=true 时立即落位消除切页错位） */
     private placeAdventureFormation(snap: boolean, step = 0.016) {
-        const visibleAdv = this.actors.filter(x => isValid(x.node, true) && x.node.active && !x.dying);
+        const visibleAdv = [...this.actors, ...this.advGuestActors].filter(x => isValid(x.node, true) && x.node.active && !x.dying);
         const rows = Math.max(1, Math.ceil(visibleAdv.length / 2));
         // 与右侧宝箱（屏幕中下方）齐平：单只/双只落在 z=+3.85，多只以 z=+3.85 为中心前后错开
         const baseZ = Math.max(1.8, 3.85 - (rows - 1) * 0.48);
@@ -8006,24 +8009,64 @@ export class Main extends Component {
                 this.spawnPet(p);
             }
         }
-        const hasOut = this.actors.some(a => !a.pet.dead && !a.pet.lost && !!a.pet.adventuring);
         this.actors.forEach(a => {
             if (!isValid(a.node, true)) return;
             if (a.dying) { a.node.active = this.page !== 'adventure'; return; }
             if (a.pet.dead || a.pet.lost) { a.node.active = false; return; }
             if (this.page === 'adventure') {
-                // 若有宠物处于外出冒险状态，则冒险页只展示外出冒险的小队；否则全员结队展示
-                a.node.active = hasOut ? !!a.pet.adventuring : true;
+                // 冒险页全员存活伙伴结队巡游寻宝，不再出现空荡或孤零零的单宠道路
+                a.node.active = true;
             } else {
                 // 主城及其他页面：外出冒险中的小猫小狗不显示在主城
                 a.node.active = !a.pet.adventuring;
             }
         });
+        this.syncAdventureGuestActors();
         if (this.bubbleLayer && isValid(this.bubbleLayer, true)) {
             this.bubbleLayer.active = this.page !== 'adventure';
         }
         if (this.page === 'adventure') {
             this.placeAdventureFormation(true);
+        }
+    }
+
+    /** 冒险页常驻寻宝小分队补位动画：若当前活跃伙伴不足 4 只（如开局前期或伙伴暂离），自动补齐至 4 只 3D 猫狗假动画结队奔跑，切离冒险页立即隐藏 */
+    private syncAdventureGuestActors() {
+        if (this.page !== 'adventure' || !this.world || !isValid(this.world, true)) {
+            this.advGuestActors.forEach(g => { if (isValid(g.node, true)) g.node.active = false; });
+            return;
+        }
+        const realActive = this.actors.filter(a => isValid(a.node, true) && a.node.active && !a.dying);
+        const usedBreedIds = new Set(realActive.map(a => a.pet.id));
+        const needed = Math.max(0, 4 - realActive.length);
+        const guestPool = [0, 1, 2, 3, 4, 5, 6, 7].filter(id => id < BREEDS.length && !usedBreedIds.has(id));
+
+        for (let i = 0; i < needed; i++) {
+            const breedId = guestPool[i] ?? (i % BREEDS.length);
+            let guest = this.advGuestActors[i];
+            if (!guest || !isValid(guest.node, true)) {
+                const fakePet = this.makePet(breedId);
+                const b = BREEDS[breedId];
+                const root = new Node('冒险假动画-' + b.name);
+                this.world.addChild(root);
+                root.setScale(this.petNodeScale, this.petNodeScale, this.petNodeScale);
+                const visual = new Node('重心摆动'); root.addChild(visual);
+                const fb = new Node('Fallback'); visual.addChild(fb);
+                this.shape(fb, 'sphere', b.color, [0, 0.64, -0.1], [1.42, 1.24, 1.5]);
+                this.shape(fb, 'sphere', b.color, [0, 1.06, 0.54], [1.62, 1.46, 1.38]);
+                guest = {
+                    node: root, visual, pet: fakePet, target: root.position.clone(),
+                    timer: 0, walkAge: 0, phase: i * 1.4, speed: 0, idleTime: 0,
+                    lookYaw: 0, lookTilt: 0, lookTimer: 2, facing: 180,
+                };
+                this.advGuestActors[i] = guest;
+                void this.attachPetModel(guest, fb);
+            }
+            guest.node.active = true;
+        }
+        for (let i = needed; i < this.advGuestActors.length; i++) {
+            const g = this.advGuestActors[i];
+            if (g && isValid(g.node, true)) g.node.active = false;
         }
     }
 
@@ -8275,10 +8318,8 @@ export class Main extends Component {
     private refreshMemorialEntry() {
         const node = this.ui?.getChildByName('后院纪念角入口');
         if (!node) return;
-        const hasDead = this.data.pets.some(p => p.dead);
-        const hasMem = (this.data.memorials || []).length > 0;
-        const hasTomb = Object.values(this.data.tombstoneInventory || {}).some(v => v > 0);
-        node.active = this.page === 'home' && (hasDead || hasMem || hasTomb);
+        // 纪念角常驻主城右侧入口，无离世或立碑记录时在界面中央展示温馨提示语
+        node.active = this.page === 'home';
     }
 
     private renderAdventureDiary() {
@@ -8412,7 +8453,16 @@ export class Main extends Component {
         }
 
         if (!memorials.length && !deadUnmemorialized.length) {
-            this.text(content, '庭院里所有伙伴都健康陪伴着你！\n若伙伴不幸离世，可在此立碑刻字永远纪念。', 0, -240, 680, 96, 24, C.muted);
+            const emptyBox = this.uiNode(content, '纪念角空状态提示', 0, -340, 680, 220);
+            const eg = emptyBox.addComponent(Graphics);
+            eg.fillColor = this.color('#F8ECD6');
+            eg.strokeColor = this.color('#D8B886');
+            eg.lineWidth = 3;
+            eg.roundRect(-340, -110, 680, 220, 26); eg.fill(); eg.stroke();
+            const et = this.text(emptyBox, '暂时还没有离世伙伴与立碑记录', 0, 42, 620, 42, 28, '#5B3418');
+            et.isBold = true; et.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+            const ed = this.text(emptyBox, '庭院里的小猫小狗们都很健康平安地陪伴着你~\n若将来有伙伴离世，可在此立碑刻字永远纪念。', 0, -28, 620, 90, 23, '#7D5C3E');
+            ed.enableWrapText = true; ed.lineHeight = 34; ed.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
         } else if (memorials.length) {
             memorials.forEach((rec, idx) => {
                 const col = idx % 2, rowIdx = Math.floor(idx / 2);
@@ -9610,7 +9660,8 @@ export class Main extends Component {
         const steps = Math.max(1, Math.ceil(delta / (1 / 60))), step = delta / steps;
         const expiredActors: Actor[] = [];
         for (let i = 0; i < steps; i++) {
-            this.actors.forEach(a => {
+            const animActors = this.page === 'adventure' ? [...this.actors, ...this.advGuestActors] : this.actors;
+            animActors.forEach(a => {
                 if (!isValid(a.node, true)) return;
                 if (a.dying && a.dying > 0) {
                     a.dying += step;
