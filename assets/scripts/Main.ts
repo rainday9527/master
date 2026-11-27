@@ -3429,10 +3429,10 @@ export class Main extends Component {
         const perBreed = (100 / total).toFixed(2) + '%';
 
         const lines = [
-            `• 卡池总计 ${total} 种猫狗（等概率随机，单只概率 ${perBreed}）`,
-            `• 传说 SSSR（${cnt('SSSR')}只）：${pct(cnt('SSSR'))}   ·   史诗 SSR（${cnt('SSR')}只）：${pct(cnt('SSR'))}`,
-            `• 稀有 SR（${cnt('SR')}只）：${pct(cnt('SR'))}   ·   普通 R（${cnt('R')}只）：${pct(cnt('R'))}`,
-            '• 招募费用：单抽 300 钻石，十连 2700 钻石（9 折）',
+            `• 卡池共有 ${total} 种猫狗，每种宠物抽中概率均为 ${perBreed}`,
+            `• 传说 SSSR 共 ${cnt('SSSR')} 种：总概率 ${pct(cnt('SSSR'))}  ·  史诗 SSR 共 ${cnt('SSR')} 种：总概率 ${pct(cnt('SSR'))}`,
+            `• 稀有 SR 共 ${cnt('SR')} 种：总概率 ${pct(cnt('SR'))}  ·  普通 R 共 ${cnt('R')} 种：总概率 ${pct(cnt('R'))}`,
+            '• 招募费用：单抽 300 钻石，十连 2700 钻石（享 9 折优惠）',
             '• 重复获得自动转为该宠物本体，用于「宠物升星」；累计达标可领额外本体奖励',
         ];
         lines.forEach((txt, i) => {
