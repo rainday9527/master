@@ -239,9 +239,9 @@ class SoundManagerImpl {
             if (bNote && NOTE[bNote]) {
                 this.playTone(ctx, NOTE[bNote], now, isAdv ? 0.20 : 0.42, 'triangle', isAdv ? 0.042 : 0.036, 700, undefined, dest);
             }
-            // 冒险背景轻快小木鱼/沙锤节拍
+            // 冒险背景轻快纯净小木鱼轻敲（纯正弦温润木音，彻底消除高频白噪声电流感）
             if (isAdv && idx % 2 === 1) {
-                this.playFilteredNoise(ctx, now, 0.035, 3200, 'highpass', 0.018, dest);
+                this.playTone(ctx, 640, now, 0.045, 'sine', 0.018, 1200, 420, dest);
             }
         };
         tick();
@@ -270,13 +270,14 @@ class SoundManagerImpl {
             osc.frequency.exponentialRampToValueAtTime(Math.max(20, endFreq), start + dur);
         }
         gain.gain.setValueAtTime(0.0001, start);
-        gain.gain.linearRampToValueAtTime(vol, start + Math.min(0.02, dur * 0.25));
-        gain.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+        gain.gain.linearRampToValueAtTime(vol, start + Math.min(0.018, dur * 0.25));
+        gain.gain.exponentialRampToValueAtTime(0.0008, start + dur * 0.92);
+        gain.gain.linearRampToValueAtTime(0.00001, start + dur);
         osc.connect(filter);
         filter.connect(gain);
         gain.connect(dest || ctx.destination);
         osc.start(start);
-        osc.stop(start + dur + 0.02);
+        osc.stop(start + dur + 0.015);
     }
 
     private playFilteredNoise(
