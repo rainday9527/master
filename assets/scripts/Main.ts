@@ -217,6 +217,7 @@ export class Main extends Component {
     private brooms: BroomSweep[] = [];
     private advBgContainer: Node | null = null;
     private advRoadTiles: Node[] = [];
+    private advRoadFrame: SpriteFrame | null = null;
     private advChestAura: Node | null = null;
     private advChestSprite: Sprite | null = null;
     private advChestBadge: Node | null = null;
@@ -2771,10 +2772,11 @@ export class Main extends Component {
     }
 
     private open(page: Page) {
-        if (page === this.page && this.sheet && isValid(this.sheet, true) && (page === 'bag' || page === 'shop' || page === 'daily' || page === 'recruit')) {
+        if (page === this.page && this.sheet && isValid(this.sheet, true) && (page === 'bag' || page === 'shop' || page === 'daily' || page === 'recruit' || page === 'adventure')) {
             if (page === 'recruit') this.updateRecruit();
             else if (page === 'bag') this.updateBag();
             else if (page === 'shop') this.updateShopLabels();
+            else if (page === 'adventure') { this.ensureAdventureBackground(); this.updateAdventureLabel(); }
             else this.updateDailyRows();
             return;
         }
@@ -7506,10 +7508,15 @@ export class Main extends Component {
 
     private ensureAdventureBackground() {
         if (!this.background || !isValid(this.background, true)) return;
+        this.background.active = true;
         if (this.backgroundSprite && isValid(this.backgroundSprite.node, true)) {
             this.backgroundSprite.node.active = false;
         }
-        if (!this.advBgContainer || !isValid(this.advBgContainer, true)) {
+        if (!this.advBgContainer || !isValid(this.advBgContainer, true) || this.advRoadTiles.length < 2 || this.advRoadTiles.some(t => !isValid(t, true))) {
+            if (this.advBgContainer && isValid(this.advBgContainer, true)) {
+                this.advBgContainer.removeFromParent();
+                this.advBgContainer.destroy();
+            }
             this.advBgContainer = new Node('冒险竖向循环路背景');
             this.advBgContainer.layer = this.backgroundLayer;
             this.background.addChild(this.advBgContainer);
@@ -7521,13 +7528,24 @@ export class Main extends Component {
                 this.advBgContainer.addChild(tile);
                 tile.addComponent(UITransform).setContentSize(this.width, this.height);
                 const sp = tile.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM;
-                resources.load('art/adventure/road-bg/spriteFrame', SpriteFrame, (e, f) => {
-                    if (!e && f && isValid(sp, true)) sp.spriteFrame = f;
-                });
+                if (this.advRoadFrame && isValid(this.advRoadFrame, true)) sp.spriteFrame = this.advRoadFrame;
                 this.advRoadTiles.push(tile);
             }
         }
+        // 确保每块道路贴图都已就绪（缓存命中 0 延迟，未就绪则立即补加载，彻底杜绝切换回冒险页空白）
+        const needLoad = this.advRoadTiles.some(t => !t.getComponent(Sprite)?.spriteFrame);
+        if (needLoad) {
+            resources.load('art/adventure/road-bg/spriteFrame', SpriteFrame, (e, f) => {
+                if (e || !f) return;
+                this.advRoadFrame = f;
+                this.advRoadTiles.forEach(t => {
+                    const sp = isValid(t, true) ? t.getComponent(Sprite) : null;
+                    if (sp && isValid(sp, true)) sp.spriteFrame = f;
+                });
+            });
+        }
         this.advBgContainer.active = true;
+        this.advBgContainer.setSiblingIndex(this.background.children.length - 1);
         this.layoutAdventureBackground();
     }
 
@@ -7535,11 +7553,13 @@ export class Main extends Component {
         if (!this.advBgContainer || !isValid(this.advBgContainer, true)) return;
         const size = view.getVisibleSize();
         const cover = Math.max(size.width / 1080, size.height / 1920);
-        const tw = 1080 * cover, th = 1920 * cover;
+        const tw = 1080 * cover, th = Math.max(1, 1920 * cover);
+        this.advScrollY = Number.isFinite(this.advScrollY) ? ((this.advScrollY % th) + th) % th : 0;
         this.advRoadTiles.forEach((tile, i) => {
             if (!isValid(tile, true)) return;
+            tile.active = true;
             tile.getComponent(UITransform)!.setContentSize(tw, th + 2);
-            tile.setPosition(0, i * th - (this.advScrollY % th), 0);
+            tile.setPosition(0, i * th - this.advScrollY, 0);
         });
     }
 
@@ -8023,13 +8043,16 @@ export class Main extends Component {
                 this.spawnPet(p);
             }
         }
+        let advShown = 0;
         this.actors.forEach(a => {
             if (!isValid(a.node, true)) return;
             if (a.dying) { a.node.active = this.page !== 'adventure'; return; }
             if (a.pet.dead || a.pet.lost) { a.node.active = false; return; }
             if (this.page === 'adventure') {
-                // 冒险页全员存活伙伴结队巡游寻宝，不再出现空荡或孤零零的单宠道路
-                a.node.active = true;
+                // 冒险页最多同屏展示 6 只存活伙伴结队巡游（避免满图鉴十几只排满整条路挡住视野），不足 4 只由假动画补齐
+                const show = advShown < 6;
+                a.node.active = show;
+                if (show) advShown++;
             } else {
                 // 主城及其他页面：外出冒险中的小猫小狗不显示在主城
                 a.node.active = !a.pet.adventuring;
