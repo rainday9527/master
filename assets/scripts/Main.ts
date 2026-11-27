@@ -10631,7 +10631,7 @@ export class Main extends Component {
     }
 
     private showSocialBubble(actor: Actor, side: number, customText?: string) {
-        if (!isValid(this.ui, true)) return;
+        if (!isValid(this.ui, true) || !isValid(actor.node, true) || !actor.node.active || actor.pet.adventuring || actor.pet.dead || actor.pet.lost || actor.dying) return;
         if (!this.bubbleLayer || !isValid(this.bubbleLayer, true)) {
             this.bubbleLayer = this.uiNode(this.ui, '伙伴相遇气泡层', 0, 0, this.width, this.height);
             this.bubbleLayer.setSiblingIndex(0);
@@ -10679,7 +10679,7 @@ export class Main extends Component {
         if (!isValid(this.ui, true)) return;
         const alive = new Set<number>();
         for (const actor of this.actors) {
-            if (!isValid(actor.node, true) || actor.pet.dead || actor.dying) continue;
+            if (!isValid(actor.node, true) || !actor.node.active || actor.pet.adventuring || actor.pet.dead || actor.pet.lost || actor.dying) continue;
             const pet = actor.pet;
             alive.add(pet.id);
             const needs: [number, string][] = [[pet.hunger, 'feed'], [pet.clean, 'clean'], [pet.energy, 'rest'], [pet.joy, 'play'], [pet.health, 'heal']];
@@ -10777,7 +10777,7 @@ export class Main extends Component {
     private updateSocialBubbles() {
         this.socialBubbles = this.socialBubbles.filter(bubble => {
             if (!isValid(bubble.node, true)) return false;
-            if (!isValid(bubble.actor.node, true) || this.socialTime >= bubble.until) { bubble.node.destroy(); return false; }
+            if (!isValid(bubble.actor.node, true) || !bubble.actor.node.active || bubble.actor.pet.adventuring || bubble.actor.pet.dead || bubble.actor.pet.lost || bubble.actor.dying || this.socialTime >= bubble.until) { bubble.node.destroy(); return false; }
             const world = bubble.actor.node.worldPosition.clone(); world.y += 1.1;
             const screen = this.worldCamera.worldToScreen(world, new Vec3());
             const uiWorld = this.uiCamera.screenToWorld(screen, new Vec3());
