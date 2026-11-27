@@ -249,6 +249,10 @@ export class Main extends Component {
     private shadowTexture: Promise<Texture2D | null> | null = null;
     private page: Page = 'login';
     private preloadedAll = false;
+    private preloadProgress = 0;
+    private preloadStage = '正在准备庭院资源…';
+    private preloadRunning = false;
+    private preloadListeners: Array<(ratio: number, stage: string, finished: boolean) => void> = [];
     private settingsReturnPage: 'home' | 'login' = 'home';
     // TapTap 正式提审包关闭 GM（配合 debug=false 双重确保彻底隐藏且禁用，点击任意次数均无效）
     private readonly enableGm = false;
@@ -7413,12 +7417,20 @@ export class Main extends Component {
     private renderLogin() {
         const panel = this.sheet!;
 
-        // 1) 全屏 9:16 绘本登录背景图
+        // 1) 全屏 9:16 绘本登录背景图（暖色兜底防首次拉图黑底闪烁）
+        const loginFallback = this.uiNode(panel, '登录暖底色', 0, 0, 2400, 3200).addComponent(Graphics);
+        loginFallback.fillColor = this.color('#F5E6C8');
+        loginFallback.rect(-1200, -1600, 2400, 3200); loginFallback.fill();
         const bg = this.uiNode(panel, '登录背景图', 0, 0, 1080, 1920);
         const bgSp = bg.addComponent(Sprite); bgSp.sizeMode = Sprite.SizeMode.CUSTOM;
         resources.load('art/login/bg/spriteFrame', SpriteFrame, (e, f) => {
             if (!e && f && isValid(bgSp, true)) bgSp.spriteFrame = f;
         });
+        // 登录页停留期间：先优先预热加载页图，随后 0.25s 在后台静默预加载全部核心界面目录，点「开始游戏」时极速衔接
+        resources.preload('art/login/loading-bg/spriteFrame', SpriteFrame);
+        this.scheduleOnce(() => {
+            if (isValid(this, true)) this.startCorePreload();
+        }, 0.25);
 
         // 2) 漂浮星光与花瓣点缀（柔和呼吸闪烁）
         const fxLayer = this.uiNode(panel, '登录氛围特效层', 0, 0, 1080, 1920);
@@ -7604,7 +7616,66 @@ export class Main extends Component {
         verLbl.enableOutline = true; verLbl.outlineColor = this.color('#4E2B10'); verLbl.outlineWidth = 2.5;
     }
 
-    /** 进游戏前主题加载界面：绘本风猫狗野餐背景 + 进度条 + 温馨提示，提前将全部核心美术加载进内存，进游戏后切换界面 0 白板 0 闪烁 */
+    /** 后台/前台共用核心资源预加载器：登录页自动静默启动，点「开始游戏」时直接接续当前进度 */
+    private startCorePreload() {
+        if (this.preloadedAll || this.preloadRunning) return;
+        this.preloadRunning = true;
+        const dirs: { dir: string; label: string }[] = [
+            { dir: 'art/nav', label: '正在加载庭院导航…' },
+            { dir: 'art/header', label: '正在加载顶栏界面…' },
+            { dir: 'art/care', label: '正在加载照顾道具…' },
+            { dir: 'art/dialog', label: '正在加载弹窗界面…' },
+            { dir: 'art/yard', label: '正在加载庭院场景…' },
+            { dir: 'art/shop', label: '正在加载商店界面…' },
+            { dir: 'art/daily', label: '正在加载每日任务…' },
+            { dir: 'art/bag', label: '正在加载背包界面…' },
+            { dir: 'art/signin', label: '正在加载签到界面…' },
+            { dir: 'art/settings', label: '正在加载设置界面…' },
+            { dir: 'art/recruit', label: '正在加载招募界面…' },
+            { dir: 'art/album', label: '正在加载宠物图鉴…' },
+            { dir: 'art/adventure', label: '正在加载林间冒险…' },
+            { dir: 'art/memorial', label: '正在加载后院纪念角…' },
+            { dir: 'art/items', label: '正在加载道具图标…' },
+            { dir: 'art/furniture', label: '正在加载庭院家具…' },
+            { dir: 'art/outfits', label: '正在加载装扮服装…' },
+            { dir: 'pets/avatars', label: '正在加载宠物头像…' },
+            { dir: 'pets/portraits', label: '正在加载宠物立绘…' },
+        ];
+        const total = dirs.length + 1;
+        let done = 0;
+        const notify = (stage: string, finished = false) => {
+            this.preloadProgress = finished ? 1 : Math.min(0.99, done / total);
+            this.preloadStage = stage;
+            this.preloadListeners.forEach(fn => fn(this.preloadProgress, this.preloadStage, finished));
+            if (finished) this.preloadListeners = [];
+        };
+        const loadOneDir = (entry: { dir: string; label: string }) => new Promise<void>(resolve => {
+            resources.loadDir(entry.dir, SpriteFrame, () => {
+                done++;
+                notify(entry.label, false);
+                resolve();
+            });
+        });
+        const loadGarden = new Promise<void>(resolve => {
+            resources.load('art/garden/spriteFrame', SpriteFrame, () => {
+                done++;
+                notify('正在铺设阳光庭院…', false);
+                resolve();
+            });
+        });
+        void (async () => {
+            await loadGarden;
+            for (let i = 0; i < dirs.length; i += 4) {
+                if (!isValid(this, true)) return;
+                await Promise.all(dirs.slice(i, i + 4).map(loadOneDir));
+            }
+            this.preloadedAll = true;
+            this.preloadRunning = false;
+            notify('资源准备就绪，欢迎回到猫狗乐园！', true);
+        })();
+    }
+
+    /** 进游戏前主题加载界面：绘本风猫狗野餐背景 + 进度条 + 温馨提示，无缝接续登录页后台预加载进度 */
     private renderLoading() {
         const panel = this.sheet!;
         const startAt = Date.now();
@@ -7655,7 +7726,7 @@ export class Main extends Component {
             const pct = Math.round(Math.max(0, Math.min(1, ratio)) * 100);
             statusLbl.string = `${stageText || '正在准备庭院资源…'} ${pct}%`;
         };
-        drawProgress(0.04, '正在准备庭院资源…');
+        drawProgress(Math.max(0.06, this.preloadProgress), this.preloadStage);
 
         const tips = [
             '小贴士：每天登录签到可领丰厚钻石，别忘了给毛孩子布置舒适小窝哦~',
@@ -7666,63 +7737,26 @@ export class Main extends Component {
         const tipLbl = this.text(box, tips[Math.floor(Math.random() * tips.length)], 0, -64, 810, 56, 22, '#FFECC2');
         tipLbl.isBold = true; tipLbl.enableWrapText = true; tipLbl.lineHeight = 30;
 
-        // 3) 分批预加载全部核心界面与图标目录至引擎缓存，彻底消除进游戏后的加载延迟与显示错位
-        const dirs: { dir: string; label: string }[] = [
-            { dir: 'art/nav', label: '正在加载庭院导航…' },
-            { dir: 'art/header', label: '正在加载顶栏界面…' },
-            { dir: 'art/care', label: '正在加载照顾道具…' },
-            { dir: 'art/dialog', label: '正在加载弹窗界面…' },
-            { dir: 'art/yard', label: '正在加载庭院场景…' },
-            { dir: 'art/shop', label: '正在加载商店界面…' },
-            { dir: 'art/daily', label: '正在加载每日任务…' },
-            { dir: 'art/bag', label: '正在加载背包界面…' },
-            { dir: 'art/signin', label: '正在加载签到界面…' },
-            { dir: 'art/settings', label: '正在加载设置界面…' },
-            { dir: 'art/recruit', label: '正在加载招募界面…' },
-            { dir: 'art/album', label: '正在加载宠物图鉴…' },
-            { dir: 'art/adventure', label: '正在加载林间冒险…' },
-            { dir: 'art/memorial', label: '正在加载后院纪念角…' },
-            { dir: 'art/items', label: '正在加载道具图标…' },
-            { dir: 'art/furniture', label: '正在加载庭院家具…' },
-            { dir: 'art/outfits', label: '正在加载装扮服装…' },
-            { dir: 'pets/avatars', label: '正在加载宠物头像…' },
-            { dir: 'pets/portraits', label: '正在加载宠物立绘…' },
-        ];
-        const total = dirs.length + 1;
-        let done = 0;
-
-        const loadOneDir = (entry: { dir: string; label: string }) => new Promise<void>(resolve => {
-            resources.loadDir(entry.dir, SpriteFrame, () => {
-                done++;
-                if (this.page === 'loading') drawProgress(done / total, entry.label);
-                resolve();
-            });
-        });
-
-        const loadGarden = new Promise<void>(resolve => {
-            resources.load('art/garden/spriteFrame', SpriteFrame, () => {
-                done++;
-                if (this.page === 'loading') drawProgress(done / total, '正在铺设阳光庭院…');
-                resolve();
-            });
-        });
-
-        void (async () => {
-            await loadGarden;
-            // 每批并发 4 个目录，兼顾弱网速度与主线程流畅渲染
-            for (let i = 0; i < dirs.length; i += 4) {
-                if (this.page !== 'loading' || !isValid(this, true)) return;
-                await Promise.all(dirs.slice(i, i + 4).map(loadOneDir));
-            }
-            this.preloadedAll = true;
+        // 3) 接续登录页已启动的后台预加载任务，完成即自动切入主城
+        const finishEnter = () => {
             if (this.page !== 'loading' || !isValid(this, true)) return;
             drawProgress(1, '资源准备就绪，欢迎回到猫狗乐园！');
             const elapsed = Date.now() - startAt;
-            const waitSec = Math.max(0.18, (650 - elapsed) / 1000);
+            const waitSec = Math.max(0.15, (450 - elapsed) / 1000);
             this.scheduleOnce(() => {
                 if (isValid(this, true) && this.page === 'loading') this.open('home');
             }, waitSec);
-        })();
+        };
+        if (this.preloadedAll) {
+            finishEnter();
+            return;
+        }
+        this.preloadListeners.push((ratio, stage, finished) => {
+            if (this.page !== 'loading' || !isValid(this, true)) return;
+            if (finished) finishEnter();
+            else drawProgress(ratio, stage);
+        });
+        this.startCorePreload();
     }
 
     public claimAchievement(id: AchievementId): boolean {
