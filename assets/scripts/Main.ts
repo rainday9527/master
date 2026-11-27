@@ -5747,7 +5747,8 @@ export class Main extends Component {
         pf.durability = nextDur;
         this.dirty = true;
         this.syncYardFurniture();
-        if (this.page === 'layout') this.renderLayoutPanel();
+        // 仅原地刷新布置标题栏耐久文字，绝不销毁重建布置面板避免界面闪烁跳动
+        if (this.page === 'layout') this.updateLayoutHeader();
         return { broken: false, remaining: nextDur };
     }
 
@@ -5983,6 +5984,38 @@ export class Main extends Component {
         return true;
     }
 
+    private updateLayoutHeader() {
+        if (this.page !== 'layout' || !this.sheet || !isValid(this.sheet, true)) return;
+        const selPf = this.selectedFurnitureUid !== null ? (this.data.placedFurniture || []).find(f => f.uid === this.selectedFurnitureUid) : null;
+        const selDef = selPf ? findFurniture(selPf.id) : null;
+        const selDurText = selPf && selDef
+            ? `已选「${selDef.name}」 · 耐久 ${selPf.durability !== undefined ? selPf.durability : furnitureMaxDurability(selDef)}/${furnitureMaxDurability(selDef)}`
+            : '庭院布置 · 按住家具拖动，或点草坪移动';
+        const tLbl = this.sheet.getChildByName('布置标题文字')?.getComponent(Label);
+        if (tLbl) tLbl.string = selDurText;
+        const recBtn = this.sheet.getChildByName('收回家具按钮');
+        const rbg = recBtn?.getComponent(Graphics);
+        if (rbg) {
+            rbg.clear();
+            rbg.fillColor = this.color(selPf ? '#E05B4F' : '#C8BEB2');
+            rbg.strokeColor = this.color('#6E3228'); rbg.lineWidth = 2.5;
+            rbg.roundRect(-52, -24, 104, 48, 22); rbg.fill(); rbg.stroke();
+        }
+    }
+
+    public showFurnitureRulesDialog() {
+        const msg =
+            '【家具耐久度分档】\n' +
+            '· 基础金币家具：100 耐久\n' +
+            '· 紫/金钻石家具：160 耐久\n' +
+            '· 限定彩框家具：260 耐久\n\n' +
+            '【磨损与拆家机制】\n' +
+            '· 日常磨损：猫狗吃饭、清洁、玩耍、睡觉均会轻微消耗家具耐久。\n' +
+            '· 猫狗拆家：庭院会定时触发调皮猫狗拆家事件，大幅扣除家具耐久（猫爪布艺沙发最受青睐！）。\n' +
+            '· 损坏消失：耐久归零后家具会损坏消失并释放庭院空间，可在仓库重新摆放或前往商店购买新家具。';
+        this.showDialog('家具磨损与拆家规则', msg, [{ title: '我知道了', run: () => this.closeDialog() }]);
+    }
+
     private renderLayoutPanel() {
         if (!this.sheet || !isValid(this.sheet, true)) return;
         this.sheet.removeAllChildren();
@@ -5992,37 +6025,41 @@ export class Main extends Component {
         bg.fillColor = this.color('#FFF8E8'); bg.strokeColor = this.color('#8B5A34'); bg.lineWidth = 5;
         bg.roundRect(-510, -175, 1020, 350, 28); bg.fill(); bg.stroke();
 
-        const selPf = this.selectedFurnitureUid !== null ? (this.data.placedFurniture || []).find(f => f.uid === this.selectedFurnitureUid) : null;
-        const selDef = selPf ? findFurniture(selPf.id) : null;
-        const selDurText = selPf && selDef
-            ? `已选「${selDef.name}」 · 耐久 ${selPf.durability !== undefined ? selPf.durability : furnitureMaxDurability(selDef)}/${furnitureMaxDurability(selDef)}`
-            : '庭院布置 · 按住家具直接拖动，或点草坪移动';
-        const title = this.text(panel, selDurText, -205, 134, 540, 36, 21, '#5A361C');
+        const title = this.text(panel, '', -260, 134, 430, 36, 20, '#5A361C');
+        title.node.name = '布置标题文字';
+        title.horizontalAlign = Label.HorizontalAlign.LEFT;
         title.isBold = true; title.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
 
+        // 家具磨损与拆家规则说明按钮
+        const ruleBtn = this.uiNode(panel, '布置规则按钮', 26, 134, 98, 48);
+        const ruleBg = ruleBtn.addComponent(Graphics);
+        ruleBg.fillColor = this.color('#6E9CD8'); ruleBg.strokeColor = this.color('#385E8F'); ruleBg.lineWidth = 2.5;
+        ruleBg.roundRect(-49, -24, 98, 48, 22); ruleBg.fill(); ruleBg.stroke();
+        const ruleLbl = this.text(ruleBtn, '? 规则', 0, 0, 88, 30, 20, '#FFFDF5');
+        ruleLbl.isBold = true; ruleLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+        this.intercept(ruleBtn); this.pressVisualFeedback(ruleBtn);
+        ruleBtn.on(Node.EventType.TOUCH_END, () => { SoundManager.playSfx('click'); this.showFurnitureRulesDialog(); }, this);
+
         // 快捷去家具商店按钮
-        const shopBtn = this.uiNode(panel, '布置去商店按钮', 148, 134, 128, 48);
+        const shopBtn = this.uiNode(panel, '布置去商店按钮', 148, 134, 122, 48);
         const sbg = shopBtn.addComponent(Graphics);
         sbg.fillColor = this.color('#F5B841'); sbg.strokeColor = this.color('#7A481E'); sbg.lineWidth = 3;
-        sbg.roundRect(-64, -24, 128, 48, 22); sbg.fill(); sbg.stroke();
-        const sLbl = this.text(shopBtn, '买家具', 0, 0, 116, 30, 21, '#5A3214');
+        sbg.roundRect(-61, -24, 122, 48, 22); sbg.fill(); sbg.stroke();
+        const sLbl = this.text(shopBtn, '买家具', 0, 0, 112, 30, 21, '#5A3214');
         sLbl.isBold = true; sLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
         this.intercept(shopBtn); this.pressVisualFeedback(shopBtn);
         shopBtn.on(Node.EventType.TOUCH_END, () => { this.shopTab = 'furniture'; this.open('shop'); }, this);
 
         // 收回按钮（仅选中已摆放家具时高亮可点）
-        const hasSel = this.selectedFurnitureUid !== null;
-        const recBtn = this.uiNode(panel, '收回家具按钮', 284, 134, 114, 48);
-        const rbg = recBtn.addComponent(Graphics);
-        rbg.fillColor = this.color(hasSel ? '#E05B4F' : '#C8BEB2'); rbg.strokeColor = this.color('#6E3228'); rbg.lineWidth = 2.5;
-        rbg.roundRect(-57, -24, 114, 48, 22); rbg.fill(); rbg.stroke();
-        const rLbl = this.text(recBtn, '收回', 0, 0, 100, 30, 21, '#FFFDF5');
+        const recBtn = this.uiNode(panel, '收回家具按钮', 278, 134, 104, 48);
+        recBtn.addComponent(Graphics);
+        const rLbl = this.text(recBtn, '收回', 0, 0, 92, 30, 21, '#FFFDF5');
         rLbl.isBold = true; rLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
         this.intercept(recBtn); this.pressVisualFeedback(recBtn);
         recBtn.on(Node.EventType.TOUCH_END, () => this.recallSelectedFurniture(), this);
 
         // 完成布置按钮
-        const doneBtn = this.uiNode(panel, '完成布置按钮', 408, 134, 108, 48);
+        const doneBtn = this.uiNode(panel, '完成布置按钮', 402, 134, 108, 48);
         const dbg = doneBtn.addComponent(Graphics);
         dbg.fillColor = this.color('#42A858'); dbg.strokeColor = this.color('#236634'); dbg.lineWidth = 2.5;
         dbg.roundRect(-54, -24, 108, 48, 22); dbg.fill(); dbg.stroke();
@@ -6030,6 +6067,8 @@ export class Main extends Component {
         dLbl.isBold = true; dLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
         this.intercept(doneBtn); this.pressVisualFeedback(doneBtn);
         doneBtn.on(Node.EventType.TOUCH_END, () => this.open('home'), this);
+
+        this.updateLayoutHeader();
 
         // 横向可滑动家具栏（优先展示仓库有货或已摆放的家具）
         const viewW = 968, viewH = 236;
@@ -6085,7 +6124,7 @@ export class Main extends Component {
                     if (first) {
                         this.selectedFurnitureUid = first.uid;
                         this.syncYardFurniture();
-                        this.renderLayoutPanel();
+                        this.updateLayoutHeader();
                         this.toast(`已选中庭院中的「${f.name}」，点击草坪任意位置即可移动`);
                     }
                 } else {
