@@ -451,6 +451,28 @@ export class Main extends Component {
             (window as unknown as { setCatParadiseRewardedAdProvider?: (p: RewardedVideoProvider | null) => void }).setCatParadiseRewardedAdProvider =
                 this.rewardedVideoSetter;
         }
+        // 锁定 Web 宿主页面防滚屏：彻底杜绝移动端软键盘聚焦输入框时把整个画布顶歪露出右侧灰色底
+        if (typeof document !== 'undefined') {
+            try {
+                const htmlEl = document.documentElement;
+                const bodyEl = document.body;
+                if (htmlEl) {
+                    htmlEl.style.overflow = 'hidden';
+                    htmlEl.style.width = '100%';
+                    htmlEl.style.height = '100%';
+                }
+                if (bodyEl) {
+                    bodyEl.style.overflow = 'hidden';
+                    bodyEl.style.position = 'fixed';
+                    bodyEl.style.left = '0';
+                    bodyEl.style.top = '0';
+                    bodyEl.style.width = '100%';
+                    bodyEl.style.height = '100%';
+                    bodyEl.style.margin = '0';
+                    bodyEl.style.padding = '0';
+                }
+            } catch {}
+        }
         this.setRewardedVideoProvider(new TapTapRewardedVideoProvider());
         // 立即保存商店迁移结果；失败时后续商店事务仍须先落盘才会生效。
         this.commitShop(this.data);
@@ -2200,8 +2222,18 @@ export class Main extends Component {
         }
         if (typeof document !== 'undefined') {
             try {
-                if (document.documentElement) document.documentElement.scrollTop = 0;
-                if (document.body) document.body.scrollTop = 0;
+                if (document.documentElement) {
+                    document.documentElement.scrollTop = 0;
+                    document.documentElement.scrollLeft = 0;
+                }
+                if (document.body) {
+                    document.body.scrollTop = 0;
+                    document.body.scrollLeft = 0;
+                }
+                const gd = document.getElementById('GameDiv');
+                if (gd) { gd.scrollTop = 0; gd.scrollLeft = 0; }
+                const ccDiv = document.getElementById('Cocos3dGameContainer');
+                if (ccDiv) { ccDiv.scrollTop = 0; ccDiv.scrollLeft = 0; }
             } catch {}
         }
     }
@@ -2246,14 +2278,24 @@ export class Main extends Component {
     }
 
     private bindEditBoxKeyboardAdaptation(editBox: EditBox) {
+        // 关键：在 focus() 触发前就接管 Cocos 内部 _updateMatrix，防止引擎把 DOM <input> 放到屏外 (x>400) 导致手机 WebView 横向滚歪整个画面
+        const patchImpl = () => {
+            const impl = (editBox as unknown as { _impl?: { _updateMatrix?: () => void; _updateSize?: () => void; _edTxt?: HTMLElement } })._impl;
+            if (!impl) return;
+            impl._updateMatrix = () => { this.alignEditBoxDomInput(editBox); };
+            impl._updateSize = () => { this.alignEditBoxDomInput(editBox); };
+            this.alignEditBoxDomInput(editBox);
+        };
+        patchImpl();
+        this.scheduleOnce(() => { if (isValid(editBox?.node, true)) patchImpl(); }, 0);
+
         let isEditing = false;
         const onBegan = () => {
             if (isEditing) return;
             isEditing = true;
             this.activeEditCount++;
-            // 1) 立即将 Cocos DOM <input> 精准钉在可视输入框的屏幕坐标上（修复 Canvas 原点居中导致 <input> 跑到屏外引发浏览器滚动跳动的问题）
-            this.alignEditBoxDomInput(editBox);
-            // 2) 软键盘弹出期间冻结 Cocos 自动随浏览器视口缩放，绝不移动弹窗坐标
+            patchImpl();
+            // 软键盘弹出期间冻结 Cocos 自动随浏览器视口缩放，绝不移动弹窗坐标
             if (this.activeEditCount === 1) {
                 try { view.resizeWithBrowserSize(false); } catch {}
             }
