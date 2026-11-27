@@ -255,8 +255,8 @@ export class Main extends Component {
     private shadowTexture: Promise<Texture2D | null> | null = null;
     private page: Page = 'login';
     private settingsReturnPage: 'home' | 'login' = 'home';
-    // 本地测试阶段开启 GM；打 TapTap 正式提审包前改为 false（配合 debug=false 双重确保正式包彻底隐藏禁用）
-    private readonly enableGm = true;
+    // Release 正式包关闭 GM（配合 debug=false 双重确保彻底隐藏且禁用，点击任意次数均无效）
+    private readonly enableGm = false;
     private gmUnlocked = false;
     private gmTapCount = 0;
     private gmLastTapAt = 0;
