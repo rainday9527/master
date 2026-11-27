@@ -8639,12 +8639,12 @@ export class Main extends Component {
         if (this.dialog) this.closeDialog();
         const name = this.petDisplayName(petId);
         if (kind === 'lost') {
-            this.showDialog('走失警报！', `「${name}」在冒险中贪玩走丢了！\n观看广告可免费找回，或消耗钻石立刻找回。`, [
+            this.showDialog('走失警报！', `「${name}」在冒险中贪玩走丢了！\n可看广告或花钻石立刻找回，关闭后也可在纪念角处理。`, [
                 { title: '看广告找回', run: () => this.recoverLostPet(petId, 'ad') },
                 { title: '钻石找回', cost: { currency: 'gems', amount: LOST_PET_RECOVER_GEMS }, run: () => this.recoverLostPet(petId, 'gems') },
             ]);
         } else {
-            this.showDialog('离别提醒', `「${name}」因【${reason}】离开了庭院……\n可以观看广告奇迹复活，或前往后院纪念角立碑纪念。`, [
+            this.showDialog('离别提醒', `「${name}」因【${reason}】离开了庭院……\n可看广告复活或立碑纪念，关闭后也可在纪念角处理。`, [
                 { title: '看广告复活', run: () => this.revivePetByAd(petId) },
                 { title: '购买墓碑纪念', run: () => { this.closeDialog(); this.open('memorial'); this.showErectTombstoneDialog(petId); } },
             ]);
@@ -9519,12 +9519,15 @@ export class Main extends Component {
                 this.actors = this.actors.filter(a => a !== actor);
             }
         }
-        if ((this.data.recruit.copies[pet.id] || 0) >= 2 || (this.data.pets.length > 0 && this.data.pets.every(p => p.dead))) {
-            this.allDeadPrompted = false;
-            this.scheduleOnce(() => {
-                if (isValid(this, true)) this.checkMainCityAlerts();
-            }, inYard && actor ? 2.8 : 0.2);
+        if (!this.pendingAlerts.some(a => a.kind === 'dead' && a.petId === pet.id)) {
+            this.pendingAlerts.push({ kind: 'dead', petId: pet.id, reason });
         }
+        if ((this.data.recruit.copies[pet.id] || 0) >= 2 || (this.data.pets.length > 0 && this.data.pets.every(p => p.dead || p.lost))) {
+            this.allDeadPrompted = false;
+        }
+        this.scheduleOnce(() => {
+            if (isValid(this, true)) this.checkMainCityAlerts();
+        }, inYard && actor ? 2.8 : 0.2);
     }
 
     private tick = () => {
