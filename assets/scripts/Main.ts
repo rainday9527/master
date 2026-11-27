@@ -35,7 +35,7 @@ type Kind = 'cat' | 'dog';
 type Currency = 'gems' | 'coins';
 // 激励视频单次奖励（钻石 200 / 金币 500）；后续数值调整只改此处。
 const VIDEO_REWARDS: Record<Currency, number> = { gems: 200, coins: 500 };
-type Page = 'login' | 'home' | 'recruit' | 'adventure' | 'album' | 'profile' | 'shop' | 'pet' | 'bag' | 'daily' | 'diary' | 'memorial' | 'layout' | 'signin' | 'settings';
+type Page = 'login' | 'loading' | 'home' | 'recruit' | 'adventure' | 'album' | 'profile' | 'shop' | 'pet' | 'bag' | 'daily' | 'diary' | 'memorial' | 'layout' | 'signin' | 'settings';
 interface Pet {
     id: number;
     hunger: number;
@@ -248,6 +248,7 @@ export class Main extends Component {
     private petPortraits = new Map<string, Promise<SpriteFrame | null>>();
     private shadowTexture: Promise<Texture2D | null> | null = null;
     private page: Page = 'login';
+    private preloadedAll = false;
     private settingsReturnPage: 'home' | 'login' = 'home';
     // TapTap 正式提审包关闭 GM（配合 debug=false 双重确保彻底隐藏且禁用，点击任意次数均无效）
     private readonly enableGm = false;
@@ -2171,14 +2172,14 @@ export class Main extends Component {
                 }
                 const bounds = this.chromeBounds();
                 this.sheet.getChildByName('收起图鉴')?.setPosition(Math.min(462, bounds.right / scale - 64), Math.min(832, bounds.top / scale - 64), 0);
-        } else if (this.page === 'profile' || this.page === 'login') {
+        } else if (this.page === 'profile' || this.page === 'login' || this.page === 'loading') {
             this.sheet.setPosition(0, 0, 0);
             const bounds = this.chromeBounds();
             const centerX = this.page === 'profile' ? (bounds.left + bounds.right) / 2 : 0;
             const scale = Math.min(this.width / 1080, this.height / 1920, this.page === 'profile' ? (bounds.right - bounds.left) / 1080 : Infinity);
             this.sheet.setScale(scale, scale, 1);
             this.sheet.setPosition(centerX, 0, 0);
-            const bg = this.sheet.getChildByName(this.page === 'profile' ? '宠物主页底板' : '登录背景图');
+            const bg = this.sheet.getChildByName(this.page === 'profile' ? '宠物主页底板' : this.page === 'loading' ? '加载背景图' : '登录背景图');
             if (bg) {
                 // 背景独立 cover，避免为铺满屏幕而把整页交互内容一起裁切。
                 const cover = Math.max(this.width / 1080, this.height / 1920) / scale;
@@ -3015,7 +3016,7 @@ export class Main extends Component {
         if (settingsEntry) settingsEntry.active = page === 'home';
         this.refreshMemorialEntry();
         this.refreshTaskRedDots();
-        const hideChrome = page === 'login' || (page === 'settings' && this.settingsReturnPage === 'login');
+        const hideChrome = page === 'login' || page === 'loading' || (page === 'settings' && this.settingsReturnPage === 'login');
         this.refreshGmEntryVisibility();
         if (this.top) this.top.active = !hideChrome && page !== 'album' && page !== 'profile';
         if (this.bottom) this.bottom.active = !hideChrome && page !== 'profile' && page !== 'layout';
@@ -3031,6 +3032,13 @@ export class Main extends Component {
             this.sheet = this.uiNode(this.ui, '登录全屏界面', 0, 0, 1080, 1920);
             this.intercept(this.sheet);
             this.renderLogin();
+            this.layout();
+            return;
+        }
+        if (page === 'loading') {
+            this.sheet = this.uiNode(this.ui, '加载全屏界面', 0, 0, 1080, 1920);
+            this.intercept(this.sheet);
+            this.renderLoading();
             this.layout();
             return;
         }
@@ -4145,7 +4153,7 @@ export class Main extends Component {
     private refreshGmEntryVisibility() {
         const gmEntry = this.ui?.getChildByName('GM调试入口');
         if (!gmEntry) return;
-        const hideChrome = this.page === 'login' || (this.page === 'settings' && this.settingsReturnPage === 'login');
+        const hideChrome = this.page === 'login' || this.page === 'loading' || (this.page === 'settings' && this.settingsReturnPage === 'login');
         gmEntry.active = this.enableGm && this.gmUnlocked && !hideChrome && this.page !== 'album' && this.page !== 'profile' && this.page !== 'layout';
     }
 
@@ -7434,10 +7442,17 @@ export class Main extends Component {
             return btn;
         };
 
+        // 提前预热加载页背景图，点击「开始游戏」时 0 闪烁切换至主题加载界面
+        resources.preload('art/login/loading-bg/spriteFrame', SpriteFrame);
+
         makeLoginBtn('登录开始游戏按钮', '开始游戏', -466, 420, 94, '#F5B53A', '#7A3E12', '#FFFDF5', 36, () => {
             SoundManager.playSfx('reward');
             this.settingsReturnPage = 'home';
-            this.open('home');
+            if (this.preloadedAll) {
+                this.open('home');
+            } else {
+                this.open('loading');
+            }
         }, true);
 
         makeLoginBtn('登录设置按钮', '设  置', -584, 420, 94, '#FFF3D4', '#8B5426', '#FFFDF5', 36, () => {
@@ -7466,6 +7481,127 @@ export class Main extends Component {
         const verLbl = this.text(panel, 'v1.0.0', 0, -834, 420, 36, 24, '#FFFDF5');
         verLbl.isBold = true; verLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
         verLbl.enableOutline = true; verLbl.outlineColor = this.color('#4E2B10'); verLbl.outlineWidth = 2.5;
+    }
+
+    /** 进游戏前主题加载界面：绘本风猫狗野餐背景 + 进度条 + 温馨提示，提前将全部核心美术加载进内存，进游戏后切换界面 0 白板 0 闪烁 */
+    private renderLoading() {
+        const panel = this.sheet!;
+        const startAt = Date.now();
+
+        // 1) 全屏主题加载背景图（暖底色防首帧黑屏 + cover 全屏铺满）
+        const bgFallback = this.uiNode(panel, '加载暖底色', 0, 0, 2400, 3200).addComponent(Graphics);
+        bgFallback.fillColor = this.color('#F5E6C8');
+        bgFallback.rect(-1200, -1600, 2400, 3200); bgFallback.fill();
+        const bg = this.uiNode(panel, '加载背景图', 0, 0, 1080, 1920);
+        const bgSp = bg.addComponent(Sprite); bgSp.sizeMode = Sprite.SizeMode.CUSTOM;
+        resources.load('art/login/loading-bg/spriteFrame', SpriteFrame, (e, f) => {
+            if (!e && f && isValid(bgSp, true)) bgSp.spriteFrame = f;
+        });
+
+        // 2) 底部柔和绘本进度卡片（落在草坪留白区，高对比易读）
+        const box = this.uiNode(panel, '加载进度卡片', 0, -640, 880, 236);
+        const bgG = box.addComponent(Graphics);
+        bgG.fillColor = new Color(62, 36, 16, 196);
+        bgG.strokeColor = this.color('#FFE29A');
+        bgG.lineWidth = 4;
+        bgG.roundRect(-440, -118, 880, 236, 36); bgG.fill(); bgG.stroke();
+
+        const statusLbl = this.text(box, '正在准备庭院资源… 0%', 0, 62, 780, 44, 30, '#FFF8E0');
+        statusLbl.isBold = true;
+        statusLbl.enableOutline = true; statusLbl.outlineColor = this.color('#4A270C'); statusLbl.outlineWidth = 3;
+
+        // 进度条轨道 + 动态蜂蜜金填充条
+        const trackW = 760, trackH = 38;
+        const track = this.uiNode(box, '加载进度轨', 0, 6, trackW, trackH);
+        const trG = track.addComponent(Graphics);
+        trG.fillColor = this.color('#FFF2D2');
+        trG.strokeColor = this.color('#7A441A');
+        trG.lineWidth = 4;
+        trG.roundRect(-trackW / 2, -trackH / 2, trackW, trackH, trackH / 2); trG.fill(); trG.stroke();
+
+        const fillNode = this.uiNode(track, '加载进度填充', 0, 0, trackW, trackH);
+        const fillG = fillNode.addComponent(Graphics);
+        const drawProgress = (ratio: number, stageText?: string) => {
+            if (!isValid(fillNode, true) || !isValid(statusLbl, true)) return;
+            const r = Math.max(0.04, Math.min(1, ratio));
+            const fw = Math.max(trackH - 8, (trackW - 10) * r);
+            const fh = trackH - 10;
+            fillG.clear();
+            fillG.fillColor = this.color('#F5B135');
+            fillG.roundRect(-trackW / 2 + 5, -fh / 2, fw, fh, fh / 2); fillG.fill();
+            fillG.fillColor = new Color(255, 248, 210, 120);
+            fillG.roundRect(-trackW / 2 + 12, 2, Math.max(12, fw - 14), fh / 2 - 4, 8); fillG.fill();
+            const pct = Math.round(Math.max(0, Math.min(1, ratio)) * 100);
+            statusLbl.string = `${stageText || '正在准备庭院资源…'} ${pct}%`;
+        };
+        drawProgress(0.04, '正在准备庭院资源…');
+
+        const tips = [
+            '小贴士：每天登录签到可领丰厚钻石，别忘了给毛孩子布置舒适小窝哦~',
+            '小贴士：宠物外出冒险会带回食物、玩具与金币，记得常去冒险日记看看~',
+            '小贴士：在宠物主页衣帽间可换上限定特效服装，带来额外经验与寻宝加成~',
+            '小贴士：庭院家具会随使用与拆家磨损，定期补充家具让庭院一直温馨整洁~',
+        ];
+        const tipLbl = this.text(box, tips[Math.floor(Math.random() * tips.length)], 0, -64, 810, 56, 22, '#FFECC2');
+        tipLbl.isBold = true; tipLbl.enableWrapText = true; tipLbl.lineHeight = 30;
+
+        // 3) 分批预加载全部核心界面与图标目录至引擎缓存，彻底消除进游戏后的加载延迟与显示错位
+        const dirs: { dir: string; label: string }[] = [
+            { dir: 'art/nav', label: '正在加载庭院导航…' },
+            { dir: 'art/header', label: '正在加载顶栏界面…' },
+            { dir: 'art/care', label: '正在加载照顾道具…' },
+            { dir: 'art/dialog', label: '正在加载弹窗界面…' },
+            { dir: 'art/yard', label: '正在加载庭院场景…' },
+            { dir: 'art/shop', label: '正在加载商店界面…' },
+            { dir: 'art/daily', label: '正在加载每日任务…' },
+            { dir: 'art/bag', label: '正在加载背包界面…' },
+            { dir: 'art/signin', label: '正在加载签到界面…' },
+            { dir: 'art/settings', label: '正在加载设置界面…' },
+            { dir: 'art/recruit', label: '正在加载招募界面…' },
+            { dir: 'art/album', label: '正在加载宠物图鉴…' },
+            { dir: 'art/adventure', label: '正在加载林间冒险…' },
+            { dir: 'art/memorial', label: '正在加载后院纪念角…' },
+            { dir: 'art/items', label: '正在加载道具图标…' },
+            { dir: 'art/furniture', label: '正在加载庭院家具…' },
+            { dir: 'art/outfits', label: '正在加载装扮服装…' },
+            { dir: 'pets/avatars', label: '正在加载宠物头像…' },
+            { dir: 'pets/portraits', label: '正在加载宠物立绘…' },
+        ];
+        const total = dirs.length + 1;
+        let done = 0;
+
+        const loadOneDir = (entry: { dir: string; label: string }) => new Promise<void>(resolve => {
+            resources.loadDir(entry.dir, SpriteFrame, () => {
+                done++;
+                if (this.page === 'loading') drawProgress(done / total, entry.label);
+                resolve();
+            });
+        });
+
+        const loadGarden = new Promise<void>(resolve => {
+            resources.load('art/garden/spriteFrame', SpriteFrame, () => {
+                done++;
+                if (this.page === 'loading') drawProgress(done / total, '正在铺设阳光庭院…');
+                resolve();
+            });
+        });
+
+        void (async () => {
+            await loadGarden;
+            // 每批并发 4 个目录，兼顾弱网速度与主线程流畅渲染
+            for (let i = 0; i < dirs.length; i += 4) {
+                if (this.page !== 'loading' || !isValid(this, true)) return;
+                await Promise.all(dirs.slice(i, i + 4).map(loadOneDir));
+            }
+            this.preloadedAll = true;
+            if (this.page !== 'loading' || !isValid(this, true)) return;
+            drawProgress(1, '资源准备就绪，欢迎回到猫狗乐园！');
+            const elapsed = Date.now() - startAt;
+            const waitSec = Math.max(0.18, (650 - elapsed) / 1000);
+            this.scheduleOnce(() => {
+                if (isValid(this, true) && this.page === 'loading') this.open('home');
+            }, waitSec);
+        })();
     }
 
     public claimAchievement(id: AchievementId): boolean {
