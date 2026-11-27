@@ -2246,7 +2246,9 @@ export class Main extends Component {
         if (!el || !canvas) return;
         const uiTr = editBox.node.getComponent(UITransform);
         if (!uiTr) return;
+        const container = canvas.parentElement || document.body;
         const rect = canvas.getBoundingClientRect();
+        const cRect = container.getBoundingClientRect();
         const wp = editBox.node.worldPosition;
         const halfW = (uiTr.width * Math.abs(editBox.node.worldScale.x)) / 2;
         const halfH = (uiTr.height * Math.abs(editBox.node.worldScale.y)) / 2;
@@ -2255,24 +2257,32 @@ export class Main extends Component {
         this.uiCamera.worldToScreen(new Vec3(wp.x + halfW, wp.y + halfH, wp.z), pTR);
         const vpW = Math.max(1, this.uiCamera.camera?.width || canvas.width || rect.width);
         const vpH = Math.max(1, this.uiCamera.camera?.height || canvas.height || rect.height);
-        const left = rect.left + (pBL.x / vpW) * rect.width + 6;
-        const right = rect.left + (pTR.x / vpW) * rect.width - 6;
-        const top = rect.top + (1 - pTR.y / vpH) * rect.height + 2;
-        const bottom = rect.top + (1 - pBL.y / vpH) * rect.height - 2;
+        const left = (rect.left - cRect.left) + (pBL.x / vpW) * rect.width + 8;
+        const right = (rect.left - cRect.left) + (pTR.x / vpW) * rect.width - 8;
+        const top = (rect.top - cRect.top) + (1 - pTR.y / vpH) * rect.height + 2;
+        const bottom = (rect.top - cRect.top) + (1 - pBL.y / vpH) * rect.height - 2;
         const w = Math.max(40, right - left);
         const h = Math.max(20, bottom - top);
-        el.style.position = 'fixed';
+        // 清除 Cocos EditBoxImpl 默认的 bottom / transform-origin: 0 100%，用 absolute 严格绑定在画布容器内随画面同步
+        el.style.position = 'absolute';
         el.style.transform = 'none';
         el.style.webkitTransform = 'none';
+        el.style.transformOrigin = '0 0';
+        el.style.bottom = 'auto';
+        el.style.right = 'auto';
         el.style.left = `${left.toFixed(1)}px`;
         el.style.top = `${top.toFixed(1)}px`;
         el.style.width = `${w.toFixed(1)}px`;
         el.style.height = `${h.toFixed(1)}px`;
         el.style.lineHeight = `${h.toFixed(1)}px`;
-        el.style.fontSize = `${Math.max(14, Math.round(h * 0.52))}px`;
+        el.style.fontSize = `${Math.max(13, Math.round(h * 0.56))}px`;
         el.style.textAlign = 'center';
+        el.style.verticalAlign = 'middle';
         el.style.padding = '0';
         el.style.margin = '0';
+        el.style.border = 'none';
+        el.style.outline = 'none';
+        el.style.background = 'transparent';
         el.style.boxSizing = 'border-box';
         el.style.zIndex = '9999';
     }
@@ -7546,12 +7556,18 @@ export class Main extends Component {
         });
         this.paintFpsSegment(fpsRow, fpsLevel);
 
-        // 底部存档操作按钮（暂隐藏「重置游戏存档」按钮，后续需要时将 resetBtn.active 改为 true 即可恢复）
-        const saveBtn = this.dailyButton(panel, '立即保存存档', 0, -422, 340, 80, () => {
+        // 底部操作按钮：左侧「立即保存存档」+ 右侧「返回登录界面」
+        const saveBtn = this.dailyButton(panel, '立即保存存档', -168, -422, 312, 80, () => {
             const c = this.dailyCandidate();
             if (this.commitShop(c)) this.toast('存档已成功保存至本地！');
         }, 25);
         saveBtn.name = '设置保存按钮';
+
+        const backLoginBtn = this.dailyButton(panel, '返回登录界面', 168, -422, 312, 80, () => {
+            this.persist();
+            this.open('login');
+        }, 25);
+        backLoginBtn.name = '设置返回登录按钮';
 
         const resetBtn = this.dailyButton(panel, '重置游戏存档', 168, -422, 312, 80, () => {
             this.showDialog('确认重置存档', '重置后将清空全部伙伴、家具、钻石与签到进度，确定要重新开始吗？', [
@@ -7738,7 +7754,7 @@ export class Main extends Component {
         // 提前预热加载页背景图，点击「开始游戏」时 0 闪烁切换至主题加载界面
         resources.preload('art/login/loading-bg/spriteFrame', SpriteFrame);
 
-        makeLoginBtn('登录开始游戏按钮', '开始游戏', -466, 420, 94, '#F5B53A', '#7A3E12', '#FFFDF5', 36, () => {
+        makeLoginBtn('登录开始游戏按钮', '开始游戏', -556, 440, 100, '#F5B53A', '#7A3E12', '#FFFDF5', 38, () => {
             SoundManager.playSfx('reward');
             this.settingsReturnPage = 'home';
             if (this.preloadedAll) {
@@ -7747,29 +7763,6 @@ export class Main extends Component {
                 this.open('loading');
             }
         }, true);
-
-        makeLoginBtn('登录设置按钮', '设  置', -584, 420, 94, '#FFF3D4', '#8B5426', '#FFFDF5', 36, () => {
-            this.settingsReturnPage = 'login';
-            this.open('settings');
-        });
-
-        makeLoginBtn('登录退出游戏按钮', '退出游戏', -702, 420, 94, '#E8C4A8', '#7D4B28', '#FFFDF5', 36, () => {
-            this.persist();
-            this.showDialog('退出游戏', '进度已自动保存，确定要退出《猫狗乐园》吗？', [
-                {
-                    title: '确认退出',
-                    run: () => {
-                        this.persist();
-                        this.closeDialog();
-                        if (typeof window !== 'undefined') {
-                            try { window.close(); } catch {}
-                        }
-                        this.toast('欢迎下次再来《猫狗乐园》！');
-                    },
-                },
-                { title: '继续游玩', run: () => this.closeDialog() },
-            ]);
-        });
 
         const verLbl = this.text(panel, 'v1.0.0', 0, -834, 420, 36, 24, '#FFFDF5');
         verLbl.isBold = true; verLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
