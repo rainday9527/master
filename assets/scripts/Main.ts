@@ -6824,9 +6824,10 @@ export class Main extends Component {
             shg.fillColor = new Color(64, 92, 42, 85);
             shg.ellipse(0, 0, 125, 22); shg.fill();
 
+            const baseY = y - 150;
             const hero = this.uiNode(panel, name, x, y, 410, 410);
             hero.getComponent(UITransform)!.setAnchorPoint(0.5, 0.12);
-            hero.setPosition(x, y - 150, 0);
+            hero.setPosition(x, baseY, 0);
             const hsp = hero.addComponent(Sprite); hsp.sizeMode = Sprite.SizeMode.CUSTOM;
             resources.load(`art/login/${artKey}/spriteFrame`, SpriteFrame, (e, f) => {
                 if (!e && f && isValid(hsp, true)) hsp.spriteFrame = f;
@@ -6839,11 +6840,15 @@ export class Main extends Component {
                     .to(1.35, { scale: new Vec3(0.985, 1.045, 1), angle: -3.2 * phaseDir }, { easing: 'sineInOut' })
             ).start();
 
+            let hopTw: Tween<Node> | null = null;
             this.intercept(hero);
             hero.on(Node.EventType.TOUCH_END, () => {
                 SoundManager.playSfx(sfx);
-                tween(hero).by(0.14, { position: new Vec3(0, 36, 0) }, { easing: 'quadOut' })
-                    .by(0.18, { position: new Vec3(0, -36, 0) }, { easing: 'quadIn' }).start();
+                if (hopTw) hopTw.stop();
+                hopTw = tween(hero)
+                    .to(0.14, { position: new Vec3(x, baseY + 38, 0) }, { easing: 'quadOut' })
+                    .to(0.18, { position: new Vec3(x, baseY, 0) }, { easing: 'quadIn' })
+                    .start();
             }, this);
         };
         spawnHero('登录小猫立绘', 'cat_hero', -230, -108, 'cat_meow', 1);
