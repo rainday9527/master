@@ -29,7 +29,11 @@ export type CoatId =
     | 'dino_hoodie'
     | 'maid_apron'
     | 'prince_suit'
-    | 'fairy_dress';
+    | 'fairy_dress'
+    | 'starlight_mage'
+    | 'frost_crystal'
+    | 'phoenix_hanfu'
+    | 'sakura_kimono';
 
 export interface RarityInfo {
     id: PetRarity;
@@ -325,6 +329,10 @@ export const PET_COATS: CoatDefinition[] = [
     { id: 'maid_apron', name: '甜心小围裙', tint: '#FFFFFF', overlay: 'cloth_maid', icon: 'skin_maid', price: 50, currency: 'gems', effectTag: '经验+12%', xpBonus: 0.12, desc: '薰衣草紫蕾丝荷叶边小围裙，照顾经验 +12%。' },
     { id: 'prince_suit', name: '星耀小礼服', tint: '#FFFFFF', overlay: 'cloth_prince', icon: 'skin_prince', price: 0, currency: 'gems', unlockMode: 'ad', limited: true, effectTag: '星光特效 · 冒险+15%', adventureBonus: 0.15, desc: '限定 · 皇家藏青金肩章小礼服，自带环绕星光特效，冒险收益 +15%。' },
     { id: 'fairy_dress', name: '花仙子纱裙', tint: '#FFFFFF', overlay: 'cloth_fairy', icon: 'skin_fairy', price: 0, currency: 'gems', unlockMode: 'ad', limited: true, effectTag: '花灵特效 · 经验状态+15%', xpBonus: 0.15, decayMult: 0.85, desc: '限定 · 粉蓝渐层花仙子蓬蓬裙，自带梦幻花灵星光特效，经验 +15% 且状态缓降 15%。' },
+    { id: 'starlight_mage', name: '星穹魔法袍', tint: '#FFFFFF', overlay: 'cloth_mage', icon: 'skin_mage', price: 0, currency: 'gems', unlockMode: 'ad', limited: true, effectTag: '星穹法阵 · 经验+22%', xpBonus: 0.22, desc: '限定 · 深靛金纹星穹魔法长袍，脚底双层星辰法阵与流光星芒环绕，照顾经验 +22%。' },
+    { id: 'frost_crystal', name: '冰雪水晶礼裙', tint: '#FFFFFF', overlay: 'cloth_frost', icon: 'skin_frost', price: 0, currency: 'gems', unlockMode: 'ad', limited: true, effectTag: '冰晶流光 · 缓降22%', decayMult: 0.78, desc: '限定 · 冰蓝雪白水晶礼裙，自带旋转冰晶棱镜与霜雪光环特效，状态衰减减缓 22%。' },
+    { id: 'phoenix_hanfu', name: '祥云锦鲤汉服', tint: '#FFFFFF', overlay: 'cloth_hanfu', icon: 'skin_hanfu', price: 0, currency: 'gems', unlockMode: 'ad', limited: true, effectTag: '金云瑞光 · 冒险+22%', adventureBonus: 0.22, desc: '限定 · 朱红描金祥云锦鲤汉服，金红瑞云光环与炽金光点升腾，冒险收益 +22%。' },
+    { id: 'sakura_kimono', name: '樱舞振袖和服', tint: '#FFFFFF', overlay: 'cloth_sakura', icon: 'skin_sakura', price: 0, currency: 'gems', unlockMode: 'ad', limited: true, effectTag: '樱舞旋风 · 双+18%', xpBonus: 0.18, adventureBonus: 0.18, desc: '限定 · 浅樱鎏金振袖和服，漫天立体樱瓣旋舞特效环绕全身，经验与冒险双 +18%。' },
 ];
 
 export const PET_NICKNAME_PRESETS: Record<PetKind, string[]> = {

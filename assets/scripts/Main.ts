@@ -1320,49 +1320,135 @@ export class Main extends Component {
     }
 
     private buildCoatVfxNode(coat: CoatId, rig: ActorRig): Node | null {
-        if (coat !== 'prince_suit' && coat !== 'fairy_dress') return null;
-        if (!isValid(rig.modelNode, true)) return null;
+        const themes: Partial<Record<CoatId, {
+            ringOuter: string; ringInner: string; ringAccent?: string;
+            particles: string[]; shape: 'star' | 'petal' | 'crystal' | 'orb' | 'mixed';
+            count: number; hasHaloCrown?: boolean; haloColor?: string;
+        }>> = {
+            prince_suit: {
+                ringOuter: '#FFE278', ringInner: '#94CEFF',
+                particles: ['#FFF6B0', '#FFE066', '#94CEFF', '#FFFFFF', '#FFD24D'],
+                shape: 'star', count: 12,
+            },
+            fairy_dress: {
+                ringOuter: '#FFB8DA', ringInner: '#E2C2FF',
+                particles: ['#FFB8D9', '#E0B8FF', '#FFF2A6', '#FFFFFF', '#A8E8FF'],
+                shape: 'mixed', count: 12,
+            },
+            starlight_mage: {
+                ringOuter: '#FFD85E', ringInner: '#8E7BFF', ringAccent: '#5D47C8',
+                particles: ['#FFE47A', '#B59CFF', '#7CE8FF', '#FFFFFF', '#FFD04D'],
+                shape: 'star', count: 14, hasHaloCrown: true, haloColor: '#FFE066',
+            },
+            frost_crystal: {
+                ringOuter: '#9CEBFF', ringInner: '#FFFFFF', ringAccent: '#6BC4FF',
+                particles: ['#D8F8FF', '#8EE6FF', '#FFFFFF', '#B2D8FF', '#6CC6FF'],
+                shape: 'crystal', count: 14, hasHaloCrown: true, haloColor: '#B8F2FF',
+            },
+            phoenix_hanfu: {
+                ringOuter: '#FFCA4B', ringInner: '#FF6B57', ringAccent: '#FFE885',
+                particles: ['#FFE46B', '#FF845C', '#FFF5C2', '#FF5B4D', '#FFD24D'],
+                shape: 'orb', count: 14, hasHaloCrown: true, haloColor: '#FFD65A',
+            },
+            sakura_kimono: {
+                ringOuter: '#FFABC8', ringInner: '#FFE49E', ringAccent: '#FFD6E6',
+                particles: ['#FF9EC0', '#FFD2E2', '#FFF4B8', '#FFFFFF', '#FFB8D2'],
+                shape: 'petal', count: 15, hasHaloCrown: true, haloColor: '#FFC4DA',
+            },
+        };
+        const cfg = themes[coat];
+        if (!cfg || !isValid(rig.modelNode, true)) return null;
         const root = new Node('服装限定特效-' + coat);
         root.layer = Layers.Enum.DEFAULT;
         rig.modelNode.addChild(root);
+        // 限定特效使用自发光 unlit 材质，杜绝背光发暗，呈现晶莹通透的发光特效质感
+        const vfxShape = (parent: Node, kind: 'box' | 'sphere' | 'cylinder' | 'cone' | 'torus', hex: string, pos: [number, number, number], scale: [number, number, number], rot: [number, number, number] = [0, 0, 0]) => {
+            const node = this.shape(parent, kind, hex, pos, scale, rot);
+            const mr = node.getComponent(MeshRenderer);
+            if (mr) {
+                const key = 'unlit:' + hex;
+                let mat = this.materials.get(key);
+                if (!mat) {
+                    mat = new Material();
+                    mat.initialize({ effectName: 'builtin-unlit' });
+                    mat.setProperty('mainColor', this.color(hex));
+                    this.materials.set(key, mat);
+                }
+                mr.material = mat;
+            }
+            return node;
+        };
 
-        const isPrince = coat === 'prince_suit';
-        // 脚底地面魔法流光圈（紧贴地面 y=0.04，不遮挡四肢，自带星耀/花仙光环仪式感）
+        // 1) 脚底多层魔法流光阵（紧贴地面 y=0.04，带外环星点符文，不遮挡四肢）
         const baseRing = new Node('服装底光环');
         baseRing.layer = Layers.Enum.DEFAULT;
         root.addChild(baseRing);
         baseRing.setPosition(0, 0.04, 0);
-        this.shape(baseRing, 'torus', isPrince ? '#FFE278' : '#FFB8DA', [0, 0, 0], [1.34, 0.028, 1.38]);
-        this.shape(baseRing, 'torus', isPrince ? '#94CEFF' : '#E2C2FF', [0, 0.015, 0], [1.18, 0.022, 1.22]);
+        vfxShape(baseRing, 'torus', cfg.ringOuter, [0, 0, 0], [1.44, 0.032, 1.48]);
+        vfxShape(baseRing, 'torus', cfg.ringInner, [0, 0.018, 0], [1.24, 0.026, 1.28]);
+        if (cfg.ringAccent) {
+            vfxShape(baseRing, 'torus', cfg.ringAccent, [0, 0.032, 0], [1.04, 0.018, 1.08]);
+            for (let k = 0; k < 6; k++) {
+                const ang = (k / 6) * Math.PI * 2;
+                vfxShape(baseRing, 'sphere', cfg.ringOuter, [Math.cos(ang) * 0.72, 0.03, Math.sin(ang) * 0.72], [0.095, 0.05, 0.095]);
+            }
+        }
 
-        // 环绕全身的闪耀星光/花灵粒子环（12颗逆向公转 + 闪烁缩放 + 上下漂浮，可与限定头饰特效叠放不重叠）
+        // 2) 环绕全身的专属限定 3D 粒子环（星芒/冰晶棱镜/祥云金珠/漫天樱瓣）
         const ring = new Node('服装星光环');
         ring.layer = Layers.Enum.DEFAULT;
         root.addChild(ring);
-        ring.setPosition(0, 0.66, 0);
-        const colors = isPrince
-            ? ['#FFF6B0', '#FFE066', '#94CEFF', '#FFFFFF', '#FFD24D']
-            : ['#FFB8D9', '#E0B8FF', '#FFF2A6', '#FFFFFF', '#A8E8FF'];
-        const count = 12;
-        for (let i = 0; i < count; i++) {
-            const rad = (i / count) * Math.PI * 2;
-            const r = 0.96 + (i % 2) * 0.18;
+        ring.setPosition(0, 0.68, 0);
+        for (let i = 0; i < cfg.count; i++) {
+            const rad = (i / cfg.count) * Math.PI * 2;
+            const r = 0.98 + (i % 2) * 0.22;
             const px = Math.cos(rad) * r;
             const pz = Math.sin(rad) * r;
-            const py = ((i % 3) - 1) * 0.28;
-            const col = colors[i % colors.length];
+            const py = ((i % 3) - 1) * 0.30;
+            const col = cfg.particles[i % cfg.particles.length];
             const spark = new Node('服装星粒-' + i);
             spark.layer = Layers.Enum.DEFAULT;
             ring.addChild(spark);
             spark.setPosition(px, py, pz);
-            if (isPrince || i % 2 === 0) {
-                // 闪闪的立体十字星芒
-                this.shape(spark, 'box', col, [0, 0, 0], [0.19, 0.044, 0.044]);
-                this.shape(spark, 'box', col, [0, 0, 0], [0.044, 0.19, 0.044]);
-                this.shape(spark, 'box', col, [0, 0, 0], [0.044, 0.044, 0.19]);
+            if (cfg.shape === 'star' || (cfg.shape === 'mixed' && i % 2 === 0)) {
+                vfxShape(spark, 'box', col, [0, 0, 0], [0.22, 0.048, 0.048]);
+                vfxShape(spark, 'box', col, [0, 0, 0], [0.048, 0.22, 0.048]);
+                vfxShape(spark, 'box', col, [0, 0, 0], [0.048, 0.048, 0.22]);
+            } else if (cfg.shape === 'crystal') {
+                // 双锥菱形冰晶 + 横向雪花星芒
+                vfxShape(spark, 'cone', col, [0, 0.085, 0], [0.115, 0.17, 0.115]);
+                vfxShape(spark, 'cone', col, [0, -0.085, 0], [0.115, 0.17, 0.115], [180, 0, 0]);
+                vfxShape(spark, 'box', '#FFFFFF', [0, 0, 0], [0.20, 0.034, 0.034]);
+            } else if (cfg.shape === 'orb') {
+                // 祥云金珠 + 十字暖芒
+                vfxShape(spark, 'sphere', col, [0, 0, 0], [0.13, 0.13, 0.13]);
+                if (i % 2 === 0) {
+                    vfxShape(spark, 'box', '#FFF8C8', [0, 0, 0], [0.24, 0.036, 0.036]);
+                    vfxShape(spark, 'box', '#FFF8C8', [0, 0, 0], [0.036, 0.24, 0.036]);
+                }
             } else {
-                // 梦幻花仙子飘浮花瓣光点
-                this.shape(spark, 'sphere', col, [0, 0, 0], [0.14, 0.11, 0.05], [20, i * 36, 28]);
+                // 立体飘舞樱瓣 / 花灵瓣
+                vfxShape(spark, 'sphere', col, [0, 0, 0], [0.17, 0.13, 0.05], [22, i * 36, 30]);
+                if (i % 3 === 0) {
+                    vfxShape(spark, 'sphere', '#FFF7D0', [0.05, 0.03, 0.02], [0.075, 0.075, 0.045]);
+                }
+            }
+        }
+
+        // 3) 高阶限定专属：头顶上方浮空流光冠环（y=1.68 避开猫狗双耳零穿模）
+        if (cfg.hasHaloCrown && cfg.haloColor) {
+            const upper = new Node('服装上层流光');
+            upper.layer = Layers.Enum.DEFAULT;
+            root.addChild(upper);
+            upper.setPosition(0, 1.68, 0);
+            vfxShape(upper, 'torus', cfg.haloColor, [0, 0, 0], [0.92, 0.022, 0.92], [8, 0, 0]);
+            for (let j = 0; j < 6; j++) {
+                const rad = (j / 6) * Math.PI * 2;
+                const pt = new Node('上层光珠-' + j);
+                pt.layer = Layers.Enum.DEFAULT;
+                upper.addChild(pt);
+                pt.setPosition(Math.cos(rad) * 0.48, 0, Math.sin(rad) * 0.48);
+                vfxShape(pt, 'sphere', cfg.particles[j % cfg.particles.length], [0, 0, 0], [0.095, 0.095, 0.095]);
             }
         }
         return root;
@@ -1372,20 +1458,25 @@ export class Main extends Component {
         if (!coatVfxNode || !isValid(coatVfxNode, true)) return;
         const baseRing = coatVfxNode.getChildByName('服装底光环');
         if (baseRing && isValid(baseRing, true)) {
-            const pulse = 1 + Math.sin(t * 3.1) * 0.05;
+            const pulse = 1 + Math.sin(t * 3.1) * 0.06;
             baseRing.setScale(pulse, 1, pulse);
-            baseRing.setRotationFromEuler(0, (t * 28) % 360, 0);
+            baseRing.setRotationFromEuler(0, (t * 34) % 360, 0);
         }
         const ring = coatVfxNode.getChildByName('服装星光环');
         if (ring && isValid(ring, true)) {
-            ring.setRotationFromEuler(Math.sin(t * 1.5) * 5, (-t * 54) % 360, Math.cos(t * 1.3) * 5);
+            ring.setRotationFromEuler(Math.sin(t * 1.6) * 6, (-t * 58) % 360, Math.cos(t * 1.4) * 6);
             ring.children.forEach((ch, idx) => {
-                const s = 0.72 + Math.sin(t * 5.8 + idx * 1.35) * 0.38;
+                const s = 0.74 + Math.sin(t * 5.8 + idx * 1.35) * 0.36;
                 ch.setScale(s, s, s);
                 const p = ch.position;
-                const baseY = ((idx % 3) - 1) * 0.22;
-                ch.setPosition(p.x, baseY + Math.sin(t * 2.8 + idx * 0.9) * 0.08, p.z);
+                const baseY = ((idx % 3) - 1) * 0.24;
+                ch.setPosition(p.x, baseY + Math.sin(t * 2.9 + idx * 0.9) * 0.10, p.z);
             });
+        }
+        const upper = coatVfxNode.getChildByName('服装上层流光');
+        if (upper && isValid(upper, true)) {
+            upper.setRotationFromEuler(8 + Math.sin(t * 2.0) * 5, (t * 72) % 360, Math.cos(t * 1.7) * 5);
+            upper.setPosition(0, 1.68 + Math.sin(t * 2.6) * 0.06, 0);
         }
     }
 
