@@ -5690,7 +5690,17 @@ export class Main extends Component {
                 vis.durFill.setPosition(-0.48 * (1 - ratio), 0.015, 0);
                 const colHex = ratio > 0.55 ? '#52C462' : ratio > 0.25 ? '#F2A93B' : '#E84C3D';
                 const mr = vis.durFill.getComponent(MeshRenderer);
-                if (mr) mr.setSharedMaterial(this.mat(colHex), 0);
+                if (mr) {
+                    const mkey = 'dur:' + colHex;
+                    let dmat = this.materials.get(mkey);
+                    if (!dmat) {
+                        dmat = new Material();
+                        dmat.initialize({ effectName: 'builtin-unlit' });
+                        dmat.setProperty('mainColor', this.color(colHex));
+                        this.materials.set(mkey, dmat);
+                    }
+                    mr.setSharedMaterial(dmat, 0);
+                }
             }
         });
     }
