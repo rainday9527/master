@@ -2239,56 +2239,35 @@ export class Main extends Component {
     }
 
     private alignEditBoxDomInput(editBox: EditBox) {
-        if (typeof document === 'undefined' || !isValid(editBox?.node, true) || !this.uiCamera) return;
+        if (typeof document === 'undefined' || !isValid(editBox?.node, true)) return;
         const impl = (editBox as unknown as { _impl?: { _edTxt?: HTMLElement } })._impl;
         const el = impl?._edTxt || (document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement ? document.activeElement : null);
-        const canvas = document.getElementById('GameCanvas');
-        if (!el || !canvas) return;
-        const uiTr = editBox.node.getComponent(UITransform);
-        if (!uiTr) return;
-        const container = canvas.parentElement || document.body;
-        const rect = canvas.getBoundingClientRect();
-        const cRect = container.getBoundingClientRect();
-        const wp = editBox.node.worldPosition;
-        const halfW = (uiTr.width * Math.abs(editBox.node.worldScale.x)) / 2;
-        const halfH = (uiTr.height * Math.abs(editBox.node.worldScale.y)) / 2;
-        const pBL = new Vec3(), pTR = new Vec3();
-        this.uiCamera.worldToScreen(new Vec3(wp.x - halfW, wp.y - halfH, wp.z), pBL);
-        this.uiCamera.worldToScreen(new Vec3(wp.x + halfW, wp.y + halfH, wp.z), pTR);
-        const vpW = Math.max(1, this.uiCamera.camera?.width || canvas.width || rect.width);
-        const vpH = Math.max(1, this.uiCamera.camera?.height || canvas.height || rect.height);
-        const left = (rect.left - cRect.left) + (pBL.x / vpW) * rect.width + 8;
-        const right = (rect.left - cRect.left) + (pTR.x / vpW) * rect.width - 8;
-        const top = (rect.top - cRect.top) + (1 - pTR.y / vpH) * rect.height + 2;
-        const bottom = (rect.top - cRect.top) + (1 - pBL.y / vpH) * rect.height - 2;
-        const w = Math.max(40, right - left);
-        const h = Math.max(20, bottom - top);
-        // 清除 Cocos EditBoxImpl 默认的 bottom / transform-origin: 0 100%，用 absolute 严格绑定在画布容器内随画面同步
-        el.style.position = 'absolute';
+        if (!el) return;
+        // 将原生 DOM <input> 透明固定在屏内安全点（fontSize=16 防 iOS 自动缩放），
+        // 真实输入文字直接由 Cocos 自己的 textLabel 渲染在奶油白框正中央，彻底杜绝任何机型上的文字飘出框外问题！
+        el.style.position = 'fixed';
         el.style.transform = 'none';
         el.style.webkitTransform = 'none';
         el.style.transformOrigin = '0 0';
+        el.style.left = '50%';
+        el.style.top = '30%';
         el.style.bottom = 'auto';
         el.style.right = 'auto';
-        el.style.left = `${left.toFixed(1)}px`;
-        el.style.top = `${top.toFixed(1)}px`;
-        el.style.width = `${w.toFixed(1)}px`;
-        el.style.height = `${h.toFixed(1)}px`;
-        el.style.lineHeight = `${h.toFixed(1)}px`;
-        el.style.fontSize = `${Math.max(13, Math.round(h * 0.56))}px`;
-        el.style.textAlign = 'center';
-        el.style.verticalAlign = 'middle';
-        el.style.padding = '0';
-        el.style.margin = '0';
+        el.style.width = '2px';
+        el.style.height = '24px';
+        el.style.opacity = '0.001';
+        el.style.fontSize = '16px';
+        el.style.color = 'transparent';
+        el.style.caretColor = 'transparent';
+        el.style.background = 'transparent';
         el.style.border = 'none';
         el.style.outline = 'none';
-        el.style.background = 'transparent';
-        el.style.boxSizing = 'border-box';
-        el.style.zIndex = '9999';
+        el.style.padding = '0';
+        el.style.margin = '0';
+        el.style.pointerEvents = 'none';
     }
 
     private bindEditBoxKeyboardAdaptation(editBox: EditBox) {
-        // 关键：在 focus() 触发前就接管 Cocos 内部 _updateMatrix，防止引擎把 DOM <input> 放到屏外 (x>400) 导致手机 WebView 横向滚歪整个画面
         const patchImpl = () => {
             const impl = (editBox as unknown as { _impl?: { _updateMatrix?: () => void; _updateSize?: () => void; _edTxt?: HTMLElement } })._impl;
             if (!impl) return;
@@ -2300,21 +2279,44 @@ export class Main extends Component {
         this.scheduleOnce(() => { if (isValid(editBox?.node, true)) patchImpl(); }, 0);
 
         let isEditing = false;
+        let caretVisible = true;
+        const syncCanvasText = () => {
+            if (!isValid(editBox?.node, true)) return;
+            const txt = editBox.textLabel;
+            const ph = editBox.placeholderLabel;
+            const val = editBox.string || '';
+            if (txt && isValid(txt.node, true)) {
+                txt.node.active = true;
+                txt.string = isEditing ? (val + (caretVisible ? '|' : ' ')) : val;
+            }
+            if (ph && isValid(ph.node, true)) {
+                ph.node.active = !isEditing && val.length === 0;
+            }
+        };
+        const blinkCaret = () => {
+            if (!isEditing || !isValid(editBox?.node, true)) return;
+            caretVisible = !caretVisible;
+            syncCanvasText();
+        };
+
         const onBegan = () => {
             if (isEditing) return;
             isEditing = true;
+            caretVisible = true;
             this.activeEditCount++;
             patchImpl();
-            // 软键盘弹出期间冻结 Cocos 自动随浏览器视口缩放，绝不移动弹窗坐标
             if (this.activeEditCount === 1) {
                 try { view.resizeWithBrowserSize(false); } catch {}
             }
             this.resetBrowserViewportScroll();
+            syncCanvasText();
+            this.schedule(blinkCaret, 0.52);
             if (typeof requestAnimationFrame === 'function') {
                 requestAnimationFrame(() => {
                     if (isValid(this, true) && isEditing) {
                         this.alignEditBoxDomInput(editBox);
                         this.resetBrowserViewportScroll();
+                        syncCanvasText();
                     }
                 });
             }
@@ -2322,12 +2324,21 @@ export class Main extends Component {
                 if (isValid(this, true) && isEditing) {
                     this.alignEditBoxDomInput(editBox);
                     this.resetBrowserViewportScroll();
+                    syncCanvasText();
                 }
             }, 0.12);
+        };
+        const onChanged = () => {
+            if (!isEditing) return;
+            caretVisible = true;
+            this.alignEditBoxDomInput(editBox);
+            syncCanvasText();
         };
         const onEnded = () => {
             if (!isEditing) return;
             isEditing = false;
+            this.unschedule(blinkCaret);
+            syncCanvasText();
             this.activeEditCount = Math.max(0, this.activeEditCount - 1);
             if (this.activeEditCount === 0) {
                 this.resetBrowserViewportScroll();
@@ -2341,6 +2352,7 @@ export class Main extends Component {
             }
         };
         editBox.node.on(EditBox.EventType.EDITING_DID_BEGAN, onBegan, this);
+        editBox.node.on(EditBox.EventType.TEXT_CHANGED, onChanged, this);
         editBox.node.on(EditBox.EventType.EDITING_DID_ENDED, onEnded, this);
         editBox.node.on(EditBox.EventType.EDITING_RETURN, onEnded, this);
     }
