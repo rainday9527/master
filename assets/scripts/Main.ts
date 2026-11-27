@@ -7597,11 +7597,22 @@ export class Main extends Component {
         const loginFallback = this.uiNode(panel, '登录暖底色', 0, 0, 2400, 3200).addComponent(Graphics);
         loginFallback.fillColor = this.color('#F5E6C8');
         loginFallback.rect(-1200, -1600, 2400, 3200); loginFallback.fill();
+        const dismissBootSplash = () => {
+            if (typeof document === 'undefined') return;
+            const el = document.getElementById('cp-boot-splash');
+            if (!el || el.dataset.dismissed === '1') return;
+            el.dataset.dismissed = '1';
+            el.style.opacity = '0';
+            el.style.pointerEvents = 'none';
+            setTimeout(() => { try { el.remove(); } catch {} }, 300);
+        };
         const bg = this.uiNode(panel, '登录背景图', 0, 0, 1080, 1920);
         const bgSp = bg.addComponent(Sprite); bgSp.sizeMode = Sprite.SizeMode.CUSTOM;
         resources.load('art/login/bg/spriteFrame', SpriteFrame, (e, f) => {
             if (!e && f && isValid(bgSp, true)) bgSp.spriteFrame = f;
+            dismissBootSplash();
         });
+        this.scheduleOnce(dismissBootSplash, 0.65);
         // 登录页停留期间：先优先预热加载页图，随后 0.25s 在后台静默预加载全部核心界面目录，点「开始游戏」时极速衔接
         resources.preload('art/login/loading-bg/spriteFrame', SpriteFrame);
         this.scheduleOnce(() => {
