@@ -257,6 +257,9 @@ export class Main extends Component {
     private settingsReturnPage: 'home' | 'login' = 'home';
     // 本地测试阶段开启 GM；打 TapTap 正式提审包前改为 false（配合 debug=false 双重确保正式包彻底隐藏禁用）
     private readonly enableGm = true;
+    private gmUnlocked = false;
+    private gmTapCount = 0;
+    private gmLastTapAt = 0;
     private selected = 0;
     private petSelected = false;
     private careSelected = '';
@@ -1857,7 +1860,7 @@ export class Main extends Component {
         this.navCaption(settingsBtn, '设置', 0);
         settingsBtn.on(Node.EventType.TOUCH_END, () => this.open('settings'), this);
 
-        // GM 预览调试悬浮入口：仅在 Debug / 预览模式创建，Release 正式提审包彻底隐藏且禁用
+        // GM 预览调试悬浮入口：仅在 enableGm=true 时创建，默认隐藏，连续点击屏幕 5 下后显示；Release(enableGm=false) 彻底不创建且点击无效
         if (this.enableGm) {
             const gm = this.uiNode(this.ui, 'GM调试入口', -440, 730, 104, 46);
             const gmg = gm.addComponent(Graphics);
@@ -1867,6 +1870,9 @@ export class Main extends Component {
             gmLbl.isBold = true; gmLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
             this.intercept(gm); this.pressVisualFeedback(gm, gm.children.slice());
             gm.on(Node.EventType.TOUCH_END, () => this.toggleGmPanel(), this);
+            gm.active = false;
+            this.ui.on(Node.EventType.TOUCH_START, this.onGmScreenTap, this, true);
+            input.on(Input.EventType.TOUCH_START, this.onGmScreenTap, this);
         }
 
         this.layout(); this.renderHeader(); this.renderNav(); this.refreshTaskRedDots();
@@ -2840,9 +2846,8 @@ export class Main extends Component {
         if (settingsEntry) settingsEntry.active = page === 'home';
         this.refreshMemorialEntry();
         this.refreshTaskRedDots();
-        const gmEntry = this.ui.getChildByName('GM调试入口');
         const hideChrome = page === 'login' || (page === 'settings' && this.settingsReturnPage === 'login');
-        if (gmEntry) gmEntry.active = this.enableGm && !hideChrome && page !== 'album' && page !== 'profile' && page !== 'layout';
+        this.refreshGmEntryVisibility();
         if (this.top) this.top.active = !hideChrome && page !== 'album' && page !== 'profile';
         if (this.bottom) this.bottom.active = !hideChrome && page !== 'profile' && page !== 'layout';
         if (page !== 'layout') this.selectedFurnitureUid = null;
@@ -3968,8 +3973,30 @@ export class Main extends Component {
         }
     }
 
+    private refreshGmEntryVisibility() {
+        const gmEntry = this.ui?.getChildByName('GM调试入口');
+        if (!gmEntry) return;
+        const hideChrome = this.page === 'login' || (this.page === 'settings' && this.settingsReturnPage === 'login');
+        gmEntry.active = this.enableGm && this.gmUnlocked && !hideChrome && this.page !== 'album' && this.page !== 'profile' && this.page !== 'layout';
+    }
+
+    private onGmScreenTap = () => {
+        if (!this.enableGm || this.gmUnlocked) return;
+        const now = Date.now();
+        if (now - this.gmLastTapAt < 30) return;
+        if (now - this.gmLastTapAt > 1200) this.gmTapCount = 0;
+        this.gmLastTapAt = now;
+        this.gmTapCount++;
+        if (this.gmTapCount >= 5) {
+            this.gmUnlocked = true;
+            this.gmTapCount = 0;
+            this.refreshGmEntryVisibility();
+            this.toast('已解锁 GM 调试入口');
+        }
+    };
+
     public toggleGmPanel() {
-        if (!this.enableGm) return;
+        if (!this.enableGm || !this.gmUnlocked) return;
         if (this.gmPanel) { this.closeGmPanel(); return; }
         const overlay = this.uiNode(this.ui, 'GM调试面板', 0, 0, this.width, this.height);
         this.gmPanel = overlay;
@@ -10641,6 +10668,8 @@ export class Main extends Component {
         this.closeDialog();
         this.rewardedVideoProvider = null;
         input.off(Input.EventType.TOUCH_START, this.onWorldTouchStart, this);
+        input.off(Input.EventType.TOUCH_START, this.onGmScreenTap, this);
+        if (this.ui && isValid(this.ui, true)) this.ui.off(Node.EventType.TOUCH_START, this.onGmScreenTap, this, true);
         input.off(Input.EventType.TOUCH_MOVE, this.onWorldTouchMove, this);
         input.off(Input.EventType.TOUCH_END, this.onWorldTouch, this);
         this.unscheduleAllCallbacks(); if (this.data) this.persist();
