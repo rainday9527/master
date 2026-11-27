@@ -24,7 +24,7 @@ import {
 } from './AdventureSystem';
 import {
     FURNITURE_CATALOG, FurnitureDef, FurnitureId, PlacedFurniture,
-    findFurniture, isFurnitureId, defaultPlacedFurniture, furnitureMatchesPet,
+    findFurniture, isFurnitureId, defaultPlacedFurniture, furnitureMatchesPet, furnitureMaxDurability,
 } from './FurnitureCatalog';
 import { SoundManager } from './SoundManager';
 
@@ -228,7 +228,7 @@ export class Main extends Component {
     private shopTab: 'items' | 'outfits' | 'furniture' | 'tombstones' = 'items';
     private taskTab: 'daily' | 'achievement' = 'daily';
     private furnitureLayer: Node | null = null;
-    private furnitureVisuals = new Map<number, { node: Node; id: FurnitureId; ring: Node; vfx: Node | null }>();
+    private furnitureVisuals = new Map<number, { node: Node; id: FurnitureId; ring: Node; vfx: Node | null; card: Node; durBar: Node; durFill: Node }>();
     private furnitureNextUid = 10;
     private selectedFurnitureUid: number | null = null;
     private draggingFurnitureUid: number | null = null;
@@ -4179,6 +4179,11 @@ export class Main extends Component {
                 a.node.setPosition(-0.4, 0, 1.4); b.node.setPosition(0.4, 0, 1.4);
                 this.triggerYardFight(a, b);
             }],
+            ['触发猫狗拆家', () => {
+                this.closeGmPanel();
+                this.open('home');
+                if (!this.triggerYardWreck()) this.toast('庭院暂无可拆的家具或伙伴');
+            }],
             ['重置今日签到', () => {
                 const c = this.dailyCandidate();
                 c.signIn = { ...(c.signIn || newSignIn()), lastSignDay: -1, todayAdClaimed: false, todayBaseGems: 0 };
@@ -5660,12 +5665,160 @@ export class Main extends Component {
                 // 限定家具专属 3D 动态特效（云朵梦境星光 / 摩天轮七彩星环 / 樱花凉亭落樱流光）
                 const vfx = def.limited ? this.buildFurnitureVfxNode(def, root, sz) : null;
 
-                vis = { node: root, id: pf.id, ring, vfx };
+                // 3D 迷你耐久度条（家具产生磨损或布置选中时显示，绿 -> 橙 -> 红）
+                const durBar = new Node('家具耐久条');
+                durBar.layer = Layers.Enum.DEFAULT;
+                root.addChild(durBar);
+                durBar.setPosition(0, 0.08, sz * 0.44);
+                this.shape(durBar, 'box', '#3B2818', [0, 0, 0], [1.04, 0.05, 0.14]);
+                const durFill = this.shape(durBar, 'box', '#52C462', [0, 0.015, 0], [0.96, 0.05, 0.10]);
+                durFill.name = '耐久填充';
+                durBar.active = false;
+
+                vis = { node: root, id: pf.id, ring, vfx, card, durBar, durFill };
                 this.furnitureVisuals.set(pf.uid, vis);
             }
             vis.node.setPosition(pf.x, 0, pf.z);
             vis.ring.active = this.page === 'layout' && this.selectedFurnitureUid === pf.uid;
+            const maxDur = furnitureMaxDurability(def);
+            const curDur = pf.durability !== undefined ? pf.durability : maxDur;
+            const ratio = Math.max(0.02, Math.min(1, curDur / maxDur));
+            const showBar = curDur < maxDur || (this.page === 'layout' && this.selectedFurnitureUid === pf.uid);
+            vis.durBar.active = showBar;
+            if (showBar) {
+                vis.durFill.setScale(0.96 * ratio, 0.05, 0.10);
+                vis.durFill.setPosition(-0.48 * (1 - ratio), 0.015, 0);
+                const colHex = ratio > 0.55 ? '#52C462' : ratio > 0.25 ? '#F2A93B' : '#E84C3D';
+                const mr = vis.durFill.getComponent(MeshRenderer);
+                if (mr) mr.setSharedMaterial(this.mat(colHex), 0);
+            }
         });
+    }
+
+    /** 扣除家具耐久度：耐久归零时播放损坏特效并从庭院移除消失，释放场地空间 */
+    public damageFurniture(uid: number, amount: number): { broken: boolean; remaining: number } {
+        const list = this.data.placedFurniture || [];
+        const pf = list.find(f => f.uid === uid);
+        if (!pf) return { broken: false, remaining: 0 };
+        const def = findFurniture(pf.id);
+        if (!def) return { broken: false, remaining: 0 };
+        const maxDur = furnitureMaxDurability(def);
+        const curDur = pf.durability !== undefined ? pf.durability : maxDur;
+        const nextDur = Math.max(0, Math.round(curDur - Math.max(1, amount)));
+        if (nextDur <= 0) {
+            // 家具彻底损坏消失
+            this.spawnFurnitureWreckFx(pf.x, pf.z, true);
+            this.data.placedFurniture = list.filter(f => f.uid !== uid);
+            this.actors.forEach(a => {
+                if (a.activity?.furnitureUid === uid) {
+                    a.activity = undefined;
+                    if (isValid(a.visual, true)) a.visual.active = true;
+                }
+            });
+            if (this.selectedFurnitureUid === uid) this.selectedFurnitureUid = null;
+            this.dirty = true;
+            this.persist();
+            this.syncYardFurniture();
+            if (this.page === 'layout') this.renderLayoutPanel();
+            if (this.page === 'home' || this.page === 'pet' || this.page === 'layout') {
+                this.toast(`「${def.name}」耐久耗尽坏掉消失啦，快去布置或商店换新的吧！`);
+            }
+            return { broken: true, remaining: 0 };
+        }
+        pf.durability = nextDur;
+        this.dirty = true;
+        this.syncYardFurniture();
+        if (this.page === 'layout') this.renderLayoutPanel();
+        return { broken: false, remaining: nextDur };
+    }
+
+    /** 3D 家具拆家/损坏木屑烟尘特效（自动播放并销毁） */
+    private spawnFurnitureWreckFx(x: number, z: number, broken: boolean) {
+        if (!this.world || !isValid(this.world, true)) return;
+        const root = new Node(broken ? '家具损坏特效' : '猫狗拆家特效');
+        root.layer = Layers.Enum.DEFAULT;
+        this.world.addChild(root);
+        root.setPosition(x, 0.45, z);
+        const cols = broken
+            ? ['#D9A66C', '#B87A42', '#FFFFFF', '#FFE066', '#E85D4A']
+            : ['#FFF8E6', '#E5C69A', '#FFE066', '#FFFFFF'];
+        const count = broken ? 12 : 8;
+        for (let i = 0; i < count; i++) {
+            const rad = (i / count) * Math.PI * 2;
+            const part = new Node('拆家粒子-' + i);
+            part.layer = Layers.Enum.DEFAULT;
+            root.addChild(part);
+            const sz = broken ? 0.22 : 0.17;
+            this.shape(part, i % 2 === 0 ? 'box' : 'sphere', cols[i % cols.length], [0, 0, 0], [sz, sz * 0.7, sz * 0.7]);
+            const dist = broken ? 1.15 : 0.78;
+            const peakY = broken ? 0.95 : 0.65;
+            tween(part)
+                .to(0.32, { position: new Vec3(Math.cos(rad) * dist * 0.6, peakY, Math.sin(rad) * dist * 0.6), scale: new Vec3(1.15, 1.15, 1.15) }, { easing: 'quadOut' })
+                .to(0.38, { position: new Vec3(Math.cos(rad) * dist, -0.1, Math.sin(rad) * dist), scale: new Vec3(0.05, 0.05, 0.05) }, { easing: 'quadIn' })
+                .start();
+        }
+        this.scheduleOnce(() => { if (isValid(root, true)) { root.active = false; root.destroy(); } }, 0.78);
+    }
+
+    /** 触发庭院「猫狗拆家」事件：调皮宠物冲向家具疯狂啃咬挠抓，晃动家具并扣除大额耐久（耐久归零直接坏掉消失） */
+    public triggerYardWreck(preferredActor?: Actor, preferredPf?: PlacedFurniture): boolean {
+        const placed = this.data.placedFurniture || [];
+        if (!placed.length) return false;
+        const alive = this.actors.filter(a => isValid(a.node, true) && a.node.active && !a.pet.dead && !a.pet.lost && !a.pet.adventuring && !a.dying);
+        if (!alive.length) return false;
+
+        // 优先挑选拆家高发性格（小暴脾气/爱玩/元气）或哈士奇/柴犬/柯基等调皮伙伴
+        const weighted = alive.slice().sort((a, b) => {
+            const score = (act: Actor) => {
+                const traits = this.getPetTraits(act.pet);
+                let s = Math.random();
+                if (traits.some(t => t.id === 'hothead' || t.id === 'playful' || t.id === 'energetic')) s += 0.8;
+                const sk = BREEDS[act.pet.id]?.skin || '';
+                if (sk.includes('hashiqi') || sk.includes('keji') || sk.includes('chai')) s += 0.6;
+                return s;
+            };
+            return score(b) - score(a);
+        });
+        const actor = preferredActor || weighted[0];
+        const pf = preferredPf || placed[Math.floor(Math.random() * placed.length)];
+        const def = findFurniture(pf.id);
+        if (!def) return false;
+
+        // 让宠物瞬时凑到家具旁开始拆家动作
+        actor.activity = undefined;
+        if (isValid(actor.visual, true)) actor.visual.active = true;
+        const off = def.entryOffset || [0, 0.52];
+        actor.node.setPosition(pf.x + off[0], 0, pf.z + off[1]);
+        actor.facing = Math.atan2(-off[0], -off[1]) * 180 / Math.PI;
+        actor.socialUntil = this.socialTime + 1.8;
+        actor.timer = -1.1;
+
+        // 家具剧烈晃动反馈 + 3D 木屑烟尘特效 + 音效 + 搞笑气泡
+        const vis = this.furnitureVisuals.get(pf.uid);
+        if (vis && isValid(vis.card, true)) {
+            const basePos = vis.card.position.clone();
+            tween(vis.card)
+                .to(0.06, { position: new Vec3(basePos.x - 0.16, basePos.y, basePos.z) })
+                .to(0.06, { position: new Vec3(basePos.x + 0.16, basePos.y, basePos.z) })
+                .to(0.06, { position: new Vec3(basePos.x - 0.12, basePos.y, basePos.z) })
+                .to(0.06, { position: new Vec3(basePos.x + 0.12, basePos.y, basePos.z) })
+                .to(0.06, { position: basePos })
+                .start();
+        }
+        this.spawnFurnitureWreckFx(pf.x, pf.z, false);
+        if (this.page === 'home' || this.page === 'pet') {
+            SoundManager.playSfx('fight');
+            const lines = ['拆家时间到！嘿嘿~', '这个咬起来好带劲！', '拆拆拆停不下来！', '挠两爪试试结不结实~'];
+            this.showSocialBubble(actor, -1, lines[Math.floor(Math.random() * lines.length)]);
+        }
+
+        const dmg = 22 + Math.floor(Math.random() * 11); // 每次拆家消耗 22~32 耐久
+        const res = this.damageFurniture(pf.uid, dmg);
+        if (!res.broken && (this.page === 'home' || this.page === 'pet')) {
+            const maxDur = furnitureMaxDurability(def);
+            this.toast(`「${this.petDisplayName(actor.pet.id)}」拆了「${def.name}」！耐久 -${dmg}（剩余 ${res.remaining}/${maxDur}）`);
+        }
+        return true;
     }
 
     /** 为限定家具构建轻盈通透的 3D 实时动态特效（去掉厚重底盘，仅保留环绕闪烁星芒、微光萤火与飘浮樱花瓣） */
@@ -5818,7 +5971,12 @@ export class Main extends Component {
         bg.fillColor = this.color('#FFF8E8'); bg.strokeColor = this.color('#8B5A34'); bg.lineWidth = 5;
         bg.roundRect(-510, -175, 1020, 350, 28); bg.fill(); bg.stroke();
 
-        const title = this.text(panel, '庭院布置 · 按住家具直接拖动，或点草坪移动', -205, 134, 540, 36, 21, '#5A361C');
+        const selPf = this.selectedFurnitureUid !== null ? (this.data.placedFurniture || []).find(f => f.uid === this.selectedFurnitureUid) : null;
+        const selDef = selPf ? findFurniture(selPf.id) : null;
+        const selDurText = selPf && selDef
+            ? `已选「${selDef.name}」 · 耐久 ${selPf.durability !== undefined ? selPf.durability : furnitureMaxDurability(selDef)}/${furnitureMaxDurability(selDef)}`
+            : '庭院布置 · 按住家具直接拖动，或点草坪移动';
+        const title = this.text(panel, selDurText, -205, 134, 540, 36, 21, '#5A361C');
         title.isBold = true; title.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
 
         // 快捷去家具商店按钮
@@ -9283,6 +9441,10 @@ export class Main extends Component {
                 this.spawnYardPoop(chosen.pet.id, chosen.node.position.x, chosen.node.position.z);
             }
         }
+        // 庭院「猫狗拆家时间」：每隔 60 秒有 60% 概率触发一只在场宠物调皮拆家磨损家具（耐久耗尽直接坏掉消失）
+        if (this.elapsed > 0 && this.elapsed % 60 === 0 && (this.page === 'home' || this.page === 'pet') && Math.random() < 0.60) {
+            this.triggerYardWreck();
+        }
         // 每隔 45 秒自动触发一次伙伴林间冒险见闻事件，丰富冒险日记并带回食物/玩具/宝藏
         if (this.elapsed > 0 && this.elapsed % 45 === 0) {
             const outPets = this.data.pets.filter(p => !p.dead && !p.lost && p.adventuring);
@@ -10059,6 +10221,7 @@ export class Main extends Component {
                                 if (!a.activity.consumed) {
                                     a.activity.consumed = true;
                                     this.autoConsumeCareItem(a.pet, 'food', fdef?.feedBonus || 0);
+                                    if (pf) this.damageFurniture(pf.uid, 4);
                                 }
                             } else if (a.activity.type === 'clean') {
                                 a.activity.until = this.socialTime + 2.8;
@@ -10070,6 +10233,7 @@ export class Main extends Component {
                                         a.pet.clean = Math.min(100, a.pet.clean + gain);
                                         this.dirty = true;
                                     }
+                                    if (pf) this.damageFurniture(pf.uid, 4);
                                 }
                             } else if (a.activity.type === 'play') {
                                 a.activity.until = this.socialTime + 3.2;
@@ -10079,6 +10243,7 @@ export class Main extends Component {
                                         a.pet.joy = Math.min(100, a.pet.joy + 4);
                                         this.dirty = true;
                                     }
+                                    if (pf) this.damageFurniture(pf.uid, 5);
                                 }
                             } else if (a.activity.type === 'sleep') {
                                 a.activity.zzzTimer = 0.05;
@@ -10111,12 +10276,14 @@ export class Main extends Component {
                                     this.spawnZzzBubble(a);
                                 }
                                 if (a.pet.energy >= 98) {
+                                    const bedUid = a.activity.furnitureUid;
                                     a.activity = undefined;
                                     if (isValid(a.visual, true)) a.visual.active = true;
                                     a.timer = 0.5;
                                     recordDaily(this.data.daily, 'rest');
                                     if (!this.data.achievements) this.data.achievements = newAchievements();
                                     recordAchievement(this.data.achievements, 'rest');
+                                    this.damageFurniture(bedUid, 5);
                                     this.dirty = true;
                                 }
                             } else if (this.socialTime >= a.activity.until) {

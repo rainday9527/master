@@ -53,6 +53,14 @@ export interface PlacedFurniture {
     id: FurnitureId;
     x: number;
     z: number;
+    durability?: number;
+}
+
+/** 家具最大耐久度（基础金币款 100 / 紫金钻石款 160 / 限定彩框款 260） */
+export function furnitureMaxDurability(def: FurnitureDef): number {
+    if (def.limited) return 260;
+    if (def.currency === 'gems') return 160;
+    return 100;
 }
 
 export const FURNITURE_CATALOG: readonly FurnitureDef[] = [
