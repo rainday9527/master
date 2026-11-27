@@ -1982,7 +1982,15 @@ export class Main extends Component {
         }
         this.worldCamera.orthoHeight = Math.max(13.0, 13.0 * this.height / 1920);
         if (this.sheet) {
-            this.sheet.setPosition(0, this.page === 'pet' ? -this.height / 2 + 350 : this.page === 'shop' ? -this.height / 2 + 850 : -this.height / 2 + 640, 0);
+            this.sheet.setPosition(
+                0,
+                this.page === 'layout' ? -this.height / 2 + 185 : this.page === 'pet' ? -this.height / 2 + 350 : this.page === 'shop' ? -this.height / 2 + 850 : -this.height / 2 + 640,
+                0
+            );
+            if (this.page === 'layout') {
+                const lscale = Math.min(1, (this.width - 24) / 1020);
+                this.sheet.setScale(lscale, lscale, 1);
+            }
             if (this.page === 'recruit') {
                 this.sheet.setPosition(0, -10, 0);
                 const scale = Math.min(1, (this.width - 40) / 1000, (this.height - 430) / 1560);
@@ -2857,6 +2865,7 @@ export class Main extends Component {
             this.sheet = this.uiNode(this.ui, '庭院布置面板', 0, -this.height / 2 + 185, 1020, 350);
             this.intercept(this.sheet);
             this.renderLayoutPanel();
+            this.layout();
             return;
         }
         if (page === 'adventure') {
@@ -5790,7 +5799,9 @@ export class Main extends Component {
             return score(b) - score(a);
         });
         const actor = preferredActor || weighted[0];
-        const pf = preferredPf || placed[Math.floor(Math.random() * placed.length)];
+        // 若庭院摆了「猫爪布艺沙发」，调皮猫狗有 50% 概率优先冲去拆沙发！
+        const sofaList = placed.filter(f => f.id === 'sofa_plush_basic');
+        const pf = preferredPf || (sofaList.length && Math.random() < 0.5 ? sofaList[Math.floor(Math.random() * sofaList.length)] : placed[Math.floor(Math.random() * placed.length)]);
         const def = findFurniture(pf.id);
         if (!def) return false;
 

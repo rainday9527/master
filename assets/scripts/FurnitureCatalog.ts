@@ -7,6 +7,7 @@ export type FurnitureCurrency = 'coins' | 'gems';
 export type FurnitureId =
     | 'cat_bed_basic'
     | 'dog_bed_basic'
+    | 'sofa_plush_basic'
     | 'cat_bed_castle'
     | 'dog_bed_villa'
     | 'cloud_bed_limited'
@@ -73,6 +74,7 @@ export const FURNITURE_CATALOG: readonly FurnitureDef[] = [
 
     // 进阶功能家具（蓝/绿框金币购，紫/金框钻石购，粉金彩限定看广告解锁）
     { id: 'cat_bed_castle', name: '星空猫爬架窝', category: 'bed', appliesTo: 'cat', price: 55, currency: 'gems', slotTheme: 'epic', effectTag: '猫窝 · 约7分回满', sleepRate: 0.24, radius: 0.84, entryOffset: [0.0, 0.46], desc: '多层星空绒布猫爬架窝，小猫睡眠回复加速，约 7 分钟恢复满体力。' },
+    { id: 'sofa_plush_basic', name: '猫爪布艺沙发', category: 'bed', appliesTo: 'both', price: 180, currency: 'coins', slotTheme: 'gem', effectTag: '猫狗通用 · 易被拆家', sleepRate: 0.20, radius: 0.82, entryOffset: [0.0, 0.40], desc: '软乎乎的奶油蜜桃布艺沙发，猫猫狗狗都爱在上面小憩，但也最容易被调皮毛孩子抓挠拆家磨损！' },
     { id: 'dog_bed_villa', name: '小木屋狗窝', category: 'bed', appliesTo: 'dog', price: 60, currency: 'gems', slotTheme: 'epic', effectTag: '狗窝 · 约7分回满', sleepRate: 0.24, radius: 0.88, entryOffset: [-0.34, 0.50], hideInside: true, desc: '红瓦斜顶豪华小木屋狗窝，小狗睡眠回复加速，约 7 分钟恢复满体力。' },
     { id: 'cloud_bed_limited', name: '云朵梦境大床', category: 'bed', appliesTo: 'both', price: 0, currency: 'gems', unlockMode: 'ad', limited: true, slotTheme: 'rainbow', effectTag: '通用 · 约5分极速回满', sleepRate: 0.33, radius: 0.92, entryOffset: [0.0, 0.34], desc: '限定 · 猫狗通用的星月云朵大床，约 5 分钟即可极速恢复满体力。' },
     { id: 'cat_bowl_fancy', name: '陶瓷双格猫盆', category: 'bowl', appliesTo: 'cat', price: 240, currency: 'coins', slotTheme: 'gem', effectTag: '猫盆 · 饱腹+20%', feedBonus: 0.20, radius: 0.58, entryOffset: [0.0, 0.58], desc: '粉嫩蝴蝶结陶瓷双碗，小猫自动进食时饱腹回复额外 +20%。' },
