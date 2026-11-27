@@ -3403,10 +3403,10 @@ export class Main extends Component {
             return;
         }
 
-        const vpW = 660, vpH = 296;
+        const vpW = 660, vpH = 290;
         const rowH = 54, gap = 8;
         const totalH = Math.max(vpH, list.length * (rowH + gap) + 12);
-        const vp = this.uiNode(content, '招募记录可视窗口', 0, 48, vpW, vpH);
+        const vp = this.uiNode(content, '招募记录可视窗口', 0, 40, vpW, vpH);
         const vbg = vp.addComponent(Graphics);
         vbg.fillColor = this.color('#F5E8CE');
         vbg.strokeColor = this.color('#D8B886');
@@ -3450,6 +3450,12 @@ export class Main extends Component {
             petLbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
         });
         scroll.scrollToTop(0);
+        // 将「我知道了」按钮下移至底部居中，与滚动记录区完全分离不遮挡
+        const okBtn = content.getChildByName('弹窗按钮-我知道了');
+        if (okBtn) {
+            okBtn.setPosition(0, -182, 0);
+            okBtn.setScale(0.86, 0.86, 1);
+        }
     }
 
     private showRecruitRewards() {
@@ -6441,11 +6447,11 @@ export class Main extends Component {
         const cand = this.dailyCandidate();
         const info = signInViewInfo(cand.signIn!, cand.shop.day);
 
-        // 全屏暖色半透明面板背景遮罩（突出签到弹窗层次并隔离庭院点击）
-        const backdrop = this.uiNode(panel, '签到弹窗遮罩', 0, 0, 3200, 3200);
+        // 贴合木框卡片的柔和暖色底阴影蒙版（按卡片尺寸自适应，不溢出 9:16 画面）
+        const backdrop = this.uiNode(panel, '签到弹窗遮罩', 0, -96, 948, 1140);
         const bdg = backdrop.addComponent(Graphics);
-        bdg.fillColor = new Color(34, 22, 12, 148);
-        bdg.rect(-1600, -1600, 3200, 3200);
+        bdg.fillColor = new Color(34, 22, 12, 112);
+        bdg.roundRect(-474, -570, 948, 1140, 46);
         bdg.fill();
         this.intercept(backdrop);
 
@@ -6622,11 +6628,11 @@ export class Main extends Component {
             });
         }
 
-        // 全屏暖色半透明弹窗背景遮罩
-        const backdrop = this.uiNode(panel, '设置弹窗遮罩', 0, 0, 3200, 3200);
+        // 贴合木框卡片的柔和暖色底阴影蒙版（按卡片尺寸自适应，不溢出 9:16 画面）
+        const backdrop = this.uiNode(panel, '设置弹窗遮罩', 0, -90, 956, 1120);
         const bdg = backdrop.addComponent(Graphics);
-        bdg.fillColor = new Color(34, 22, 12, 148);
-        bdg.rect(-1600, -1600, 3200, 3200);
+        bdg.fillColor = new Color(34, 22, 12, 112);
+        bdg.roundRect(-478, -560, 956, 1120, 46);
         bdg.fill();
         this.intercept(backdrop);
 
