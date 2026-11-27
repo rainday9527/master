@@ -8816,7 +8816,7 @@ export class Main extends Component {
         this.dailySprite(close, 'close', 0, 0, 78, 78);
         this.shopButton(close, () => this.open('home'));
 
-        this.dailyText(panel, '点击已立墓碑可重温生平照片与冒险高光记录', -70, 316, 560, 34, 21);
+        this.dailyText(panel, '点击已立墓碑可重温生平，离世伙伴仍可看广告复活', -70, 316, 560, 34, 20);
         const buyTombBtn = this.bagButton(panel, '去买墓碑 ›', 282, 316, 174, 46, () => { this.shopTab = 'tombstones'; this.open('shop'); });
         buyTombBtn.name = '纪念角买墓碑按钮';
 
@@ -8895,10 +8895,14 @@ export class Main extends Component {
                 resources.load('art/memorial/' + tomb.artKey + '/spriteFrame', SpriteFrame, (e, f) => {
                     if (!e && f && isValid(tsp, true)) tsp.spriteFrame = f;
                 });
+                const recPet = this.data.pets.find(p => p.id === rec.petId);
+                if (recPet?.dead) {
+                    this.pillBadge(card, '可广告复活', 84, 134, 118, 28, '#D96B27', C.white, 16);
+                }
                 const nLbl = this.text(card, rec.customName, 0, -44, 300, 34, 25, '#4E3422'); nLbl.isBold = true;
                 const eLbl = this.text(card, `「${rec.epitaph}」`, 0, -90, 290, 50, 18, '#6D5239');
                 eLbl.enableWrapText = true; eLbl.lineHeight = 23;
-                const hint = this.text(card, '点击重温生平与冒险高光 ›', 0, -138, 280, 26, 17, '#3D7A38'); hint.isBold = true;
+                const hint = this.text(card, recPet?.dead ? '点击怀念 / 看广告复活 ›' : '点击重温生平与冒险高光 ›', 0, -138, 280, 26, 17, recPet?.dead ? '#C95A1E' : '#3D7A38'); hint.isBold = true;
                 this.intercept(card); this.pressVisualFeedback(card);
                 card.on(Node.EventType.TOUCH_END, () => this.showMemorialDetailDialog(rec), this);
             });
