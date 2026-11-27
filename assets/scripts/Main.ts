@@ -254,7 +254,8 @@ export class Main extends Component {
     private shadowTexture: Promise<Texture2D | null> | null = null;
     private page: Page = 'login';
     private settingsReturnPage: 'home' | 'login' = 'home';
-    private readonly enableGm = DEBUG;
+    // 本地测试阶段开启 GM；打 TapTap 正式提审包前改为 false（配合 debug=false 双重确保正式包彻底隐藏禁用）
+    private readonly enableGm = true;
     private selected = 0;
     private petSelected = false;
     private careSelected = '';
