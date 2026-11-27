@@ -8079,7 +8079,7 @@ export class Main extends Component {
     }
 
     /** 派出或召回宠物冒险：派出后从主城隐藏、记录冒险出发日记，并在冒险页小路上现身 */
-    public setPetAdventuring(petId: number, out: boolean, durationMs = 120000): boolean {
+    public setPetAdventuring(petId: number, out: boolean, durationMs = 180000): boolean {
         const pet = this.data.pets.find(p => p.id === petId);
         if (!pet || pet.dead || pet.lost) return false;
         if (Boolean(pet.adventuring) === out) { this.syncActorVisibility(); return true; }
@@ -9183,7 +9183,7 @@ export class Main extends Component {
             if (candidates.length) {
                 const chosen = candidates[Math.floor(Math.random() * candidates.length)];
                 if (!chosen.adventuring && this.data.pets.filter(p => !p.dead && !p.lost).length >= 2) {
-                    this.setPetAdventuring(chosen.id, true, 90000);
+                    this.setPetAdventuring(chosen.id, true, 180000);
                 } else {
                     const out = rollAdventureEvent(this.petDisplayName(chosen.id), BREEDS[chosen.id].kind, chosen.health, chosen.joy);
                     this.triggerAdventureOutcome(chosen, out);
