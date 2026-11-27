@@ -2071,7 +2071,6 @@ export class Main extends Component {
     }
     private resolutionPolicy: number | null = null;
     private activeEditCount = 0;
-    private editingPanelOffsetY = 0;
 
     private resetBrowserViewportScroll() {
         if (typeof window !== 'undefined' && typeof window.scrollTo === 'function') {
@@ -2085,41 +2084,86 @@ export class Main extends Component {
         }
     }
 
-    private bindEditBoxKeyboardAdaptation(editBox: EditBox, liftOffsetY = 200) {
+    private alignEditBoxDomInput(editBox: EditBox) {
+        if (typeof document === 'undefined' || !isValid(editBox?.node, true) || !this.uiCamera) return;
+        const impl = (editBox as unknown as { _impl?: { _edTxt?: HTMLElement } })._impl;
+        const el = impl?._edTxt || (document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement ? document.activeElement : null);
+        const canvas = document.getElementById('GameCanvas');
+        if (!el || !canvas) return;
+        const uiTr = editBox.node.getComponent(UITransform);
+        if (!uiTr) return;
+        const rect = canvas.getBoundingClientRect();
+        const wp = editBox.node.worldPosition;
+        const halfW = (uiTr.width * Math.abs(editBox.node.worldScale.x)) / 2;
+        const halfH = (uiTr.height * Math.abs(editBox.node.worldScale.y)) / 2;
+        const pBL = new Vec3(), pTR = new Vec3();
+        this.uiCamera.worldToScreen(new Vec3(wp.x - halfW, wp.y - halfH, wp.z), pBL);
+        this.uiCamera.worldToScreen(new Vec3(wp.x + halfW, wp.y + halfH, wp.z), pTR);
+        const vpW = Math.max(1, this.uiCamera.camera?.width || canvas.width || rect.width);
+        const vpH = Math.max(1, this.uiCamera.camera?.height || canvas.height || rect.height);
+        const left = rect.left + (pBL.x / vpW) * rect.width + 6;
+        const right = rect.left + (pTR.x / vpW) * rect.width - 6;
+        const top = rect.top + (1 - pTR.y / vpH) * rect.height + 2;
+        const bottom = rect.top + (1 - pBL.y / vpH) * rect.height - 2;
+        const w = Math.max(40, right - left);
+        const h = Math.max(20, bottom - top);
+        el.style.position = 'fixed';
+        el.style.transform = 'none';
+        el.style.webkitTransform = 'none';
+        el.style.left = `${left.toFixed(1)}px`;
+        el.style.top = `${top.toFixed(1)}px`;
+        el.style.width = `${w.toFixed(1)}px`;
+        el.style.height = `${h.toFixed(1)}px`;
+        el.style.lineHeight = `${h.toFixed(1)}px`;
+        el.style.fontSize = `${Math.max(14, Math.round(h * 0.52))}px`;
+        el.style.textAlign = 'center';
+        el.style.padding = '0';
+        el.style.margin = '0';
+        el.style.boxSizing = 'border-box';
+        el.style.zIndex = '9999';
+    }
+
+    private bindEditBoxKeyboardAdaptation(editBox: EditBox) {
         let isEditing = false;
         const onBegan = () => {
             if (isEditing) return;
             isEditing = true;
             this.activeEditCount++;
-            this.editingPanelOffsetY = liftOffsetY;
+            // 1) 立即将 Cocos DOM <input> 精准钉在可视输入框的屏幕坐标上（修复 Canvas 原点居中导致 <input> 跑到屏外引发浏览器滚动跳动的问题）
+            this.alignEditBoxDomInput(editBox);
+            // 2) 软键盘弹出期间冻结 Cocos 自动随浏览器视口缩放，绝不移动弹窗坐标
+            if (this.activeEditCount === 1) {
+                try { view.resizeWithBrowserSize(false); } catch {}
+            }
             this.resetBrowserViewportScroll();
-            this.layoutDialog();
+            if (typeof requestAnimationFrame === 'function') {
+                requestAnimationFrame(() => {
+                    if (isValid(this, true) && isEditing) {
+                        this.alignEditBoxDomInput(editBox);
+                        this.resetBrowserViewportScroll();
+                    }
+                });
+            }
             this.scheduleOnce(() => {
-                if (!isValid(this, true) || this.activeEditCount <= 0) return;
-                this.resetBrowserViewportScroll();
-                this.layoutDialog();
-            }, 0.14);
-            this.scheduleOnce(() => {
-                if (!isValid(this, true) || this.activeEditCount <= 0) return;
-                this.resetBrowserViewportScroll();
-                this.layoutDialog();
-            }, 0.34);
+                if (isValid(this, true) && isEditing) {
+                    this.alignEditBoxDomInput(editBox);
+                    this.resetBrowserViewportScroll();
+                }
+            }, 0.12);
         };
         const onEnded = () => {
             if (!isEditing) return;
             isEditing = false;
             this.activeEditCount = Math.max(0, this.activeEditCount - 1);
             if (this.activeEditCount === 0) {
-                this.editingPanelOffsetY = 0;
                 this.resetBrowserViewportScroll();
-                this.layout();
-                this.layoutDialog();
                 this.scheduleOnce(() => {
                     if (!isValid(this, true) || this.activeEditCount > 0) return;
+                    try { view.resizeWithBrowserSize(true); } catch {}
                     this.resetBrowserViewportScroll();
-                    this.layout();
-                    this.layoutDialog();
-                }, 0.24);
+                    const size = view.getVisibleSize();
+                    if (size.width !== this.width || size.height !== this.height) this.layout();
+                }, 0.25);
             }
         };
         editBox.node.on(EditBox.EventType.EDITING_DID_BEGAN, onBegan, this);
@@ -2352,9 +2396,8 @@ export class Main extends Component {
 
     private closeDialog() {
         if (!this.dialog) return;
-        const wasEditing = this.activeEditCount > 0 || this.editingPanelOffsetY !== 0;
+        const wasEditing = this.activeEditCount > 0;
         this.activeEditCount = 0;
-        this.editingPanelOffsetY = 0;
         this.dialog.active = false;
         this.dialog.removeFromParent();
         this.dialog.destroy();
@@ -2362,12 +2405,13 @@ export class Main extends Component {
         this.blockedUntil = Date.now() + 350;
         if (wasEditing) {
             this.resetBrowserViewportScroll();
-            this.layout();
             this.scheduleOnce(() => {
                 if (!isValid(this, true) || this.activeEditCount > 0) return;
+                try { view.resizeWithBrowserSize(true); } catch {}
                 this.resetBrowserViewportScroll();
-                this.layout();
-            }, 0.24);
+                const size = view.getVisibleSize();
+                if (size.width !== this.width || size.height !== this.height) this.layout();
+            }, 0.25);
         }
     }
 
@@ -2388,10 +2432,7 @@ export class Main extends Component {
         panel.setScale(scale, scale, 1);
         const centerX = (bounds.left + bounds.right) / 2;
         const baseY = (bounds.top + bounds.bottom) / 2;
-        const maxY = bounds.top - (panelHeight * scale) / 2 - 12;
-        const minY = bounds.bottom + (panelHeight * scale) / 2 + 12;
-        const targetY = Math.max(minY, Math.min(maxY, baseY + this.editingPanelOffsetY * scale));
-        panel.setPosition(centerX, targetY, 0);
+        panel.setPosition(centerX, baseY, 0);
     }
 
     private showDialog(title: string, body: string,
@@ -4892,7 +4933,7 @@ export class Main extends Component {
         editBox.placeholder = '点击输入新名字（1~8字）';
         editBox.string = this.petDisplayName(petId);
         boxNode.active = true;
-        this.bindEditBoxKeyboardAdaptation(editBox, 210);
+        this.bindEditBoxKeyboardAdaptation(editBox);
 
         // 费用说明行：未改过名显示「首次改名免费」，已改过名仅显示「本次改名消耗 [💎] 100」（拆分为独立节点避免图标与文字重叠）
         if (isFree) {
@@ -9363,7 +9404,7 @@ export class Main extends Component {
             slot.on(Node.EventType.TOUCH_END, () => { selectedTomb = tomb.id; redraws.forEach(fn => fn()); }, this);
         });
 
-        const makeSingleInput = (labelText: string, y: number, initVal: string, maxLen: number, ph: string, liftY: number): EditBox => {
+        const makeSingleInput = (labelText: string, y: number, initVal: string, maxLen: number, ph: string): EditBox => {
             const lbl = this.text(panel, labelText, -270, y + 48, 220, 30, 22, '#6E4627');
             lbl.isBold = true; lbl.horizontalAlign = Label.HorizontalAlign.LEFT;
             const box = this.uiNode(panel, '立碑输入-' + labelText, 0, y, 740, 64);
@@ -9387,12 +9428,12 @@ export class Main extends Component {
             eb.inputMode = EditBox.InputMode.SINGLE_LINE; eb.returnType = EditBox.KeyboardReturnType.DONE;
             eb.textLabel = tl; eb.placeholderLabel = pl; eb.maxLength = maxLen; eb.placeholder = ph; eb.string = initVal;
             box.active = true;
-            this.bindEditBoxKeyboardAdaptation(eb, liftY);
+            this.bindEditBoxKeyboardAdaptation(eb);
             return eb;
         };
 
-        const nameEb = makeSingleInput('刻字名字', 16, this.petDisplayName(petId), 10, '输入宠物名字', 180);
-        const epitaphEb = makeSingleInput('纪念墓志铭', -120, '永远记得陪我度过的每一个晴天', 28, '写下想对它说的话', 260);
+        const nameEb = makeSingleInput('刻字名字', 16, this.petDisplayName(petId), 10, '输入宠物名字');
+        const epitaphEb = makeSingleInput('纪念墓志铭', -120, '永远记得陪我度过的每一个晴天', 28, '写下想对它说的话');
 
         const confirmBtn = this.shopArt(panel, 'buy', -160, -390, 270, 270 * 120 / 321);
         confirmBtn.name = '弹窗按钮-确认立碑';
