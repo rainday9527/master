@@ -1871,7 +1871,9 @@ export class Main extends Component {
             this.intercept(gm); this.pressVisualFeedback(gm, gm.children.slice());
             gm.on(Node.EventType.TOUCH_END, () => this.toggleGmPanel(), this);
             gm.active = false;
-            this.ui.on(Node.EventType.TOUCH_START, this.onGmScreenTap, this, true);
+            if (typeof window !== 'undefined' && window.addEventListener) {
+                window.addEventListener('pointerdown', this.onGmScreenTap, { passive: true });
+            }
             input.on(Input.EventType.TOUCH_START, this.onGmScreenTap, this);
         }
 
@@ -10669,7 +10671,9 @@ export class Main extends Component {
         this.rewardedVideoProvider = null;
         input.off(Input.EventType.TOUCH_START, this.onWorldTouchStart, this);
         input.off(Input.EventType.TOUCH_START, this.onGmScreenTap, this);
-        if (this.ui && isValid(this.ui, true)) this.ui.off(Node.EventType.TOUCH_START, this.onGmScreenTap, this, true);
+        if (typeof window !== 'undefined' && window.removeEventListener) {
+            window.removeEventListener('pointerdown', this.onGmScreenTap);
+        }
         input.off(Input.EventType.TOUCH_MOVE, this.onWorldTouchMove, this);
         input.off(Input.EventType.TOUCH_END, this.onWorldTouch, this);
         this.unscheduleAllCallbacks(); if (this.data) this.persist();
