@@ -6592,6 +6592,25 @@ export class Main extends Component {
         return SoundManager.getState();
     }
 
+    private paintSettingSwitch(sw: Node, on: boolean) {
+        const swg = sw.getComponent(Graphics);
+        if (swg) {
+            swg.clear();
+            swg.fillColor = this.color(on ? '#66B85C' : '#C8B59B');
+            swg.strokeColor = this.color(on ? '#3D7D36' : '#968166');
+            swg.lineWidth = 3;
+            swg.roundRect(-76, -31, 152, 62, 31); swg.fill(); swg.stroke();
+            swg.fillColor = this.color('#FFFDF8');
+            swg.circle(on ? 44 : -44, 0, 23); swg.fill();
+        }
+        const txtNode = sw.getChildByName('文字');
+        if (txtNode) {
+            txtNode.setPosition(on ? -18 : 18, 0, 0);
+            const sl = txtNode.getComponent(Label);
+            if (sl) sl.string = on ? '开启' : '关闭';
+        }
+    }
+
     private toggleSetting(key: 'bgm' | 'sfx' | 'floatToast' | 'highFps') {
         const c = this.dailyCandidate();
         const cur = c.settings || { bgm: true, sfx: true, floatToast: true, highFps: true };
@@ -6609,9 +6628,10 @@ export class Main extends Component {
             highFps: '60帧高帧率模式',
         };
         this.toast(`已${next[key] ? '开启' : '关闭'}${names[key]}`);
+        // 原地重绘对应开关胶囊，不重建整个设置面板，彻底消除点击闪烁与跳动
         if (this.page === 'settings' && this.sheet && isValid(this.sheet, true)) {
-            this.sheet.removeAllChildren();
-            this.renderSettings();
+            const sw = this.sheet.getChildByName('设置行-' + key)?.getChildByName('开关-' + key);
+            if (sw && isValid(sw, true)) this.paintSettingSwitch(sw, next[key]);
         }
     }
 
@@ -6681,22 +6701,16 @@ export class Main extends Component {
 
             // 开关胶囊按钮
             const sw = this.uiNode(row, '开关-' + item.key, 228, 0, 152, 62);
-            const swg = sw.addComponent(Graphics);
-            swg.fillColor = this.color(item.on ? '#66B85C' : '#C8B59B');
-            swg.strokeColor = this.color(item.on ? '#3D7D36' : '#968166');
-            swg.lineWidth = 3;
-            swg.roundRect(-76, -31, 152, 62, 31); swg.fill(); swg.stroke();
-            // 滑块圆钮
-            swg.fillColor = this.color('#FFFDF8');
-            swg.circle(item.on ? 44 : -44, 0, 23); swg.fill();
+            sw.addComponent(Graphics);
             const sl = this.text(sw, item.on ? '开启' : '关闭', item.on ? -18 : 18, 0, 76, 36, 23, '#FFFFFF');
             sl.isBold = true; sl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+            this.paintSettingSwitch(sw, item.on);
             this.intercept(sw); this.pressVisualFeedback(sw);
             sw.on(Node.EventType.TOUCH_END, () => this.toggleSetting(item.key), this);
         });
 
-        // 底部存档操作按钮
-        const saveBtn = this.dailyButton(panel, '立即保存存档', -168, -422, 312, 80, () => {
+        // 底部存档操作按钮（暂隐藏「重置游戏存档」按钮，后续需要时将 resetBtn.active 改为 true 即可恢复）
+        const saveBtn = this.dailyButton(panel, '立即保存存档', 0, -422, 340, 80, () => {
             const c = this.dailyCandidate();
             if (this.commitShop(c)) this.toast('存档已成功保存至本地！');
         }, 25);
@@ -6717,6 +6731,7 @@ export class Main extends Component {
         resetBtn.name = '设置重置按钮';
         const rbl = resetBtn.getChildByName('文字')?.getComponent(Label);
         if (rbl) rbl.color = this.color('#9E2D1E');
+        resetBtn.active = false;
 
         this.dailyText(panel, '猫狗庭院 v1.0.0 · 绘本治愈版 · 本地自动存档保护中', 0, -504, 680, 34, 21);
     }
