@@ -1918,8 +1918,16 @@ export class Main extends Component {
         n.on(Node.EventType.TOUCH_START, block, this); n.on(Node.EventType.TOUCH_END, block, this); n.on(Node.EventType.TOUCH_CANCEL, block, this);
     }
     private text(parent: Node, value: string, x: number, y: number, w: number, h: number, font = 28, color = C.ink): Label {
-        const n = this.uiNode(parent, '文字', x, y, w, h), l = n.addComponent(Label);
-        l.string = value; l.fontSize = font; l.lineHeight = font + 9; l.color = this.color(color);
+        // 手机竖屏（390~430px）全局小字可读性增强：小字自动放大并加粗，保持 SHRINK 防裁切
+        const boost = font <= 16 ? 5 : font <= 20 ? 4 : font <= 24 ? 3 : font <= 27 ? 2 : 0;
+        const size = font + boost;
+        const boxH = Math.max(h, size + 6);
+        const n = this.uiNode(parent, '文字', x, y, w, boxH), l = n.addComponent(Label);
+        l.string = value; l.fontSize = size; l.lineHeight = size + 7; l.color = this.color(color);
+        if (font <= 26) {
+            l.isBold = true;
+            l.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+        }
         l.horizontalAlign = Label.HorizontalAlign.CENTER; l.verticalAlign = Label.VerticalAlign.CENTER;
         l.overflow = Label.Overflow.SHRINK; return l;
     }
@@ -6604,10 +6612,10 @@ export class Main extends Component {
     private dailyText(parent: Node, value: string, x: number, y: number, w: number, h: number, font = 28, left = false, bold = false): Label {
         const label = this.text(parent, value, x, y, w, h, font, '#49301E');
         label.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
-        label.isBold = true; label.lineHeight = font + 6;
+        label.isBold = true; label.lineHeight = label.fontSize + 6;
         label.horizontalAlign = left ? Label.HorizontalAlign.LEFT : Label.HorizontalAlign.CENTER;
         label.verticalAlign = Label.VerticalAlign.CENTER;
-        label.enableWrapText = false; label.overflow = Label.Overflow.CLAMP;
+        label.enableWrapText = false; label.overflow = Label.Overflow.SHRINK;
         label.enableOutline = true; label.outlineColor = this.color('#FFF3D5'); label.outlineWidth = 2;
         label.enableShadow = false;
         return label;
