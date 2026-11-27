@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Camera, Canvas, UITransform, Graphics, Label, Color, Vec3, Vec2, RenderTexture, MeshRenderer, Material, primitives, utils, view, ResolutionPolicy, Layers, input, Input, EventTouch, sys, BlockInputEvents, Sprite, SpriteFrame, resources, DirectionalLight, Vec4, JsonAsset, Texture2D, ImageAsset, isValid, tween, Tween, ScrollView, Mask, UIOpacity, profiler, EditBox, game } from 'cc';
+import { _decorator, Component, Node, Camera, Canvas, UITransform, Graphics, Label, Color, Vec3, Vec2, RenderTexture, MeshRenderer, Material, primitives, utils, view, ResolutionPolicy, Layers, input, Input, EventTouch, sys, BlockInputEvents, Sprite, SpriteFrame, resources, DirectionalLight, Vec4, JsonAsset, Texture2D, ImageAsset, isValid, tween, Tween, ScrollView, Mask, UIOpacity, profiler, EditBox, game, director } from 'cc';
 import { DEBUG } from 'cc/env';
 
 import { ITEM_CATALOG, ItemDefinition, ItemCategory, PetStat, ShopSlot, findItem, itemApplies, effectText, drawShopSlots } from './ItemCatalog';
@@ -324,6 +324,123 @@ export class Main extends Component {
     private rewardedVideoTimer: ReturnType<typeof setTimeout> | null = null;
     private rewardedVideoDestroyed = false;
     private readonly rewardedVideoSetter = (provider: RewardedVideoProvider | null) => this.setRewardedVideoProvider(provider);
+    private webglContextLost = false;
+    private lastResumeAt = 0;
+
+    private readonly onAppHide = () => {
+        if (!isValid(this, true)) return;
+        if (this.data) this.persist();
+        SoundManager.onAppHide();
+    };
+
+    private readonly onAppShow = () => {
+        if (!isValid(this, true)) return;
+        const now = Date.now();
+        if (now - this.lastResumeAt < 180) return;
+        this.lastResumeAt = now;
+        try { if (game?.isPaused?.()) game.resume(); } catch {}
+        try { if (director?.isPaused?.()) director.resume(); } catch {}
+        SoundManager.onAppShow();
+        this.resetBrowserViewportScroll();
+        // 切回前台时强制刷新视口尺寸、相机与当前页面，防止手机 GPU 合成器清空帧缓冲或 FBO 导致黑屏
+        const recover = () => {
+            if (!isValid(this, true)) return;
+            try { if (game?.isPaused?.()) game.resume(); } catch {}
+            try { if (director?.isPaused?.()) director.resume(); } catch {}
+            // 触发 Cocos 重新同步画布尺寸与相机投影矩阵
+            if (this.activeEditCount === 0) {
+                try {
+                    const fs = view.getFrameSize();
+                    if (fs.width > 0 && fs.height > 0) view.setFrameSize(fs.width, fs.height);
+                } catch {}
+                this.resolutionPolicy = null;
+                this.layout();
+            }
+            this.syncActorVisibility();
+            this.syncYardFurniture();
+            this.renderHeader();
+            // 宠物主页 3D RenderTexture 在部分安卓/iOS 后台切回后会被系统清空，重建一次确保不黑屏
+            if (this.page === 'profile') {
+                this.open('profile');
+            }
+        };
+        recover();
+        this.scheduleOnce(recover, 0.2);
+        // 终极兜底：若系统在后台彻底回收了 WebGL 上下文且未能恢复，安全热重载恢复画面（退后台前已自动存档）
+        this.scheduleOnce(() => {
+            if (!isValid(this, true) || typeof document === 'undefined' || document.visibilityState === 'hidden') return;
+            const cvs = document.getElementById('GameCanvas') as HTMLCanvasElement | null;
+            let lost = this.webglContextLost;
+            if (!lost && cvs) {
+                try {
+                    const gl = (cvs.getContext('webgl2') || cvs.getContext('webgl')) as WebGLRenderingContext | null;
+                    if (gl && typeof gl.isContextLost === 'function' && gl.isContextLost()) lost = true;
+                } catch {}
+            }
+            if (lost && typeof window !== 'undefined' && window.location) {
+                if (this.data) this.persist();
+                window.location.reload();
+            }
+        }, 1.2);
+    };
+
+    private readonly onVisibilityChange = () => {
+        if (typeof document === 'undefined') return;
+        if (document.visibilityState === 'hidden') this.onAppHide();
+        else if (document.visibilityState === 'visible') this.onAppShow();
+    };
+
+    private readonly onWebglContextLost = (e: Event) => {
+        // 必须 preventDefault()，否则浏览器会永久销毁 WebGL 上下文导致回前台必黑屏
+        e.preventDefault();
+        this.webglContextLost = true;
+        if (this.data) this.persist();
+    };
+
+    private readonly onWebglContextRestored = () => {
+        this.webglContextLost = false;
+        this.onAppShow();
+    };
+
+    private bindAppLifecycleListeners() {
+        try {
+            game.on(game.EVENT_HIDE, this.onAppHide, this);
+            game.on(game.EVENT_SHOW, this.onAppShow, this);
+        } catch {}
+        if (typeof document !== 'undefined' && document.addEventListener) {
+            document.addEventListener('visibilitychange', this.onVisibilityChange);
+            const cvs = document.getElementById('GameCanvas');
+            if (cvs) {
+                cvs.addEventListener('webglcontextlost', this.onWebglContextLost, false);
+                cvs.addEventListener('webglcontextrestored', this.onWebglContextRestored, false);
+            }
+        }
+        if (typeof window !== 'undefined' && window.addEventListener) {
+            window.addEventListener('pagehide', this.onAppHide);
+            window.addEventListener('pageshow', this.onAppShow);
+            window.addEventListener('focus', this.onAppShow);
+        }
+    }
+
+    private unbindAppLifecycleListeners() {
+        try {
+            game.off(game.EVENT_HIDE, this.onAppHide, this);
+            game.off(game.EVENT_SHOW, this.onAppShow, this);
+        } catch {}
+        if (typeof document !== 'undefined' && document.removeEventListener) {
+            document.removeEventListener('visibilitychange', this.onVisibilityChange);
+            const cvs = document.getElementById('GameCanvas');
+            if (cvs) {
+                cvs.removeEventListener('webglcontextlost', this.onWebglContextLost, false);
+                cvs.removeEventListener('webglcontextrestored', this.onWebglContextRestored, false);
+            }
+        }
+        if (typeof window !== 'undefined' && window.removeEventListener) {
+            window.removeEventListener('pagehide', this.onAppHide);
+            window.removeEventListener('pageshow', this.onAppShow);
+            window.removeEventListener('focus', this.onAppShow);
+        }
+    }
 
     onLoad() {
         profiler.hideStats();
@@ -350,6 +467,7 @@ export class Main extends Component {
         input.on(Input.EventType.TOUCH_START, this.onWorldTouchStart, this);
         input.on(Input.EventType.TOUCH_MOVE, this.onWorldTouchMove, this);
         input.on(Input.EventType.TOUCH_END, this.onWorldTouch, this);
+        this.bindAppLifecycleListeners();
         this.schedule(this.tick, 1);
         if (this.saveWarning) this.toast('存档异常，已安全恢复为初始庭院');
     }
@@ -11183,6 +11301,7 @@ export class Main extends Component {
         }
         input.off(Input.EventType.TOUCH_MOVE, this.onWorldTouchMove, this);
         input.off(Input.EventType.TOUCH_END, this.onWorldTouch, this);
+        this.unbindAppLifecycleListeners();
         this.unscheduleAllCallbacks(); if (this.data) this.persist();
         this.socialBubbles.forEach(b => { if (isValid(b.node, true)) b.node.destroy(); });
         this.socialBubbles = []; this.pairCooldowns.clear();

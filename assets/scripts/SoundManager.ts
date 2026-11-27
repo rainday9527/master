@@ -170,6 +170,22 @@ class SoundManagerImpl {
         }
     }
 
+    public onAppHide() {
+        this.stopBgmLoop();
+        if (this.ctx && this.ctx.state === 'running') {
+            this.ctx.suspend().catch(() => {});
+        }
+    }
+
+    public onAppShow() {
+        if (this.ctx && this.ctx.state === 'suspended') {
+            this.ctx.resume().catch(() => {});
+        }
+        if (this.unlocked && this.bgmEnabled && this.bgmMode !== 'none') {
+            this.startBgmLoop();
+        }
+    }
+
     public getState() {
         return {
             bgmEnabled: this.bgmEnabled,
