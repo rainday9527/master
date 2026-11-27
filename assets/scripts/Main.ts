@@ -6004,16 +6004,32 @@ export class Main extends Component {
     }
 
     public showFurnitureRulesDialog() {
-        const msg =
-            '【家具耐久度分档】\n' +
-            '· 基础金币家具：100 耐久\n' +
-            '· 紫/金钻石家具：160 耐久\n' +
-            '· 限定彩框家具：260 耐久\n\n' +
-            '【磨损与拆家机制】\n' +
-            '· 日常磨损：猫狗吃饭、清洁、玩耍、睡觉均会轻微消耗家具耐久。\n' +
-            '· 猫狗拆家：庭院会定时触发调皮猫狗拆家事件，大幅扣除家具耐久（猫爪布艺沙发最受青睐！）。\n' +
-            '· 损坏消失：耐久归零后家具会损坏消失并释放庭院空间，可在仓库重新摆放或前往商店购买新家具。';
-        this.showDialog('家具磨损与拆家规则', msg, [{ title: '我知道了', run: () => this.closeDialog() }]);
+        this.showDialog('家具磨损与拆家规则', '', [{ title: '我知道了', run: () => this.closeDialog() }]);
+        const panel = this.dialog?.getChildByName('通用弹窗面板');
+        const content = panel?.getChildByName('弹窗安全内容');
+        if (!content) return;
+        const bodyNode = content.getChildByName('弹窗正文');
+        if (bodyNode) bodyNode.active = false;
+
+        const lines = [
+            '• 耐久分档：金币家具 100 / 紫金钻石家具 160 / 限定彩框 260',
+            '• 日常磨损：猫狗吃饭、清洁、玩耍、睡觉均会轻微消耗耐久',
+            '• 猫狗拆家：庭院定时触发调皮拆家大幅扣耐久（最爱拆沙发！）',
+            '• 损坏消失：耐久归零后家具会损坏消失，释放空间方便换新',
+        ];
+        lines.forEach((txt, i) => {
+            const lbl = this.text(content, txt, 0, 140 - i * 64, 650, 56, 23, '#4E2912');
+            lbl.horizontalAlign = Label.HorizontalAlign.LEFT;
+            lbl.enableWrapText = true;
+            lbl.lineHeight = 30;
+            lbl.isBold = true;
+            lbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+        });
+        const okBtn = content.getChildByName('弹窗按钮-我知道了');
+        if (okBtn) {
+            okBtn.setPosition(0, -178, 0);
+            okBtn.setScale(0.86, 0.86, 1);
+        }
     }
 
     private renderLayoutPanel() {
