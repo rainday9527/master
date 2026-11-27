@@ -3414,6 +3414,42 @@ export class Main extends Component {
         this.layoutDialog();
     }
 
+    public showRecruitRulesDialog() {
+        if (this.dialog) this.closeDialog();
+        this.showDialog('招募规则与概率公示', '', [{ title: '我知道了', run: () => this.closeDialog() }]);
+        const panel = this.dialog?.getChildByName('通用弹窗面板');
+        const content = panel?.getChildByName('弹窗安全内容');
+        if (!content) return;
+        const bodyNode = content.getChildByName('弹窗正文');
+        if (bodyNode) bodyNode.active = false;
+
+        const total = Math.max(1, BREEDS.length);
+        const cnt = (r: 'SSSR' | 'SSR' | 'SR' | 'R') => BREEDS.filter(b => b.rarity === r).length;
+        const pct = (n: number) => (n * 100 / total).toFixed(1) + '%';
+        const perBreed = (100 / total).toFixed(2) + '%';
+
+        const lines = [
+            `• 卡池总计 ${total} 种猫狗（等概率随机，单只概率 ${perBreed}）`,
+            `• 传说 SSSR（${cnt('SSSR')}只）：${pct(cnt('SSSR'))}   ·   史诗 SSR（${cnt('SSR')}只）：${pct(cnt('SSR'))}`,
+            `• 稀有 SR（${cnt('SR')}只）：${pct(cnt('SR'))}   ·   普通 R（${cnt('R')}只）：${pct(cnt('R'))}`,
+            '• 招募费用：单抽 300 钻石，十连 2700 钻石（9 折）',
+            '• 重复获得自动转为该宠物本体，用于「宠物升星」；累计达标可领额外本体奖励',
+        ];
+        lines.forEach((txt, i) => {
+            const lbl = this.text(content, txt, 0, 148 - i * 54, 660, 48, 21, i === 1 ? '#B8560C' : '#4E2912');
+            lbl.horizontalAlign = Label.HorizontalAlign.LEFT;
+            lbl.enableWrapText = true;
+            lbl.lineHeight = 27;
+            lbl.isBold = true;
+            lbl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+        });
+        const okBtn = content.getChildByName('弹窗按钮-我知道了');
+        if (okBtn) {
+            okBtn.setPosition(0, -182, 0);
+            okBtn.setScale(0.86, 0.86, 1);
+        }
+    }
+
     public showRecruitHistoryDialog() {
         const list = (this.data.recruit.history || []).slice(0, 50);
         if (this.dialog) this.closeDialog();
@@ -3808,8 +3844,11 @@ export class Main extends Component {
         search.on(Node.EventType.TOUCH_END, () => this.showRecruitRewards(), this);
 
         // 招募记录通用按钮：位于「招募奖励」正下方，点击弹窗查看最近 50 条招募历史
-        const historyBtn = this.dailyButton(panel, '招募记录', 388, 438, 224, 62, () => this.showRecruitHistoryDialog(), 24);
+        const historyBtn = this.dailyButton(panel, '招募记录', 388, 438, 224, 60, () => this.showRecruitHistoryDialog(), 24);
         historyBtn.name = '查看招募记录按钮';
+        // 招募规则按钮：位于「招募记录」正下方，点击查看完整招募概率与规则说明
+        const rulesBtn = this.dailyButton(panel, '招募规则', 388, 368, 224, 58, () => this.showRecruitRulesDialog(), 24);
+        rulesBtn.name = '查看招募规则按钮';
         // 两个固定热区只缩放内部美术，价格使用原有钻石图标。
         const single = this.recruitButton(panel, '', 'normal', -240, -334, 460, 216, () => this.recruitTransaction('single'));
         single.name = '招募按钮-普通招募 · 300钻 / 1次';
@@ -4983,7 +5022,7 @@ export class Main extends Component {
         // 5) 中间大卡片：伙伴升星区（去掉“升级”字样，横向三栏：星级跃升 | 消耗材料 | 大号橙色升星按钮）
         const starCard = drawCard(layer, '升星区卡片', 0, -166, 984, 276, '#FFF9EA', '#6E4226', 5, 28);
         const starTag = drawCard(starCard, '升星区标题条', -308, 102, 276, 52, '#E99B48', '#6E4226', 3, 18);
-        const stTitle = this.text(starTag, '伙伴升星区', 0, 0, 250, 36, 26, '#FFFDF5');
+        const stTitle = this.text(starTag, '宠物升星', 0, 0, 250, 36, 26, '#FFFDF5');
         stTitle.isBold = true; stTitle.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
 
         const req = STAR_REQUIREMENTS[pet.star];
@@ -6433,7 +6472,7 @@ export class Main extends Component {
         this.bagPageLabel = this.dailyText(panel, '', 0, -540, 180, 40, 26);
         this.bagButton(panel, '下一页', 245, -540, 190, 58, () => { this.bagPage++; this.updateBag(); });
         this.bagButton(panel, '补充物资', -190, -608, 300, 64, () => this.open('shop'));
-        this.bagButton(panel, this.petSelected ? '返回伙伴' : '选择伙伴', 190, -608, 300, 64, () => this.open(this.petSelected ? 'pet' : 'home'));
+        this.bagButton(panel, this.petSelected ? '返回宠物' : '选择宠物', 190, -608, 300, 64, () => this.open(this.petSelected ? 'pet' : 'home'));
         this.updateBag();
     }
     private dailySprite(parent: Node, key: string, x: number, y: number, w: number, h: number, sliced = false, name = '每日任务底图') {
