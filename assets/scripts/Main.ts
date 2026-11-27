@@ -27,6 +27,8 @@ import {
     findFurniture, isFurnitureId, defaultPlacedFurniture, furnitureMatchesPet, furnitureMaxDurability,
 } from './FurnitureCatalog';
 import { SoundManager } from './SoundManager';
+import { TapTapRewardedVideoProvider, RewardedVideoProvider, RewardedVideoResult } from './TapTapRewardedVideoProvider';
+export type { RewardedVideoProvider, RewardedVideoResult } from './TapTapRewardedVideoProvider';
 
 const { ccclass } = _decorator;
 type Kind = 'cat' | 'dog';
@@ -34,14 +36,6 @@ type Currency = 'gems' | 'coins';
 // 激励视频单次奖励（钻石 200 / 金币 500）；后续数值调整只改此处。
 const VIDEO_REWARDS: Record<Currency, number> = { gems: 200, coins: 500 };
 type Page = 'login' | 'home' | 'recruit' | 'adventure' | 'album' | 'profile' | 'shop' | 'pet' | 'bag' | 'daily' | 'diary' | 'memorial' | 'layout' | 'signin' | 'settings';
-export type RewardedVideoResult = 'completed' | 'cancelled' | 'failed';
-export interface RewardedVideoProvider {
-    // 可信边界：仅由宿主注入的平台适配器调用终态回调，并在游戏主线程执行。
-    // completed 必须代表平台确认完整观看且视频已关闭；加载、开始、普通关闭不得映射为完成。
-    // 取消、加载/播放失败分别回传 cancelled/failed；每次调用最终必须回传终态。
-    // 此客户端接口无法验证平台凭证；不得将 UI 点击或不可信消息直接转发为 completed。
-    show(onResult: (result: RewardedVideoResult) => void): void;
-}
 interface Pet {
     id: number;
     hunger: number;
@@ -321,6 +315,10 @@ export class Main extends Component {
     private dialog: Node | null = null;
     private gmPanel: Node | null = null;
     private rewardedVideoPending = false;
+    private rewardedVideoGeneration = 0;
+    private rewardedVideoTimer: ReturnType<typeof setTimeout> | null = null;
+    private rewardedVideoDestroyed = false;
+    private readonly rewardedVideoSetter = (provider: RewardedVideoProvider | null) => this.setRewardedVideoProvider(provider);
 
     onLoad() {
         profiler.hideStats();
@@ -329,11 +327,12 @@ export class Main extends Component {
         // 暴露宿主激励视频广告 SDK 注入入口（提审/正式接入广告适配器时直接调用）
         if (typeof window !== 'undefined') {
             (window as unknown as { setCatParadiseRewardedAdProvider?: (p: RewardedVideoProvider | null) => void }).setCatParadiseRewardedAdProvider =
-                (provider: RewardedVideoProvider | null) => this.setRewardedVideoProvider(provider);
+                this.rewardedVideoSetter;
         }
+        this.setRewardedVideoProvider(new TapTapRewardedVideoProvider());
         // 立即保存商店迁移结果；失败时后续商店事务仍须先落盘才会生效。
         this.commitShop(this.data);
-        view.setDesignResolutionSize(1080, 1920, ResolutionPolicy.SHOW_ALL);
+        this.adaptResolution();
         this.world = new Node('温暖庭院');
         this.node.addChild(this.world);
         this.makeBackground();
@@ -1961,21 +1960,75 @@ export class Main extends Component {
         n.on(Node.EventType.TOUCH_CANCEL, () => animate(1, 0.10), this);
         n.on(Node.EventType.NODE_DESTROYED, () => Tween.stopAllByTarget(n));
     }
+    private adaptResolution() {
+        const frame = view.getFrameSize();
+        const policy = frame.width / frame.height < 1080 / 1920 ? ResolutionPolicy.FIXED_WIDTH : ResolutionPolicy.FIXED_HEIGHT;
+        if (this.resolutionPolicy === policy) return;
+        view.setDesignResolutionSize(1080, 1920, policy);
+        this.resolutionPolicy = policy;
+    }
+    private resolutionPolicy: number | null = null;
+
+    private chromeBounds() {
+        // Cocos 返回的是已转换的 UI 坐标，不能再乘 DPR 或设计缩放。
+        const safe = sys.getSafeAreaRect(false);
+        const left = Math.max(-this.width / 2, safe.x - this.width / 2);
+        const right = Math.min(this.width / 2, safe.x + safe.width - this.width / 2);
+        const bottom = Math.max(-this.height / 2, safe.y - this.height / 2);
+        let top = Math.min(this.height / 2, safe.y + safe.height - this.height / 2);
+        const host = globalThis as unknown as { innerWidth?: number; tap?: { getMenuButtonBoundingClientRect?: () => { bottom: number }; getSystemInfoSync?: () => { windowWidth?: number } } };
+        if (host.tap) {
+            // 胶囊接口不可用时仍预留 100 CSS px，覆盖截图中位于货币栏下方的胶囊。
+            let capsuleBottom = 100;
+            let viewportWidth = host.innerWidth || 0;
+            try {
+                const info = host.tap.getSystemInfoSync?.();
+                viewportWidth = info?.windowWidth || viewportWidth;
+                const rect = host.tap.getMenuButtonBoundingClientRect?.();
+                if (rect && Number.isFinite(rect.bottom) && rect.bottom > 0) capsuleBottom = rect.bottom;
+            } catch { /* 宿主接口不可用时使用保守胶囊带。 */ }
+            const units = viewportWidth > 0 ? this.width / viewportWidth : this.width / view.getFrameSize().width;
+            top = Math.min(top, this.height / 2 - (capsuleBottom + 8) * units);
+        }
+        return { left, right, bottom, top };
+    }
+
+    private layoutChrome() {
+        const bounds = this.chromeBounds();
+        const center = (bounds.left + bounds.right) / 2;
+        const scale = Math.min(1, (bounds.right - bounds.left - 32) / 1080);
+        this.top.setScale(scale, scale, 1);
+        this.top.setPosition(center, bounds.top - 114 * scale - 12, 0);
+        this.bottom.setScale(scale, scale, 1);
+        this.bottom.setPosition(center, bounds.bottom + 90 * scale, 0);
+        const sideTop = bounds.top - 228 * scale - 24;
+        const leftNames = ['庭院布置入口', '每日签到入口', '游戏设置入口'];
+        const rightNames = ['每日任务入口', '冒险日记入口', '后院纪念角入口'];
+        [leftNames, rightNames].forEach((names, side) => names.forEach((name, row) => {
+            this.ui.getChildByName(name)?.setPosition(side ? bounds.right - 111 : bounds.left + 111, sideTop - 87 - row * 178, 0);
+        }));
+    }
+
+    private layoutProfileContent(scale: number) {
+        if (!this.sheet) return;
+        const viewport = this.sheet.getChildByName('主页安全可视区');
+        if (!viewport) return;
+        const bounds = this.chromeBounds();
+        const top = Math.min(920, (bounds.top - 12) / scale);
+        const bottom = Math.max(-920, (bounds.bottom + 12) / scale);
+        viewport.setPosition(0, (top + bottom) / 2, 0);
+        viewport.getComponent(UITransform)!.setContentSize(1040, top - bottom);
+        const content = viewport.getChildByName('主页安全滚动内容')!;
+        content.setPosition(0, (top - bottom) / 2, 0);
+    }
+
     private layout() {
+        this.adaptResolution();
         const size = view.getVisibleSize(); this.width = size.width; this.height = size.height;
         this.ui.getComponent(UITransform)!.setContentSize(this.width, this.height);
         this.uiCamera.orthoHeight = this.height / 2;
-        this.top.setPosition(0, this.height / 2 - 110, 0);
-        // 入口宽190：右边缘距设计画布右侧4，按确认位置进一步靠右。
-        this.ui.getChildByName('每日任务入口')?.setPosition(this.width / 2 - 4 - 190 / 2, this.height / 2 - 295, 0);
-        this.ui.getChildByName('冒险日记入口')?.setPosition(this.width / 2 - 4 - 190 / 2, this.height / 2 - 458, 0);
-        this.ui.getChildByName('后院纪念角入口')?.setPosition(this.width / 2 - 4 - 190 / 2, this.height / 2 - 620, 0);
-        // 庭院布置入口移至左侧，与右侧「任务」入口完全水平对齐；「签到」「设置」依次排在正下方，GM 调试顺移至其下方
-        this.ui.getChildByName('庭院布置入口')?.setPosition(-this.width / 2 + 4 + 190 / 2, this.height / 2 - 295, 0);
-        this.ui.getChildByName('每日签到入口')?.setPosition(-this.width / 2 + 4 + 190 / 2, this.height / 2 - 458, 0);
-        this.ui.getChildByName('游戏设置入口')?.setPosition(-this.width / 2 + 4 + 190 / 2, this.height / 2 - 620, 0);
+        this.layoutChrome();
         this.ui.getChildByName('GM调试入口')?.setPosition(-Math.min(this.width / 2 - 72, 416), this.height / 2 - 744, 0);
-        this.bottom.setPosition(0, -this.height / 2 + 90, 0);
         this.layoutGmPanel();
         if (this.page !== 'home' && Date.now() > this.noticeUntil && this.notice) {
             this.notice.string = '';
@@ -2013,23 +2066,37 @@ export class Main extends Component {
                 if (bg) {
                     const cover = Math.max(this.width / 1080, this.height / 1920) / scale;
                     bg.getComponent(UITransform)!.setContentSize(1080 * cover, 1920 * cover);
+                    const artTop = this.height / (2 * scale);
+                    bg.setPosition(0, artTop - 960 * cover, 0);
+                    this.sheet.getChildByName('图鉴标题')?.setPosition(0, artTop - 137 * cover, 0);
                 }
+                const bounds = this.chromeBounds();
+                this.sheet.getChildByName('收起图鉴')?.setPosition(Math.min(462, bounds.right / scale - 64), Math.min(832, bounds.top / scale - 64), 0);
         } else if (this.page === 'profile' || this.page === 'login') {
             this.sheet.setPosition(0, 0, 0);
-            const scale = Math.min(this.width / 1080, this.height / 1920);
+            const bounds = this.chromeBounds();
+            const centerX = this.page === 'profile' ? (bounds.left + bounds.right) / 2 : 0;
+            const scale = Math.min(this.width / 1080, this.height / 1920, this.page === 'profile' ? (bounds.right - bounds.left) / 1080 : Infinity);
             this.sheet.setScale(scale, scale, 1);
-            if (this.page === 'login') {
-                const bg = this.sheet.getChildByName('登录背景图');
-                if (bg) {
-                    const cover = Math.max(this.width / 1080, this.height / 1920) / scale;
-                    bg.getComponent(UITransform)!.setContentSize(1080 * cover, 1920 * cover);
-                }
+            this.sheet.setPosition(centerX, 0, 0);
+            const bg = this.sheet.getChildByName(this.page === 'profile' ? '宠物主页底板' : '登录背景图');
+            if (bg) {
+                // 背景独立 cover，避免为铺满屏幕而把整页交互内容一起裁切。
+                const cover = Math.max(this.width / 1080, this.height / 1920) / scale;
+                bg.getComponent(UITransform)!.setContentSize(1080 * cover, 1920 * cover);
+                bg.setPosition(-centerX / scale, 0, 0);
             }
+            if (this.page === 'profile') this.layoutProfileContent(scale);
         } else if (this.page === 'adventure') {
                 this.sheet.setPosition(0, 0, 0);
                 this.sheet.setScale(1, 1, 1);
                 const logCard = this.sheet.getChildByName('冒险左上实时日志卡');
-                if (logCard) logCard.setPosition(-this.width / 2 + 24 + 185, this.height / 2 - 266 - 196, 0);
+                if (logCard) {
+                    // 日志位于货币顶栏下方，避免覆盖顶栏与胶囊安全带。
+                    const bounds = this.chromeBounds();
+                    const topScale = this.top.scale.y;
+                    logCard.setPosition(bounds.left + 24 + 185, this.top.position.y - 114 * topScale - 24 - 196, 0);
+                }
                 const chestBox = this.sheet.getChildByName('冒险右侧宝箱区');
                 if (chestBox) chestBox.setPosition(Math.min(this.width / 2 - 122, 386), -this.height / 2 + 520, 0);
             } else if (this.page === 'shop' || this.page === 'daily' || this.page === 'signin' || this.page === 'settings' || this.page === 'bag' || this.page === 'diary' || this.page === 'memorial') {
@@ -2260,16 +2327,31 @@ export class Main extends Component {
         tween(pill).by(2.2, { position: new Vec3(0, 48, 0) }).start();
     }
 
+    public setRewardedVideoProvider(provider: RewardedVideoProvider | null) {
+        if (this.rewardedVideoDestroyed || this.rewardedVideoProvider === provider) return;
+        this.rewardedVideoGeneration++;
+        if (this.rewardedVideoTimer !== null) clearTimeout(this.rewardedVideoTimer);
+        this.rewardedVideoTimer = null;
+        this.rewardedVideoPending = false;
+        const previous = this.rewardedVideoProvider;
+        this.rewardedVideoProvider = provider;
+        try { previous?.destroy?.(); } catch {}
+    }
+
     /** 统一激励视频入口：未接入 SDK 时仅提示，不发放任何奖励；接入后完整观看才回调 */
     private requestRewardedAd(onCompleted: () => void, failPrefix: string) {
+        if (this.rewardedVideoDestroyed) return;
         if (this.rewardedVideoPending) { this.toast('广告播放中，请勿重复请求'); return; }
         const provider = this.rewardedVideoProvider;
         if (!provider) { this.toast('激励视频暂未接入'); return; }
+        const generation = ++this.rewardedVideoGeneration;
         this.rewardedVideoPending = true;
         let settled = false;
         const finish = (result: RewardedVideoResult) => {
-            if (settled) return;
+            if (settled || generation !== this.rewardedVideoGeneration || this.rewardedVideoDestroyed) return;
             settled = true;
+            if (this.rewardedVideoTimer !== null) clearTimeout(this.rewardedVideoTimer);
+            this.rewardedVideoTimer = null;
             this.rewardedVideoPending = false;
             if (!isValid(this, true)) return;
             if (result !== 'completed') {
@@ -2278,6 +2360,7 @@ export class Main extends Component {
             }
             onCompleted();
         };
+        this.rewardedVideoTimer = setTimeout(() => finish('failed'), 185000);
         try { provider.show(finish); } catch { finish('failed'); }
     }
 
@@ -2555,20 +2638,7 @@ export class Main extends Component {
     private watchRewardedVideo(currency: Currency) {
         const currencyName = currency === 'coins' ? '金币' : '钻石';
         const amount = VIDEO_REWARDS[currency];
-        if (this.rewardedVideoPending) { this.toast('广告播放中，请勿重复请求'); return; }
-        const provider = this.rewardedVideoProvider;
-        if (!provider) { this.toast('激励视频暂未接入'); return; }
-        this.rewardedVideoPending = true;
-        let settled = false;
-        const finish = (result: RewardedVideoResult) => {
-            if (settled) return;
-            settled = true;
-            this.rewardedVideoPending = false;
-            if (!isValid(this, true)) return;
-            if (result !== 'completed') {
-                this.toast((result === 'cancelled' ? '未完整观看广告，未获得' : '广告播放失败，未获得') + currencyName);
-                return;
-            }
+        this.requestRewardedAd(() => {
             if (this.data[currency] > 100000000 - amount) { this.toast(currencyName + '接近存储上限，无法领取本次奖励'); return; }
             const balance = this.data[currency], lastSeen = this.data.lastSeen, dirty = this.dirty;
             this.data[currency] += amount;
@@ -2579,9 +2649,7 @@ export class Main extends Component {
             }
             this.renderHeader();
             this.showRewardGrantDialog('获得广告奖励', [{ kind: currency, amount }], '完整观看广告，奖励已到账！');
-        };
-        // 保留播放锁直到首个终态；关闭弹窗、切页不会开启另一次播放，也不会重复发奖。
-        try { provider.show(finish); } catch { finish('failed'); }
+        }, '未获得' + currencyName);
     }
 
     private renderHeader() {
@@ -4218,12 +4286,13 @@ export class Main extends Component {
                 }
             }],
             ['模拟激励视频通过', () => {
-                if (this.rewardedVideoProvider) {
-                    this.rewardedVideoProvider = null;
-                    this.toast('GM：已关闭激励视频模拟（恢复未接入拦截）');
+                if (!DEBUG) return;
+                if (this.rewardedVideoProvider instanceof TapTapRewardedVideoProvider) {
+                    this.setRewardedVideoProvider({ show: cb => cb('completed') });
+                    this.toast('GM：已开启调试广告模拟');
                 } else {
-                    this.rewardedVideoProvider = { show: cb => cb('completed') };
-                    this.toast('GM：已开启激励视频模拟，所有「看广告解锁」均可直接通过！');
+                    this.setRewardedVideoProvider(new TapTapRewardedVideoProvider());
+                    this.toast('GM：已恢复 TapTap 真实广告');
                 }
             }],
             ['全宠去睡觉(Zzz)', () => {
@@ -4661,7 +4730,7 @@ export class Main extends Component {
         // 全屏铺满图鉴底板（1080×1920，参考招募页无缝铺至底栏后方，不显示上方头像与货币栏）
         this.albumArt(panel, 'panel', 0, 0, 1080, 1920, '图鉴正式大底板');
         // 标题居中落在顶部猫耳黄色标题牌内（1536×2752 -> 1080×1920，标题牌中心 y=+823）
-        this.dailyText(panel, '宠物图鉴', 0, 823, 440, 72, 48, false, true);
+        this.dailyText(panel, '宠物图鉴', 0, 823, 440, 72, 48, false, true).node.name = '图鉴标题';
         const close = this.uiNode(panel, '收起图鉴', 462, 832, 104, 104);
         this.dailySprite(close, 'close', 0, 0, 92, 92, false, '关闭图标');
         this.shopButton(close, () => this.open('home'));
@@ -4877,9 +4946,17 @@ export class Main extends Component {
         if (!pet) { this.open('album'); return; }
         // 全屏温馨宠物房间背景（1080×1920，猫爬架、木柜、发光爪印地毯、食盆、橙色背包）
         this.albumArt(panel, 'profile-bg', 0, 0, 1080, 1920, '宠物主页底板');
+        const viewport = this.uiNode(panel, '主页安全可视区', 0, 0, 1040, 1840);
+        viewport.addComponent(Mask).type = Mask.Type.GRAPHICS_RECT;
+        const content = this.uiNode(viewport, '主页安全滚动内容', 0, 920, 1040, 1840);
+        content.getComponent(UITransform)!.setAnchorPoint(0.5, 1);
+        const scroll = viewport.addComponent(ScrollView);
+        scroll.content = content; scroll.horizontal = false; scroll.vertical = true;
+        scroll.cancelInnerEvents = true; scroll.elastic = false; scroll.inertia = false;
+        const contentPanel = this.uiNode(content, '主页内容坐标层', 0, -920, 1040, 1840);
 
         // 中央发光地毯上的实时 3D 宠物展示舞台（扩大至 580×560 视野，确保巫师帽/光环/翅膀/披风全貌完整呈现）
-        const stageBox = this.uiNode(panel, '宠物3D预览舞台', 0, 335, 580, 560);
+        const stageBox = this.uiNode(contentPanel, '宠物3D预览舞台', 0, 335, 580, 560);
         const stageView = this.uiNode(stageBox, '宠物3D预览画面', 0, 0, 560, 560);
         const stageSprite = stageView.addComponent(Sprite);
         stageSprite.sizeMode = Sprite.SizeMode.CUSTOM;
@@ -4903,7 +4980,7 @@ export class Main extends Component {
         this.previewViewportNode = stageBox;
 
         // 动态 UI 层（顶栏、名称星级、右侧性格词条、宠物切换箭头、中间升星区、底部装扮衣帽间、底栏状态条）
-        this.uiNode(panel, '主页动态层', 0, 0, 1080, 1920);
+        this.uiNode(contentPanel, '主页动态层', 0, 0, 1080, 1920);
         this.previewDragYaw = -16;
         this.refreshProfileInPlace();
     }
@@ -4918,7 +4995,7 @@ export class Main extends Component {
         const claimed = !!this.data.albumClaimed[pet.id];
         void this.syncProfilePreview(pet.id);
 
-        const layer = this.sheet.getChildByName('主页动态层')!;
+        const layer = this.sheet.getChildByName('主页安全可视区')!.getChildByName('主页安全滚动内容')!.getChildByName('主页内容坐标层')!.getChildByName('主页动态层')!;
         layer.children.slice().forEach(c => { c.active = false; c.removeFromParent(); c.destroy(); });
 
         const drawCard = (parent: Node, name: string, x: number, y: number, w: number, h: number, fill: string, stroke = '#6E4226', line = 4, r = 26) => {
@@ -6594,19 +6671,7 @@ export class Main extends Component {
         const task = DAILY_TASKS.find(task => task.id === id)!;
         const daily = this.dailyCandidate().daily;
         if (daily.adClaimed[id] || daily.progress[id] < task.target) { this.updateDailyRows(daily); return; }
-        const provider = this.rewardedVideoProvider;
-        if (!provider) { this.toast('激励视频暂未接入'); return; }
-        this.rewardedVideoPending = true;
-        let settled = false;
-        const finish = (result: RewardedVideoResult) => {
-            if (settled) return;
-            settled = true;
-            this.rewardedVideoPending = false;
-            if (!isValid(this, true)) return;
-            if (result !== 'completed') {
-                this.toast(result === 'cancelled' ? '未完整观看广告，仍可普通领取' : '广告播放失败，仍可普通领取');
-                return;
-            }
+        this.requestRewardedAd(() => {
             const candidate = this.dailyCandidate();
             // 使用当前余额与权益，不让旧日回调或播放期间的普通领取重复发奖。
             if (candidate.daily.day !== daily.day || candidate.daily.adClaimed[id] || candidate.daily.progress[id] < task.target) {
@@ -6620,8 +6685,7 @@ export class Main extends Component {
             if (!this.commitShop(candidate)) return;
             this.renderHeader(); this.updateDailyRows();
             this.showRewardGrantDialog('每日双倍奖励', [{ kind: task.currency, amount }], `完成任务「${task.title}」双倍领取！`);
-        };
-        try { provider.show(finish); } catch { finish('failed'); }
+        }, '仍可普通领取');
     }
 
     private goDaily(id: DailyTaskId) {
@@ -6715,19 +6779,7 @@ export class Main extends Component {
         const initDay = initCand.shop.day;
         const initInfo = signInViewInfo(initCand.signIn!, initDay);
         if (!initInfo.canClaimAd) { this.toast('今日签到双倍奖励已领取！'); return; }
-        const provider = this.rewardedVideoProvider;
-        if (!provider) { this.toast('激励视频暂未接入'); return; }
-        this.rewardedVideoPending = true;
-        let settled = false;
-        const finish = (result: RewardedVideoResult) => {
-            if (settled) return;
-            settled = true;
-            this.rewardedVideoPending = false;
-            if (!isValid(this, true)) return;
-            if (result !== 'completed') {
-                this.toast(result === 'cancelled' ? '未完整观看广告，仍可普通签到' : '广告播放失败，仍可普通签到');
-                return;
-            }
+        this.requestRewardedAd(() => {
             const c = this.dailyCandidate();
             if (c.shop.day !== initDay) {
                 if (this.page === 'signin' && this.sheet && isValid(this.sheet, true)) {
@@ -6760,8 +6812,7 @@ export class Main extends Component {
                     ? `累计签到第 ${c.signIn.totalDays} 天双倍补领成功！`
                     : `累计签到第 ${c.signIn.totalDays} 天双倍领取！`
             );
-        };
-        try { provider.show(finish); } catch { finish('failed'); }
+        }, '仍可普通签到');
     }
 
     private renderSignIn() {
@@ -7345,19 +7396,7 @@ export class Main extends Component {
         if (!def) return;
         const initInfo = achievementTierInfo(this.dailyCandidate().achievements!, def);
         if (!initInfo.claimable) return;
-        const provider = this.rewardedVideoProvider;
-        if (!provider) { this.toast('激励视频暂未接入'); return; }
-        this.rewardedVideoPending = true;
-        let settled = false;
-        const finish = (result: RewardedVideoResult) => {
-            if (settled) return;
-            settled = true;
-            this.rewardedVideoPending = false;
-            if (!isValid(this, true)) return;
-            if (result !== 'completed') {
-                this.toast(result === 'cancelled' ? '未完整观看广告，仍可普通领取' : '广告播放失败，仍可普通领取');
-                return;
-            }
+        this.requestRewardedAd(() => {
             const c = this.dailyCandidate();
             const info = achievementTierInfo(c.achievements!, def);
             if (!info.claimable || info.tier !== initInfo.tier) {
@@ -7380,8 +7419,7 @@ export class Main extends Component {
                 this.refreshTaskRedDots();
             }
             this.showRewardGrantDialog('成就双倍奖励', [{ kind: 'gems', amount }], `达成「${def.title}」Lv.${info.level} 双倍领取！`);
-        };
-        try { provider.show(finish); } catch { finish('failed'); }
+        }, '仍可普通领取');
     }
 
     private renderDaily() {
@@ -8004,7 +8042,8 @@ export class Main extends Component {
         if (existing && isValid(existing, true)) { existing.removeFromParent(); existing.destroy(); }
 
         const cardW = 370, cardH = 392;
-        const card = this.uiNode(layer, '冒险左上实时日志卡', -this.width / 2 + 24 + cardW / 2, this.height / 2 - 266 - cardH / 2, cardW, cardH);
+        const bounds = this.chromeBounds();
+        const card = this.uiNode(layer, '冒险左上实时日志卡', bounds.left + 24 + cardW / 2, this.top.position.y - 114 * this.top.scale.y - 24 - cardH / 2, cardW, cardH);
         const g = card.addComponent(Graphics);
 
         // 柔和投影
@@ -8685,12 +8724,14 @@ export class Main extends Component {
         if (!pet || !pet.lost) { this.closeDialog(); return; }
         const finish = () => {
             const c = this.dailyCandidate();
+            c.pets = c.pets.map(p => ({ ...p }));
+            c.adventureLogs = (c.adventureLogs || []).map(log => ({ ...log }));
+            const target = c.pets.find(p => p.id === petId);
+            if (!target || !target.lost || target.dead) return;
             if (mode === 'gems') {
                 if (c.gems < LOST_PET_RECOVER_GEMS) { this.closeDialog(); this.showGemDialog(); return; }
                 c.gems -= LOST_PET_RECOVER_GEMS;
             }
-            const target = c.pets.find(p => p.id === petId);
-            if (!target) return;
             target.lost = false; target.adventuring = false; target.adventureReturnAt = undefined; target.joy = Math.min(100, target.joy + 20);
             (c.adventureLogs || []).forEach(l => { if (l.petId === petId && l.type === 'lost') l.resolved = true; });
             if (!this.commitShop(c)) return;
@@ -8719,8 +8760,10 @@ export class Main extends Component {
         if (!pet || !pet.dead) { this.closeDialog(); return; }
         const finish = () => {
             const c = this.dailyCandidate();
+            c.pets = c.pets.map(p => ({ ...p }));
+            c.adventureLogs = (c.adventureLogs || []).map(log => ({ ...log }));
             const target = c.pets.find(p => p.id === petId);
-            if (!target) return;
+            if (!target || !target.dead) return;
             target.dead = false; target.lost = false; target.adventuring = false; target.adventureReturnAt = undefined;
             target.health = 100; target.hunger = 80; target.clean = 80; target.energy = 90; target.joy = 85;
             (c.adventureLogs || []).forEach(l => { if (l.petId === petId && (l.type === 'death_trafficker' || l.type === 'death_sick')) l.resolved = true; });
@@ -9170,16 +9213,71 @@ export class Main extends Component {
         };
     }
 
+    private yardPoopPositions = new Map<number, { x: number; z: number }>();
+    private yardPoopLayoutKey = '';
+
+    private yardUIRects() {
+        const nodes = [this.top, this.bottom, this.sheet,
+            ...['庭院布置入口', '每日签到入口', '游戏设置入口', '每日任务入口', '冒险日记入口', '后院纪念角入口', 'GM调试入口'].map(name => this.ui.getChildByName(name))];
+        return nodes.filter((n): n is Node => !!n && isValid(n, true) && n.activeInHierarchy).map(n => {
+            const r = n.getComponent(UITransform)!.getBoundingBoxToWorld();
+            const a = this.ui.getComponent(UITransform)!.convertToNodeSpaceAR(new Vec3(r.x, r.y, 0));
+            const b = this.ui.getComponent(UITransform)!.convertToNodeSpaceAR(new Vec3(r.x + r.width, r.y + r.height, 0));
+            return { left: Math.min(a.x, b.x), right: Math.max(a.x, b.x), bottom: Math.min(a.y, b.y), top: Math.max(a.y, b.y) };
+        });
+    }
+
     private isTouchOnUI(location: Vec2): boolean {
-        const screen = new Vec3(location.x, location.y, 0), uiWorld = new Vec3();
-        this.uiCamera.screenToWorld(screen, uiWorld);
+        const uiWorld = this.uiCamera.screenToWorld(new Vec3(location.x, location.y, 0), new Vec3());
         const point = this.ui.getComponent(UITransform)!.convertToNodeSpaceAR(uiWorld);
-        const hits = (n: Node | null) => {
-            if (!n || !isValid(n, true) || !n.active) return false;
-            const size = n.getComponent(UITransform)!.contentSize;
-            return Math.abs(point.x - n.position.x) <= size.width / 2 && Math.abs(point.y - n.position.y) <= size.height / 2;
+        return this.yardUIRects().some(r => point.x >= r.left && point.x <= r.right && point.y >= r.bottom && point.y <= r.top);
+    }
+
+    private yardPoopProjection(x: number, z: number) {
+        const screen = this.worldCamera.worldToScreen(new Vec3(x, 0.16, z), new Vec3());
+        const local = this.ui.getComponent(UITransform)!.convertToNodeSpaceAR(this.uiCamera.screenToWorld(screen, new Vec3()));
+        return { x: local.x, y: local.y, depth: screen.z };
+    }
+
+    private refreshYardPoopPositions() {
+        if (this.page !== 'home' && this.page !== 'pet') return;
+        const bounds = this.chromeBounds(), rects = this.yardUIRects();
+        const list = this.data.poops || [];
+        const furniture = this.data.placedFurniture || [];
+        const key = JSON.stringify([this.page, bounds, rects, this.worldCamera.orthoHeight, list, furniture]);
+        if (key === this.yardPoopLayoutKey) return;
+        this.yardPoopLayoutKey = key;
+        // 56 为屏幕拾取半径；另留 12 UI 单位，覆盖图像边缘和按下缩放。
+        const origin = this.ui.getComponent(UITransform)!.convertToNodeSpaceAR(this.uiCamera.screenToWorld(new Vec3(0, 0, 0), new Vec3()));
+        const edge = this.ui.getComponent(UITransform)!.convertToNodeSpaceAR(this.uiCamera.screenToWorld(new Vec3(56, 56, 0), new Vec3()));
+        const margin = Math.max(Math.abs(edge.x - origin.x), Math.abs(edge.y - origin.y)) + 12;
+        const occupied: { x: number; y: number }[] = [];
+        const safe = (x: number, z: number) => {
+            const p = this.yardPoopProjection(x, z);
+            if (p.depth < 0 || p.depth > 1 || p.x < bounds.left + margin || p.x > bounds.right - margin || p.y < bounds.bottom + margin || p.y > bounds.top - margin) return false;
+            if (rects.some(r => p.x >= r.left - margin && p.x <= r.right + margin && p.y >= r.bottom - margin && p.y <= r.top + margin)) return false;
+            if (occupied.some(q => Math.hypot(p.x - q.x, p.y - q.y) < margin * 2)) return false;
+            // 家具的地面投影附近保留空位；移动伙伴不触发每帧重排。
+            if (furniture.some(f => Math.hypot(x - f.x, z - f.z) < 1.5)) return false;
+            return true;
         };
-        return hits(this.top) || hits(this.bottom) || hits(this.sheet);
+        const next = new Map<number, { x: number; z: number }>();
+        for (const poop of list) {
+            let position = this.yardPoopPositions.get(poop.id) || { x: poop.x, z: poop.z };
+            if (!safe(position.x, position.z)) {
+                let best: { x: number; z: number } | null = null, distance = Infinity;
+                for (let x = this.yardMinX + 0.5; x <= this.yardMaxX - 0.5; x += 0.35) {
+                    for (let z = this.yardMinZ + 0.5; z <= this.yardMaxZ - 0.5; z += 0.35) {
+                        const d = Math.hypot(x - poop.x, z - poop.z);
+                        if (d < distance && safe(x, z)) { best = { x, z }; distance = d; }
+                    }
+                }
+                if (best) position = best;
+            }
+            next.set(poop.id, position);
+            occupied.push(this.yardPoopProjection(position.x, position.z));
+        }
+        this.yardPoopPositions = next;
     }
 
     private onWorldTouchStart(event: EventTouch) {
@@ -9237,10 +9335,11 @@ export class Main extends Component {
         if (this.isTouchOnUI(location)) return;
         // 优先检测是否点中庭院 3D 便便，点击即可清理。
         if (this.page === 'home' || this.page === 'pet') {
+            this.refreshYardPoopPositions();
             let closestPoop: YardPoop | null = null, poopDist = 56;
             (this.data.poops || []).forEach(pp => {
-                const proj = new Vec3();
-                this.worldCamera.worldToScreen(new Vec3(pp.x, 0.16, pp.z), proj);
+                const pos = this.yardPoopPositions.get(pp.id) || pp;
+                const proj = this.worldCamera.worldToScreen(new Vec3(pos.x, 0.16, pos.z), new Vec3());
                 const d = Vec2.distance(location, new Vec2(proj.x, proj.y));
                 if (proj.z >= 0 && proj.z <= 1 && d < poopDist) { poopDist = d; closestPoop = pp; }
             });
@@ -9263,12 +9362,13 @@ export class Main extends Component {
     private spawnYardPoop(petId: number, x: number, z: number) {
         if (!this.data.poops) this.data.poops = [];
         if (this.data.poops.length >= 6) return;
-        const id = ++this.poopNextId;
+        const id = Math.max(this.poopNextId, ...this.data.poops.map(p => p.id)) + 1;
         const clampedX = Math.max(this.yardMinX + 0.25, Math.min(this.yardMaxX - 0.25, x));
         const clampedZ = Math.max(this.yardMinZ + 0.25, Math.min(this.yardMaxZ - 0.25, z));
-        this.data.poops.push({ id, petId, x: clampedX, z: clampedZ, createdAt: Date.now() });
-        this.dirty = true;
-        this.persist();
+        const candidate = { ...this.data, poops: [...this.data.poops, { id, petId, x: clampedX, z: clampedZ, createdAt: Date.now() }] };
+        if (!this.commitShop(candidate)) return;
+        this.poopNextId = id;
+        this.refreshYardPoopPositions();
         if (this.data.poops.length >= 3 && (this.page === 'home' || this.page === 'pet')) {
             this.toast('庭院便便过多，伙伴清洁度正在加速下降，快点击清理吧！');
         }
@@ -9285,13 +9385,16 @@ export class Main extends Component {
         const targetPet = c.pets.find(p => p.id === poop.petId && !p.dead) || c.pets.find(p => !p.dead);
         if (targetPet) {
             targetPet.clean = Math.min(100, targetPet.clean + 8);
-            const actor = this.actors.find(a => a.pet.id === targetPet.id);
-            if (actor) actor.pet = targetPet;
         }
         recordDaily(c.daily, 'clean');
         recordAchievement(c.achievements!, 'clean');
         if (!this.commitShop(c)) return;
-        this.playBroomSweep(new Vec3(poop.x, 0.16, poop.z));
+        if (targetPet) {
+            const actor = this.actors.find(a => a.pet.id === targetPet.id);
+            if (actor) actor.pet = targetPet;
+        }
+        const display = this.yardPoopPositions.get(poopId) || poop;
+        this.playBroomSweep(new Vec3(display.x, 0.16, display.z));
         const vis = this.poopVisuals.get(poopId);
         if (vis) {
             vis.smokes.forEach(s => s.mat.destroy());
@@ -9314,7 +9417,8 @@ export class Main extends Component {
                 defines: { USE_TEXTURE: true },
                 states: {
                     rasterizerState: { cullMode: 0 },
-                    depthStencilState: { depthTest: true, depthWrite: false },
+                    // 可清理目标保持可见，避免移动伙伴经过时把它完全遮住。
+                    depthStencilState: { depthTest: false, depthWrite: false },
                 },
             });
             mat.setProperty('mainColor', this.color(C.white));
@@ -9328,6 +9432,7 @@ export class Main extends Component {
 
     private syncYardPoops(dt: number) {
         if (!isValid(this.world, true) || !this.worldCamera) return;
+        this.refreshYardPoopPositions();
         const list = this.data.poops || [];
         const activeIds = new Set(list.map(p => p.id));
 
@@ -9396,6 +9501,8 @@ export class Main extends Component {
                 vis = { node: root, quad, poop, smokes };
                 this.poopVisuals.set(poop.id, vis);
             }
+            const display = this.yardPoopPositions.get(poop.id) || poop;
+            vis.node.setPosition(display.x, 0, display.z);
             // 冒险全屏模式下隐藏庭院便便，避免浮现在冒险小路上
             vis.node.active = this.page !== 'adventure';
             if (!vis.node.active) continue;
@@ -10668,7 +10775,12 @@ export class Main extends Component {
         this.clearRecruitBackground();
         this.closeGmPanel();
         this.closeDialog();
-        this.rewardedVideoProvider = null;
+        this.setRewardedVideoProvider(null);
+        this.rewardedVideoDestroyed = true;
+        if (typeof window !== 'undefined') {
+            const host = window as unknown as { setCatParadiseRewardedAdProvider?: (p: RewardedVideoProvider | null) => void };
+            if (host.setCatParadiseRewardedAdProvider === this.rewardedVideoSetter) delete host.setCatParadiseRewardedAdProvider;
+        }
         input.off(Input.EventType.TOUCH_START, this.onWorldTouchStart, this);
         input.off(Input.EventType.TOUCH_START, this.onGmScreenTap, this);
         if (typeof window !== 'undefined' && window.removeEventListener) {
