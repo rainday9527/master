@@ -97,7 +97,7 @@ interface Save {
     furnitureInventory?: Record<string, number>;
     achievements?: AchievementState;
     signIn?: SignInState;
-    settings?: { bgm: boolean; sfx: boolean; floatToast: boolean; highFps: boolean };
+    settings?: { bgm: boolean; sfx: boolean; floatToast: boolean; highFps: boolean; fpsLevel?: 'low' | 'mid' | 'high' };
 }
 type RigPartName = 'body' | 'head' | 'face' | 'earL' | 'earR' | 'legFL' | 'legFR' | 'legBL' | 'legBR' | 'tail';
 interface PetRigAsset {
@@ -392,7 +392,7 @@ export class Main extends Component {
             }],
             tombstoneInventory: {}, outfitInventory: {}, coatInventory: {}, memorials: [],
             placedFurniture: defaultPlacedFurniture(), furnitureInventory: {}, achievements: newAchievements(), signIn: newSignIn(),
-            settings: { bgm: true, sfx: true, floatToast: true, highFps: true } };
+            settings: { bgm: true, sfx: true, floatToast: true, highFps: true, fpsLevel: 'mid' } };
     }
 
     private load(): Save {
@@ -526,13 +526,19 @@ export class Main extends Component {
             s.achievements = restoreAchievements((s as any).achievements);
             s.signIn = restoreSignIn((s as any).signIn, s.shop.day);
             const rawSet = (s as any).settings;
+            const highFps = rawSet && typeof rawSet.highFps === 'boolean' ? rawSet.highFps : true;
+            const fpsLevel: 'low' | 'mid' | 'high' =
+                rawSet && (rawSet.fpsLevel === 'low' || rawSet.fpsLevel === 'mid' || rawSet.fpsLevel === 'high')
+                    ? rawSet.fpsLevel
+                    : (highFps ? 'mid' : 'low');
             s.settings = {
                 bgm: rawSet && typeof rawSet.bgm === 'boolean' ? rawSet.bgm : true,
                 sfx: rawSet && typeof rawSet.sfx === 'boolean' ? rawSet.sfx : true,
                 floatToast: rawSet && typeof rawSet.floatToast === 'boolean' ? rawSet.floatToast : true,
-                highFps: rawSet && typeof rawSet.highFps === 'boolean' ? rawSet.highFps : true,
+                highFps: fpsLevel !== 'low',
+                fpsLevel,
             };
-            game.frameRate = s.settings.highFps ? 60 : 30;
+            game.frameRate = fpsLevel === 'high' ? 120 : fpsLevel === 'mid' ? 60 : 30;
             s.recruit = restoreRecruit(s.recruit, s.pets.map(p => p.id), BREEDS.map((_, id) => id), Object.prototype.hasOwnProperty.call(s, 'recruit'));
             const albumClaimed: Record<string, boolean> = {};
             if (s.albumClaimed && typeof s.albumClaimed === 'object') {
@@ -6625,6 +6631,47 @@ export class Main extends Component {
         }
     }
 
+    private paintFpsSegment(row: Node, level: 'low' | 'mid' | 'high') {
+        const tiers: readonly ['low' | 'mid' | 'high', string][] = [['low', '低'], ['mid', '中'], ['high', '高']];
+        tiers.forEach(([k]) => {
+            const btn = row.getChildByName('帧率档-' + k);
+            if (!btn || !isValid(btn, true)) return;
+            const active = k === level;
+            const g = btn.getComponent(Graphics);
+            if (g) {
+                g.clear();
+                g.fillColor = this.color(active ? '#66B85C' : '#EFE0C4');
+                g.strokeColor = this.color(active ? '#3D7D36' : '#C5A577');
+                g.lineWidth = active ? 3 : 2;
+                g.roundRect(-34, -27, 68, 54, 18); g.fill(); g.stroke();
+            }
+            const lbl = btn.getChildByName('文字')?.getComponent(Label);
+            if (lbl) lbl.color = this.color(active ? '#FFFFFF' : '#6D4B2E');
+        });
+        const desc = row.getChildByName('帧率描述')?.getComponent(Label);
+        if (desc) {
+            const curFps = level === 'high' ? 120 : level === 'mid' ? 60 : 30;
+            desc.string = `当前 ${curFps} 帧 · 低 30 / 中 60 / 高 120`;
+        }
+    }
+
+    public setFpsLevel(level: 'low' | 'mid' | 'high') {
+        const c = this.dailyCandidate();
+        const cur = c.settings || { bgm: true, sfx: true, floatToast: true, highFps: true, fpsLevel: 'mid' as const };
+        if ((cur.fpsLevel || (cur.highFps ? 'mid' : 'low')) === level) return;
+        c.settings = { ...cur, highFps: level !== 'low', fpsLevel: level };
+        if (!this.commitShop(c)) return;
+        const fps = level === 'high' ? 120 : level === 'mid' ? 60 : 30;
+        game.frameRate = fps;
+        SoundManager.playSfx('click');
+        const names = { low: '低（30帧省电）', mid: '中（60帧流畅）', high: '高（120帧极速）' };
+        this.toast(`画面帧率已切换为：${names[level]}`);
+        if (this.page === 'settings' && this.sheet && isValid(this.sheet, true)) {
+            const row = this.sheet.getChildByName('设置行-fps');
+            if (row && isValid(row, true)) this.paintFpsSegment(row, level);
+        }
+    }
+
     private toggleSetting(key: 'bgm' | 'sfx' | 'floatToast' | 'highFps') {
         const c = this.dailyCandidate();
         const cur = c.settings || { bgm: true, sfx: true, floatToast: true, highFps: true };
@@ -6690,11 +6737,10 @@ export class Main extends Component {
         tg.lineWidth = 3;
         tg.roundRect(-359, -295, 718, 590, 28); tg.fill(); tg.stroke();
 
-        const rows: { key: 'bgm' | 'sfx' | 'floatToast' | 'highFps'; title: string; desc: string; on: boolean }[] = [
+        const rows: { key: 'bgm' | 'sfx' | 'floatToast'; title: string; desc: string; on: boolean }[] = [
             { key: 'bgm', title: '背景音乐', desc: '庭院与冒险场景的轻快绘本背景音乐', on: s.bgm },
             { key: 'sfx', title: '交互音效', desc: '点击按钮、喂食抚摸与领取奖励提示音', on: s.sfx },
             { key: 'floatToast', title: '消耗飘字提示', desc: '宠物自动使用食物/清洁/玩具时的飘字提醒', on: s.floatToast },
-            { key: 'highFps', title: '高帧率模式', desc: '开启 60 帧流畅画面，关闭则 30 帧省电', on: s.highFps },
         ];
 
         rows.forEach((item, idx) => {
@@ -6722,6 +6768,38 @@ export class Main extends Component {
             this.intercept(sw); this.pressVisualFeedback(sw);
             sw.on(Node.EventType.TOUCH_END, () => this.toggleSetting(item.key), this);
         });
+
+        // 第 4 行：画面帧率三档切换（低 30 / 中 60 / 高 120）
+        const fpsLevel: 'low' | 'mid' | 'high' = s.fpsLevel || (s.highFps ? 'mid' : 'low');
+        const fpsRow = this.uiNode(panel, '设置行-fps', 0, 178 - 3 * 140, 676, 120);
+        const frg = fpsRow.addComponent(Graphics);
+        frg.fillColor = new Color(138, 96, 48, 36);
+        frg.roundRect(-338, -64, 676, 120, 22); frg.fill();
+        frg.fillColor = this.color('#FFFDF6');
+        frg.strokeColor = this.color('#D4B282');
+        frg.lineWidth = 2.5;
+        frg.roundRect(-338, -60, 676, 120, 22); frg.fill(); frg.stroke();
+
+        const ftl = this.text(fpsRow, '画面帧率', -142, 20, 340, 38, 28, '#4E2912');
+        ftl.isBold = true; ftl.horizontalAlign = Label.HorizontalAlign.LEFT; ftl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+        const fdl = this.text(fpsRow, '', -142, -22, 350, 32, 20, '#8C6B4E');
+        fdl.node.name = '帧率描述';
+        fdl.horizontalAlign = Label.HorizontalAlign.LEFT; fdl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+
+        const fpsTiers: readonly ['low' | 'mid' | 'high', string, number][] = [
+            ['low', '低', 124],
+            ['mid', '中', 202],
+            ['high', '高', 280],
+        ];
+        fpsTiers.forEach(([lv, txt, bx]) => {
+            const btn = this.uiNode(fpsRow, '帧率档-' + lv, bx, 0, 68, 54);
+            btn.addComponent(Graphics);
+            const bl = this.text(btn, txt, 0, 0, 60, 34, 24, '#FFFFFF');
+            bl.isBold = true; bl.fontFamily = 'Microsoft YaHei, SimHei, sans-serif';
+            this.intercept(btn); this.pressVisualFeedback(btn);
+            btn.on(Node.EventType.TOUCH_END, () => this.setFpsLevel(lv), this);
+        });
+        this.paintFpsSegment(fpsRow, fpsLevel);
 
         // 底部存档操作按钮（暂隐藏「重置游戏存档」按钮，后续需要时将 resetBtn.active 改为 true 即可恢复）
         const saveBtn = this.dailyButton(panel, '立即保存存档', 0, -422, 340, 80, () => {
