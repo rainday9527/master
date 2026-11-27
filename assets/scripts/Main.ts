@@ -236,6 +236,8 @@ export class Main extends Component {
     private allDeadPrompted = false;
     private socialBubbles: SocialBubble[] = [];
     private fightClouds: Array<{ node: Node; a: Actor; b: Actor; x: number; z: number; age: number; duration: number; puffs: Node[]; sparks: Node[] }> = [];
+    private advEventFxList: Array<{ node: Node; kind: 'fight' | 'sparkle' | 'heart' | 'mud' | 'poof'; age: number; duration: number; parts: Node[]; sparks?: Node[] }> = [];
+    private recentAdvEvent: { petId: number; type: string; at: number; played: boolean } | null = null;
     private yardFightCooldownUntil = 0;
     private needBubbles = new Map<number, { node: Node; icon: string; until: number; urgent: boolean }>();
     private needHistory = new Map<number, number[]>();
@@ -2830,6 +2832,7 @@ export class Main extends Component {
         this.syncYardFurniture();
         if (page !== 'adventure') {
             this.clearAdventureBackground();
+            this.clearAdventureEventFx();
             this.advChestAura = null; this.advChestSprite = null; this.advChestBadge = null;
             this.advTimerLabel = null;
         }
@@ -2852,6 +2855,11 @@ export class Main extends Component {
             this.renderAdventure(); this.layout();
             this.placeAdventureFormation(true);
             if (this.bottom) this.bottom.setSiblingIndex(this.ui.children.length - 1);
+            // 若刚切入冒险界面前 4.5 秒内正好发生了冒险事件，立即在对应小猫小狗位置补播特效
+            if (this.recentAdvEvent && !this.recentAdvEvent.played && (Date.now() - this.recentAdvEvent.at) <= 4500) {
+                this.recentAdvEvent.played = true;
+                this.playAdventureEventFx(this.recentAdvEvent.petId, this.recentAdvEvent.type);
+            }
             return;
         }
         if (page === 'diary') {
@@ -8150,6 +8158,12 @@ export class Main extends Component {
             itemId: outcome.item?.id, itemCount: outcome.itemCount, coins: outcome.coins, gems: outcome.gems,
             resolved: !(outcome.setLost || outcome.setDead),
         });
+        // 记录近期冒险事件：若玩家正在冒险页立即在小猫小狗位置播放对应动作与3D特效；若在主城等其他页则不播，切入冒险页时刚好发生再补播
+        this.recentAdvEvent = { petId: pet.id, type: outcome.type, at: Date.now(), played: false };
+        if (this.page === 'adventure') {
+            this.recentAdvEvent.played = true;
+            this.playAdventureEventFx(pet.id, outcome.type);
+        }
         this.renderHeader();
         this.refreshMemorialEntry();
         this.refreshTaskRedDots();
@@ -9410,6 +9424,184 @@ export class Main extends Component {
         }
     }
 
+    private clearAdventureEventFx() {
+        this.advEventFxList.forEach(fx => {
+            if (isValid(fx.node, true)) { fx.node.active = false; fx.node.destroy(); }
+        });
+        this.advEventFxList = [];
+    }
+
+    /** 在冒险场景中对应小猫小狗脚下/头顶播放事件专属 3D 特效与动作（仅冒险页可见，离开自动清理） */
+    public playAdventureEventFx(petId: number, type: string) {
+        if (this.page !== 'adventure' || !this.world || !isValid(this.world, true)) return;
+        const pool = [...this.actors, ...this.advGuestActors].filter(a => isValid(a.node, true) && a.node.active && !a.dying);
+        const actor = pool.find(a => a.pet.id === petId) || pool[0];
+        if (!actor) return;
+        const ax = actor.node.position.x, az = actor.node.position.z;
+
+        // 1) 冒险打架事件：在小猫小狗位置生成 3D 卡通打架滚烟云 + 冲击星芒 + 音效
+        if (type === 'injured') {
+            SoundManager.playSfx('fight');
+            const root = new Node('冒险打架滚烟云');
+            root.layer = Layers.Enum.DEFAULT;
+            this.world.addChild(root);
+            root.setPosition(ax, 0.54, az);
+            const parts: Node[] = [];
+            const puffsCols = ['#FFFFFF', '#F7F3EA', '#EDE7DC', '#FFFDF8', '#E5DED0', '#FFFFFF', '#F5EFE2', '#FFF9EE'];
+            for (let i = 0; i < 8; i++) {
+                const rad = (i / 8) * Math.PI * 2;
+                const r = i % 2 === 0 ? 0.52 : 0.34;
+                const pf = new Node('冒险烟云-' + i);
+                pf.layer = Layers.Enum.DEFAULT;
+                root.addChild(pf);
+                pf.setPosition(Math.cos(rad) * r, (i % 3 - 1) * 0.20, Math.sin(rad) * r);
+                const sz = 0.42 + (i % 3) * 0.14;
+                this.shape(pf, 'sphere', puffsCols[i], [0, 0, 0], [sz, sz * 0.88, sz]);
+                parts.push(pf);
+            }
+            const sparks: Node[] = [];
+            for (let i = 0; i < 6; i++) {
+                const rad = (i / 6) * Math.PI * 2 + 0.3;
+                const sp = new Node('冒险打架星芒-' + i);
+                sp.layer = Layers.Enum.DEFAULT;
+                root.addChild(sp);
+                sp.setPosition(Math.cos(rad) * 0.72, 0.22 + (i % 2) * 0.22, Math.sin(rad) * 0.72);
+                const col = i % 2 === 0 ? '#FFE14D' : '#FF725C';
+                this.shape(sp, 'box', col, [0, 0, 0], [0.24, 0.06, 0.06]);
+                this.shape(sp, 'box', col, [0, 0, 0], [0.06, 0.24, 0.06]);
+                sparks.push(sp);
+            }
+            this.advEventFxList.push({ node: root, kind: 'fight', age: 0, duration: 2.5, parts, sparks });
+            if (isValid(actor.visual, true)) {
+                tween(actor.visual)
+                    .to(0.10, { scale: new Vec3(1.18, 0.82, 1.18) })
+                    .to(0.12, { scale: new Vec3(0.88, 1.14, 0.88) })
+                    .to(0.12, { scale: new Vec3(1, 1, 1) }).start();
+            }
+            return;
+        }
+
+        // 2) 捡到食物 / 玩具 / 药品 / 路边宝藏：金色/彩光星芒喷泉 + 开心跳跃
+        if (type === 'treasure' || type === 'food' || type === 'toy' || type === 'medicine') {
+            SoundManager.playSfx('reward');
+            const root = new Node('冒险收获星光');
+            root.layer = Layers.Enum.DEFAULT;
+            this.world.addChild(root);
+            root.setPosition(ax, 0.55, az);
+            const cols = type === 'treasure' ? ['#FFE04D', '#FFF6B8', '#FFA838']
+                : type === 'food' ? ['#FFB84D', '#FFE48C', '#FF8C66']
+                : type === 'medicine' ? ['#7CE89B', '#B8FFD0', '#FFFFFF']
+                : ['#8CE0FF', '#D4A8FF', '#FFE680'];
+            const parts: Node[] = [];
+            for (let i = 0; i < 10; i++) {
+                const rad = (i / 10) * Math.PI * 2;
+                const sp = new Node('收获星-' + i);
+                sp.layer = Layers.Enum.DEFAULT;
+                root.addChild(sp);
+                sp.setPosition(Math.cos(rad) * 0.36, 0.1 + (i % 3) * 0.14, Math.sin(rad) * 0.36);
+                const c = cols[i % cols.length];
+                this.shape(sp, 'box', c, [0, 0, 0], [0.20, 0.045, 0.045]);
+                this.shape(sp, 'box', c, [0, 0, 0], [0.045, 0.20, 0.045]);
+                parts.push(sp);
+            }
+            this.advEventFxList.push({ node: root, kind: 'sparkle', age: 0, duration: 1.7, parts });
+            if (isValid(actor.visual, true)) {
+                tween(actor.visual)
+                    .to(0.16, { position: new Vec3(0, 0.42, 0), scale: new Vec3(0.92, 1.12, 0.92) }, { easing: 'quadOut' })
+                    .to(0.18, { position: new Vec3(0, 0, 0), scale: new Vec3(1, 1, 1) }, { easing: 'quadIn' }).start();
+            }
+            return;
+        }
+
+        // 3) 奇遇趣事：粉色爱心泡泡 + 开心叫声 + 小跳
+        if (type === 'social') {
+            SoundManager.playSfx(BREEDS[actor.pet.id]?.kind === 'cat' ? 'cat_meow' : 'dog_bark');
+            const root = new Node('冒险奇遇爱心');
+            root.layer = Layers.Enum.DEFAULT;
+            this.world.addChild(root);
+            root.setPosition(ax, 0.72, az);
+            const parts: Node[] = [];
+            const cols = ['#FF8DB3', '#FFB8D2', '#FFE680', '#FFFFFF'];
+            for (let i = 0; i < 8; i++) {
+                const rad = (i / 8) * Math.PI * 2;
+                const sp = new Node('奇遇心-' + i);
+                sp.layer = Layers.Enum.DEFAULT;
+                root.addChild(sp);
+                sp.setPosition(Math.cos(rad) * 0.34, (i % 3) * 0.14, Math.sin(rad) * 0.34);
+                this.shape(sp, 'sphere', cols[i % cols.length], [0, 0, 0], [0.15, 0.15, 0.15]);
+                parts.push(sp);
+            }
+            this.advEventFxList.push({ node: root, kind: 'heart', age: 0, duration: 1.7, parts });
+            if (isValid(actor.visual, true)) {
+                tween(actor.visual)
+                    .to(0.15, { position: new Vec3(0, 0.32, 0) }, { easing: 'quadOut' })
+                    .to(0.16, { position: new Vec3(0, 0, 0) }, { easing: 'quadIn' }).start();
+            }
+            return;
+        }
+
+        // 4) 脏污事件 / 走失 / 意外：泥点水花或白蓝烟雾
+        const isMud = type === 'dirty';
+        if (!isMud) SoundManager.playSfx('sick');
+        const root = new Node(isMud ? '冒险泥点特效' : '冒险烟雾特效');
+        root.layer = Layers.Enum.DEFAULT;
+        this.world.addChild(root);
+        root.setPosition(ax, 0.42, az);
+        const parts: Node[] = [];
+        const cols = isMud ? ['#8B6239', '#A87C4F', '#C49A6C'] : ['#D8ECFF', '#FFFFFF', '#B2D4F5'];
+        for (let i = 0; i < 8; i++) {
+            const rad = (i / 8) * Math.PI * 2;
+            const sp = new Node('事件尘-' + i);
+            sp.layer = Layers.Enum.DEFAULT;
+            root.addChild(sp);
+            sp.setPosition(Math.cos(rad) * 0.32, (i % 2) * 0.15, Math.sin(rad) * 0.32);
+            const sz = isMud ? 0.16 : 0.24;
+            this.shape(sp, 'sphere', cols[i % cols.length], [0, 0, 0], [sz, sz, sz]);
+            parts.push(sp);
+        }
+        this.advEventFxList.push({ node: root, kind: isMud ? 'mud' : 'poof', age: 0, duration: 1.5, parts });
+    }
+
+    private updateAdventureEventFx(dt: number) {
+        if (!this.advEventFxList.length) return;
+        if (this.page !== 'adventure') { this.clearAdventureEventFx(); return; }
+        const keep: typeof this.advEventFxList = [];
+        for (const fx of this.advEventFxList) {
+            fx.age += dt;
+            if (fx.age >= fx.duration || !isValid(fx.node, true)) {
+                if (isValid(fx.node, true)) { fx.node.active = false; fx.node.destroy(); }
+                continue;
+            }
+            const p = fx.age / fx.duration;
+            if (fx.kind === 'fight') {
+                const env = p < 0.15 ? p / 0.15 : p > 0.8 ? (1 - p) / 0.2 : 1;
+                fx.node.setScale(env, env, env);
+                fx.node.setRotationFromEuler(0, (fx.age * 240) % 360, 0);
+                fx.parts.forEach((pf, i) => {
+                    const s = 0.85 + Math.sin(fx.age * 14 + i * 1.1) * 0.28;
+                    pf.setScale(s, s, s);
+                });
+                (fx.sparks || []).forEach((sp, i) => {
+                    const s = 0.5 + Math.abs(Math.sin(fx.age * 16 + i)) * 0.9;
+                    sp.setScale(s, s, s);
+                });
+            } else {
+                const env = p < 0.18 ? p / 0.18 : 1 - (p - 0.18) / 0.82;
+                fx.node.setRotationFromEuler(0, (fx.age * 95) % 360, 0);
+                fx.parts.forEach((pt, i) => {
+                    const rad = (i / fx.parts.length) * Math.PI * 2;
+                    const r = 0.34 + p * (fx.kind === 'mud' ? 0.55 : 0.45);
+                    const y = p * (fx.kind === 'mud' ? 0.55 : 1.05) + (i % 3) * 0.12;
+                    pt.setPosition(Math.cos(rad) * r, y, Math.sin(rad) * r);
+                    const s = Math.max(0.05, env * (0.9 + Math.sin(fx.age * 10 + i) * 0.25));
+                    pt.setScale(s, s, s);
+                });
+            }
+            keep.push(fx);
+        }
+        this.advEventFxList = keep;
+    }
+
     private updateFightClouds(dt: number) {
         if (!this.fightClouds.length) return;
         const showYardVfx = this.page === 'home' || this.page === 'pet';
@@ -10018,6 +10210,7 @@ export class Main extends Component {
         this.updateGhosts(delta);
         this.updateBrooms(delta);
         this.updateFightClouds(delta);
+        this.updateAdventureEventFx(delta);
         this.updateZzzBubbles(delta);
         this.updateLimitedFurnitureVfx(this.socialTime);
         this.updateAdventureScene(delta);
