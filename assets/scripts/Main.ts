@@ -8115,7 +8115,7 @@ export class Main extends Component {
                 if (f && isValid(avSp, true)) avSp.spriteFrame = f;
             });
 
-            const nameLbl = this.text(row, log.petName || breed.name, 26, 15, 236, 26, 20, '#4B2D16');
+            const nameLbl = this.text(row, log.petName || breed.name, 26, 16, 236, 28, 22, '#4B2D16');
             nameLbl.isBold = true; nameLbl.horizontalAlign = Label.HorizontalAlign.LEFT;
             nameLbl.overflow = Label.Overflow.SHRINK; nameLbl.enableWrapText = false;
 
@@ -8130,7 +8130,8 @@ export class Main extends Component {
             } else if (log.gems) {
                 summary = `捡到了 钻石 +${log.gems}`;
             }
-            const descLbl = this.text(row, summary, 26, -14, 236, 24, 18, '#6B4829');
+            const descLbl = this.text(row, summary, 26, -15, 236, 28, 22, '#5E3818');
+            descLbl.isBold = true;
             descLbl.horizontalAlign = Label.HorizontalAlign.LEFT;
             descLbl.overflow = Label.Overflow.SHRINK; descLbl.enableWrapText = false;
         });
@@ -8174,18 +8175,19 @@ export class Main extends Component {
             const slot = this.uiNode(tray, `实时日志实物格-${idx}`, sx, 0, 96, 98);
             this.itemSlotBg(slot, entry.theme, 96, 98, '实物格底图');
 
-            const iconNode = this.uiNode(slot, '实物图标', 0, 12, 54, 54);
+            const iconNode = this.uiNode(slot, '实物图标', 0, 15, 50, 50);
             const sp = iconNode.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM;
             resources.load(entry.spritePath, SpriteFrame, (e, f) => {
                 if (!e && f && isValid(sp, true) && isValid(iconNode, true)) {
                     sp.spriteFrame = f;
                     const aspect = f.rect.width / Math.max(1, f.rect.height);
-                    const w = aspect >= 1 ? 54 : 54 * aspect;
-                    const h = aspect >= 1 ? 54 / aspect : 54;
+                    const w = aspect >= 1 ? 50 : 50 * aspect;
+                    const h = aspect >= 1 ? 50 / aspect : 50;
                     iconNode.getComponent(UITransform)!.setContentSize(w, h);
                 }
             });
-            const nLbl = this.text(slot, entry.name, 0, -32, 88, 22, 15, '#5C3B20');
+            const nLbl = this.text(slot, entry.name, 0, -31, 92, 26, 20, '#4A2B12');
+            nLbl.isBold = true;
             nLbl.overflow = Label.Overflow.SHRINK; nLbl.enableWrapText = false;
         });
 
@@ -8822,7 +8824,7 @@ export class Main extends Component {
             const pet = this.data.pets.find(p => p.id === log.petId);
             const hasItem = !!log.itemId && !!findItem(log.itemId);
             const needsAction = (log.type === 'lost' && pet?.lost) || ((log.type === 'death_trafficker' || log.type === 'death_sick') && pet?.dead);
-            const cardH = hasItem ? 210 : needsAction ? 198 : 138;
+            const cardH = hasItem ? 226 : needsAction ? 204 : 148;
             const card = this.uiNode(content, '日记条目-' + log.id, 0, curY - cardH / 2, 744, cardH);
             curY -= (cardH + 14);
 
@@ -8837,30 +8839,30 @@ export class Main extends Component {
             const pad = (n: number) => ('0' + n).slice(-2);
             const timeStr = `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
             const meta = eventBadgeMeta(log.type);
-            this.pillBadge(card, meta.label, -304, topY, 112, 30, meta.color, C.white, 17);
-            const titleLbl = this.text(card, `${log.petName} · ${log.title}`, -36, topY, 390, 32, 22, '#58351D');
+            this.pillBadge(card, meta.label, -304, topY, 112, 30, meta.color, C.white, 18);
+            const titleLbl = this.text(card, `${log.petName} · ${log.title}`, -36, topY, 390, 34, 24, '#58351D');
             titleLbl.isBold = true; titleLbl.horizontalAlign = Label.HorizontalAlign.LEFT;
-            const timeLbl = this.text(card, timeStr, 290, topY, 136, 26, 18, '#8C7055');
+            const timeLbl = this.text(card, timeStr, 290, topY, 136, 28, 19, '#8C7055');
             timeLbl.horizontalAlign = Label.HorizontalAlign.RIGHT;
 
-            const bodyLbl = this.text(card, log.text, 0, topY - 48, 700, 52, 20, '#634329');
-            bodyLbl.horizontalAlign = Label.HorizontalAlign.LEFT; bodyLbl.enableWrapText = true; bodyLbl.lineHeight = 25;
+            const bodyLbl = this.text(card, log.text, 0, topY - 52, 700, 58, 23, '#5C3A20');
+            bodyLbl.horizontalAlign = Label.HorizontalAlign.LEFT; bodyLbl.enableWrapText = true; bodyLbl.lineHeight = 29;
 
             if (hasItem) {
                 const item = findItem(log.itemId!)!;
-                const itemCard = this.uiNode(card, '日志实物卡-' + item.id, 0, -cardH / 2 + 44, 696, 68);
+                const itemCard = this.uiNode(card, '日志实物卡-' + item.id, 0, -cardH / 2 + 48, 696, 78);
                 const ig = itemCard.addComponent(Graphics);
                 ig.fillColor = this.color('#FFF4D6'); ig.strokeColor = this.color('#D8A85A'); ig.lineWidth = 2.5;
-                ig.roundRect(-348, -34, 696, 68, 16); ig.fill(); ig.stroke();
-                const slotBox = this.uiNode(itemCard, '日记道具槽', -306, 0, 58, 58);
-                this.itemSlotBg(slotBox, this.itemQualityTheme(item), 58, 58, '日记道具底图');
-                this.itemIcon(slotBox, item.id, 0, 0, 44);
-                const il = this.text(itemCard, `${item.name} ×${log.itemCount || 1}`, -110, 10, 310, 28, 21, '#58351D');
+                ig.roundRect(-348, -39, 696, 78, 16); ig.fill(); ig.stroke();
+                const slotBox = this.uiNode(itemCard, '日记道具槽', -304, 0, 62, 62);
+                this.itemSlotBg(slotBox, this.itemQualityTheme(item), 62, 62, '日记道具底图');
+                this.itemIcon(slotBox, item.id, 0, 0, 48);
+                const il = this.text(itemCard, `${item.name} ×${log.itemCount || 1}`, -106, 14, 316, 32, 25, '#4F2D15');
                 il.isBold = true; il.horizontalAlign = Label.HorizontalAlign.LEFT;
-                const ef = this.text(itemCard, effectText(item), -110, -16, 310, 24, 17, '#7A5B3E');
+                const ef = this.text(itemCard, effectText(item), -106, -18, 316, 28, 21, '#6B4A2D');
                 ef.horizontalAlign = Label.HorizontalAlign.LEFT;
-                this.pillBadge(itemCard, itemCategoryTag(item), 156, 0, 86, 28, '#5C9B68', C.white, 17);
-                const goBag = this.text(itemCard, '查看背包 ›', 284, 0, 110, 28, 19, '#B86420'); goBag.isBold = true;
+                this.pillBadge(itemCard, itemCategoryTag(item), 152, 0, 92, 32, '#5C9B68', C.white, 19);
+                const goBag = this.text(itemCard, '查看背包 ›', 280, 0, 120, 32, 22, '#B86420'); goBag.isBold = true;
                 this.intercept(itemCard); this.pressVisualFeedback(itemCard);
                 itemCard.on(Node.EventType.TOUCH_END, () => { this.bagFilter = item.category; this.open('bag'); }, this);
             } else if (needsAction) {
