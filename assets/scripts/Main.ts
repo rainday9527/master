@@ -8616,8 +8616,8 @@ export class Main extends Component {
             this.showPetCrisisDialog(alert.kind, pet.id, alert.reason);
             return;
         }
-        // 当庭院所有伙伴均已离世且尚无存活宠物时，弹出温馨提醒引导玩家前往招募领养或纪念角复活
-        if (!this.allDeadPrompted && this.data.pets.length > 0 && this.data.pets.every(p => p.dead)) {
+        // 当庭院所有宠物均已离世或走失且尚无在场存活宠物时，弹出温馨提醒引导玩家前往纪念角立碑/找回复活，或招募新伙伴
+        if (!this.allDeadPrompted && this.data.pets.length > 0 && this.data.pets.every(p => p.dead || p.lost)) {
             this.allDeadPrompted = true;
             this.showAllPetsDeadDialog();
         }
@@ -8627,10 +8627,10 @@ export class Main extends Component {
         if (this.dialog) this.closeDialog();
         this.showDialog(
             '庭院空荡荡的',
-            '庭院里的所有毛孩子都已离世……\n快去招募领养新伙伴，或前往纪念角复活它们吧！',
+            '庭院里的毛孩子都已离开或走失……\n可以前往纪念角立碑纪念/找回复活，或去招募领养新宠物！',
             [
+                { title: '去立碑/找回', run: () => { this.closeDialog(); this.open('memorial'); } },
                 { title: '去招募领养', run: () => { this.closeDialog(); this.open('recruit'); } },
-                { title: '去复活伙伴', run: () => { this.closeDialog(); this.open('memorial'); } },
             ],
         );
     }
@@ -8649,6 +8649,33 @@ export class Main extends Component {
                 { title: '购买墓碑纪念', run: () => { this.closeDialog(); this.open('memorial'); this.showErectTombstoneDialog(petId); } },
             ]);
         }
+    }
+
+    private revivePetByGems(petId: number) {
+        const pet = this.data.pets.find(p => p.id === petId);
+        if (!pet || !pet.dead) { this.closeDialog(); return; }
+        const c = this.dailyCandidate();
+        if (c.gems < LOST_PET_RECOVER_GEMS) { this.closeDialog(); this.showGemDialog(); return; }
+        c.gems -= LOST_PET_RECOVER_GEMS;
+        const target = c.pets.find(p => p.id === petId);
+        if (!target) return;
+        target.dead = false; target.lost = false; target.adventuring = false; target.adventureReturnAt = undefined;
+        target.health = 100; target.hunger = 80; target.clean = 80; target.energy = 85; target.joy = 85;
+        target.deathReason = undefined; target.diedAt = undefined;
+        (c.adventureLogs || []).forEach(l => {
+            if (l.petId === petId && (l.type === 'death_trafficker' || l.type === 'death_sick')) l.resolved = true;
+        });
+        if (!this.commitShop(c)) return;
+        this.allDeadPrompted = false;
+        this.closeDialog();
+        if (!this.actors.some(a => a.pet.id === petId)) this.spawnPet(target);
+        this.syncActorVisibility();
+        this.renderHeader();
+        this.refreshMemorialEntry();
+        SoundManager.playSfx('heal');
+        this.showRewardToast([{ kind: 'gems', amount: -LOST_PET_RECOVER_GEMS }], '消耗');
+        this.toast(`奇迹发生！「${this.petDisplayName(petId)}」已重新回到庭院啦！`);
+        if (this.page === 'memorial' || this.page === 'diary') this.open(this.page);
     }
 
     private recoverLostPet(petId: number, mode: 'ad' | 'gems') {
@@ -8817,6 +8844,7 @@ export class Main extends Component {
         buyTombBtn.name = '纪念角买墓碑按钮';
 
         const memorials = this.data.memorials || [];
+        const lostPets = this.data.pets.filter(p => p.lost && !p.dead);
         const deadUnmemorialized = this.data.pets.filter(p => p.dead && !memorials.some(m => m.petId === p.id));
 
         const vp = this.uiNode(panel, '纪念角视口', 0, -142, 770, 840);
@@ -8828,25 +8856,42 @@ export class Main extends Component {
         scroll.cancelInnerEvents = true; scroll.elastic = true;
 
         let curY = -16;
-        if (deadUnmemorialized.length) {
-            deadUnmemorialized.forEach(pet => {
-                const row = this.uiNode(content, '待立碑伙伴-' + pet.id, 0, curY - 62, 740, 118);
+        if (lostPets.length) {
+            lostPets.forEach(pet => {
+                const row = this.uiNode(content, '走失待找回-' + pet.id, 0, curY - 62, 740, 118);
                 curY -= 132;
                 const rg = row.addComponent(Graphics);
-                rg.fillColor = this.color('#FFF5EA'); rg.strokeColor = this.color('#D89A6C'); rg.lineWidth = 3;
+                rg.fillColor = this.color('#FFF4E8'); rg.strokeColor = this.color('#E08A54'); rg.lineWidth = 3;
                 rg.roundRect(-370, -59, 740, 118, 22); rg.fill(); rg.stroke();
                 this.petAvatar(row, pet.id, -296, 0, 88);
-                const nl = this.text(row, `${this.petDisplayName(pet.id)}（${pet.deathReason || '已离世'}）`, -40, 18, 390, 32, 22, '#58351D');
+                const nl = this.text(row, `${this.petDisplayName(pet.id)}（冒险走失）`, -40, 18, 360, 32, 22, '#58351D');
                 nl.isBold = true; nl.horizontalAlign = Label.HorizontalAlign.LEFT;
-                const sl = this.text(row, '可立碑刻字永远纪念，或观看广告复活', -40, -18, 390, 26, 18, '#7A5B3E');
+                const sl = this.text(row, `可观看广告免费找回，或消耗 ${LOST_PET_RECOVER_GEMS} 钻石找回`, -40, -18, 360, 26, 18, '#7A5B3E');
                 sl.horizontalAlign = Label.HorizontalAlign.LEFT;
-                const erectBtn = this.bagButton(row, '立碑纪念', 248, 22, 168, 44, () => this.showErectTombstoneDialog(pet.id));
+                this.bagButton(row, '广告找回', 248, 24, 168, 42, () => this.recoverLostPet(pet.id, 'ad'));
+                this.bagButton(row, `${LOST_PET_RECOVER_GEMS}钻找回`, 248, -24, 168, 42, () => this.recoverLostPet(pet.id, 'gems'));
+            });
+        }
+        if (deadUnmemorialized.length) {
+            deadUnmemorialized.forEach(pet => {
+                const row = this.uiNode(content, '待立碑伙伴-' + pet.id, 0, curY - 66, 740, 128);
+                curY -= 142;
+                const rg = row.addComponent(Graphics);
+                rg.fillColor = this.color('#FFF5EA'); rg.strokeColor = this.color('#D89A6C'); rg.lineWidth = 3;
+                rg.roundRect(-370, -64, 740, 128, 22); rg.fill(); rg.stroke();
+                this.petAvatar(row, pet.id, -296, 0, 88);
+                const nl = this.text(row, `${this.petDisplayName(pet.id)}（${pet.deathReason || '已离世'}）`, -58, 20, 340, 32, 22, '#58351D');
+                nl.isBold = true; nl.horizontalAlign = Label.HorizontalAlign.LEFT;
+                const sl = this.text(row, `可立碑纪念，或广告/${LOST_PET_RECOVER_GEMS}钻找回复活`, -58, -18, 340, 26, 18, '#7A5B3E');
+                sl.horizontalAlign = Label.HorizontalAlign.LEFT;
+                const erectBtn = this.bagButton(row, '立碑纪念', 180, 26, 148, 42, () => this.showErectTombstoneDialog(pet.id));
                 erectBtn.name = '立碑按钮-' + pet.id;
-                this.bagButton(row, '广告复活', 248, -26, 168, 42, () => this.revivePetByAd(pet.id));
+                this.bagButton(row, '广告复活', 180, -26, 148, 42, () => this.revivePetByAd(pet.id));
+                this.bagButton(row, `${LOST_PET_RECOVER_GEMS}钻找回`, 312, 0, 108, 92, () => this.revivePetByGems(pet.id));
             });
         }
 
-        if (!memorials.length && !deadUnmemorialized.length) {
+        if (!memorials.length && !deadUnmemorialized.length && !lostPets.length) {
             const emptyBox = this.uiNode(content, '纪念角空状态提示', 0, -340, 680, 220);
             const eg = emptyBox.addComponent(Graphics);
             eg.fillColor = this.color('#F8ECD6');
