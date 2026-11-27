@@ -6663,7 +6663,7 @@ export class Main extends Component {
             if (!e && f && isValid(bgSp, true)) bgSp.spriteFrame = f;
         });
 
-        this.dailyText(panel, '游戏设置', 0, 392, 440, 58, 42, false, true);
+        this.dailyText(panel, '游戏设置', 0, 438, 440, 58, 42, false, true);
         const close = this.uiNode(panel, '收起', 422, 398, 128, 128);
         this.dailySprite(close, 'close', 0, 0, 112, 112, false, '关闭图标');
         this.shopButton(close, () => this.open(this.settingsReturnPage));
