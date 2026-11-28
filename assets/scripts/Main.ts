@@ -9420,11 +9420,11 @@ export class Main extends Component {
         ag.lineWidth = 4; ag.strokeColor = new Color(188, 134, 82, 255);
         ag.circle(0, 0, 74); ag.stroke();
         this.petAvatar(avatarBg, visitor.breedId, 0, 0, 132, false);
-        const badge = this.uiNode(content, '访客稀有度', -248, -54, 148, 32);
+        const badge = this.uiNode(content, '访客稀有度', -248, -54, 152, 34);
         const bg = badge.addComponent(Graphics);
-        bg.fillColor = new Color().fromHEX(rarityInfo.color);
-        bg.roundRect(-74, -16, 148, 32, 16); bg.fill();
-        const bl = this.text(badge, `${rarityInfo.label} · ${breed.kind === 'dog' ? '小狗' : '小猫'}`, 0, 0, 140, 26, 18, '#FFFDF5');
+        bg.fillColor = new Color().fromHEX(rarityInfo.badgeBg);
+        bg.roundRect(-76, -17, 152, 34, 17); bg.fill();
+        const bl = this.text(badge, `${rarityInfo.label} · ${breed.kind === 'dog' ? '小狗' : '小猫'}`, 0, 0, 144, 28, 18, rarityInfo.badgeText);
         bl.isBold = true;
 
         // 右侧访客故事与风险说明
