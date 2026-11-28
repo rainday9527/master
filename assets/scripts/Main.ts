@@ -1613,19 +1613,20 @@ export class Main extends Component {
             }
         }
 
-        // 3) 高阶限定专属：头顶上方浮空流光冠环（y=1.68 避开猫狗双耳零穿模）
+        // 3) 高阶限定专属：外圈斜倾星轨流光环（环绕全身外侧 r=1.18，彻底避开头顶帽子/皇冠/天使光环等所有挂饰零穿模）
         if (cfg.hasHaloCrown && cfg.haloColor) {
             const upper = new Node('服装上层流光');
             upper.layer = Layers.Enum.DEFAULT;
             root.addChild(upper);
-            upper.setPosition(0, 1.68, 0);
-            vfxShape(upper, 'torus', cfg.haloColor, [0, 0, 0], [0.92, 0.022, 0.92], [8, 0, 0]);
+            upper.setPosition(0, 0.58, 0);
+            upper.setRotationFromEuler(22, 0, -14);
+            vfxShape(upper, 'torus', cfg.haloColor, [0, 0, 0], [2.32, 0.022, 2.32], [0, 0, 0]);
             for (let j = 0; j < 6; j++) {
                 const rad = (j / 6) * Math.PI * 2;
                 const pt = new Node('上层光珠-' + j);
                 pt.layer = Layers.Enum.DEFAULT;
                 upper.addChild(pt);
-                pt.setPosition(Math.cos(rad) * 0.48, 0, Math.sin(rad) * 0.48);
+                pt.setPosition(Math.cos(rad) * 1.16, 0, Math.sin(rad) * 1.16);
                 vfxShape(pt, 'sphere', cfg.particles[j % cfg.particles.length], [0, 0, 0], [0.095, 0.095, 0.095]);
             }
         }
@@ -1653,8 +1654,8 @@ export class Main extends Component {
         }
         const upper = coatVfxNode.getChildByName('服装上层流光');
         if (upper && isValid(upper, true)) {
-            upper.setRotationFromEuler(8 + Math.sin(t * 2.0) * 5, (t * 72) % 360, Math.cos(t * 1.7) * 5);
-            upper.setPosition(0, 1.68 + Math.sin(t * 2.6) * 0.06, 0);
+            upper.setRotationFromEuler(22 + Math.sin(t * 1.8) * 4, (t * 54) % 360, -14 + Math.cos(t * 1.5) * 4);
+            upper.setPosition(0, 0.58 + Math.sin(t * 2.2) * 0.05, 0);
         }
     }
 
