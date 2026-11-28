@@ -1613,21 +1613,40 @@ export class Main extends Component {
             }
         }
 
-        // 3) 高阶限定专属：外圈斜倾星轨流光环（环绕全身外侧 r=1.18，彻底避开头顶帽子/皇冠/天使光环等所有挂饰零穿模）
+        // 3) 高阶限定专属：纤细低位流光细环（管径仅 0.014，位于脚边 y=0.16 轻盈环绕，绝不挡脸、绝不穿模帽子与天使光环）+ 8 颗外围上升星屑
         if (cfg.hasHaloCrown && cfg.haloColor) {
             const upper = new Node('服装上层流光');
             upper.layer = Layers.Enum.DEFAULT;
             root.addChild(upper);
-            upper.setPosition(0, 0.58, 0);
-            upper.setRotationFromEuler(22, 0, -14);
-            vfxShape(upper, 'torus', cfg.haloColor, [0, 0, 0], [2.32, 0.022, 2.32], [0, 0, 0]);
-            for (let j = 0; j < 6; j++) {
-                const rad = (j / 6) * Math.PI * 2;
+            upper.setPosition(0, 0.16, 0);
+            upper.setRotationFromEuler(7, 0, -5);
+            let slimMesh = this.meshes.get('coat_slim_torus');
+            if (!slimMesh) {
+                slimMesh = utils.createMesh(primitives.torus(0.92, 0.014, { radialSegments: 10, tubularSegments: 48 }));
+                this.meshes.set('coat_slim_torus', slimMesh);
+            }
+            const ringNode = new Node('服装纤细光环');
+            ringNode.layer = Layers.Enum.DEFAULT;
+            upper.addChild(ringNode);
+            const mr = ringNode.addComponent(MeshRenderer);
+            mr.mesh = slimMesh;
+            const matKey = 'unlit:' + cfg.haloColor;
+            let mat = this.materials.get(matKey);
+            if (!mat) {
+                mat = new Material();
+                mat.initialize({ effectName: 'builtin-unlit' });
+                mat.setProperty('mainColor', this.color(cfg.haloColor));
+                this.materials.set(matKey, mat);
+            }
+            mr.material = mat;
+            mr.shadowCastingMode = 0; mr.receiveShadow = 0;
+            for (let j = 0; j < 8; j++) {
+                const rad = (j / 8) * Math.PI * 2;
                 const pt = new Node('上层光珠-' + j);
                 pt.layer = Layers.Enum.DEFAULT;
                 upper.addChild(pt);
-                pt.setPosition(Math.cos(rad) * 1.16, 0, Math.sin(rad) * 1.16);
-                vfxShape(pt, 'sphere', cfg.particles[j % cfg.particles.length], [0, 0, 0], [0.095, 0.095, 0.095]);
+                pt.setPosition(Math.cos(rad) * 0.96, 0.04 + (j % 4) * 0.16, Math.sin(rad) * 0.96);
+                vfxShape(pt, 'sphere', cfg.particles[j % cfg.particles.length], [0, 0, 0], [0.062, 0.062, 0.062]);
             }
         }
         return root;
@@ -1654,8 +1673,17 @@ export class Main extends Component {
         }
         const upper = coatVfxNode.getChildByName('服装上层流光');
         if (upper && isValid(upper, true)) {
-            upper.setRotationFromEuler(22 + Math.sin(t * 1.8) * 4, (t * 54) % 360, -14 + Math.cos(t * 1.5) * 4);
-            upper.setPosition(0, 0.58 + Math.sin(t * 2.2) * 0.05, 0);
+            upper.setRotationFromEuler(7 + Math.sin(t * 1.8) * 3, (t * 48) % 360, -5 + Math.cos(t * 1.5) * 3);
+            upper.setPosition(0, 0.16 + Math.sin(t * 2.4) * 0.035, 0);
+            upper.children.forEach((ch, idx) => {
+                if (ch.name.indexOf('上层光珠-') !== 0) return;
+                const phase = (t * 0.55 + idx * 0.125) % 1;
+                const ang = (idx / 8) * Math.PI * 2;
+                const r = 0.94 + Math.sin(phase * Math.PI) * 0.10;
+                ch.setPosition(Math.cos(ang) * r, phase * 0.72, Math.sin(ang) * r);
+                const s = 0.55 + Math.sin(phase * Math.PI) * 0.65;
+                ch.setScale(s, s, s);
+            });
         }
     }
 
