@@ -7144,6 +7144,7 @@ export class Main extends Component {
         if (id === 'shopBuy') { this.shopTab = 'items'; this.open('shop'); return; }
         if (id === 'recruit') { this.open('recruit'); return; }
         if (id === 'furniture') { this.open('layout'); return; }
+        if (id === 'strayAdopt') { this.open('home'); this.toast('在庭院等待流浪访客来访，或派伙伴冒险带回吧！'); return; }
         const kind = id === 'feedCat' ? 'cat' : id === 'feedDog' ? 'dog' : null;
         const statKey = id === 'clean' ? 'clean' : id === 'play' ? 'joy' : id === 'rest' ? 'energy' : id === 'heal' ? 'health' : 'hunger';
         const pet = this.data.pets.find(p => !p.dead && (!kind || BREEDS[p.id].kind === kind) && p[statKey] < 100)
@@ -8139,7 +8140,7 @@ export class Main extends Component {
                 background.active = !state.packClaimed;
             });
             this.updateDailyRows(daily);
-            this.dailyText(panel, '上下滑动查看全部 10 项每日任务与免费补给', -12, -530, 680, 36, 22);
+            this.dailyText(panel, `上下滑动查看全部 ${DAILY_TASKS.length} 项每日任务与免费补给`, -12, -530, 680, 36, 22);
         } else {
             // 成就任务页签：永久累计次数，按任务阶位领取递增钻石奖励
             const totalClaimed = ACHIEVEMENTS.reduce((s, a) => s + (ach.claimedTier[a.id] || 0), 0);
