@@ -62,7 +62,8 @@ export type AdventureEventType =
     | 'lost'
     | 'death_trafficker'
     | 'death_sick'
-    | 'chest';
+    | 'chest'
+    | 'stray_bring';
 
 export interface AdventureLogEntry {
     id: number;
@@ -126,6 +127,7 @@ export interface RolledAdventureOutcome {
     setLost?: boolean;
     setDead?: boolean;
     deathReason?: string;
+    bringStray?: boolean;
 }
 
 export function eventBadgeMeta(type: AdventureEventType): { label: string; color: string } {
@@ -142,6 +144,7 @@ export function eventBadgeMeta(type: AdventureEventType): { label: string; color
         case 'death_trafficker': return { label: '遭遇贩子', color: '#6E2B2B' };
         case 'death_sick': return { label: '重病离世', color: '#5A5560' };
         case 'chest': return { label: '宝箱收获', color: '#C98A1A' };
+        case 'stray_bring': return { label: '带回流浪', color: '#E07A3F' };
     }
 }
 
@@ -174,6 +177,20 @@ export function makeTraffickerDeathOutcome(petName: string): RolledAdventureOutc
         text: `「${petName}」在偏远路口冒险时不幸遭遇猫狗贩子，永远离开了小院……`,
         setDead: true,
         deathReason: '冒险途中遭遇猫狗贩子',
+    };
+}
+
+export function makeStrayBringOutcome(petName: string): RolledAdventureOutcome {
+    const lines = [
+        `「${petName}」在林间小路遇见一只瑟瑟发抖的流浪毛孩子，一路护送着把它带回了庭院门口！`,
+        `「${petName}」冒险途中被一只瘦弱的流浪小伙伴黏住了，干脆把它领回院子等你决定去留！`,
+    ];
+    return {
+        type: 'stray_bring',
+        title: '带回流浪小伙伴',
+        text: lines[Math.floor(Math.random() * lines.length)],
+        joyDelta: 6,
+        bringStray: true,
     };
 }
 
@@ -241,8 +258,12 @@ export function rollAdventureEvent(
             joyDelta: 8,
         };
     }
-    // 掉进垃圾桶需要清洁（10%）
-    if (r < 0.88) {
+    // 带回流浪猫狗（8%）
+    if (r < 0.86) {
+        return makeStrayBringOutcome(petName);
+    }
+    // 掉进垃圾桶需要清洁（6%）
+    if (r < 0.92) {
         return {
             type: 'dirty',
             title: '掉进垃圾桶弄脏了',
@@ -251,8 +272,8 @@ export function rollAdventureEvent(
             joyDelta: -8,
         };
     }
-    // 与其他猫狗打架受伤（6%）
-    if (r < 0.94) {
+    // 与其他猫狗打架受伤（4%）
+    if (r < 0.96) {
         return {
             type: 'injured',
             title: '与其他伙伴打架受伤',
@@ -261,7 +282,7 @@ export function rollAdventureEvent(
             joyDelta: -10,
         };
     }
-    // 温暖奇遇（6%）
+    // 温暖奇遇（4%）
     return {
         type: 'social',
         title: '花海晒太阳奇遇',

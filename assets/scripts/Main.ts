@@ -74,6 +74,19 @@ interface YardPoop {
     z: number;
     createdAt: number;
 }
+export type YardDebuffKind = 'health_drain' | 'clean_drain' | 'multi_drain';
+export type StrayAdoptOutcome = 'healthy_hungry' | 'sick_contagion' | 'dirty_contagion' | 'multi_drain';
+interface YardDebuff {
+    kind: YardDebuffKind;
+    label: string;
+    expiresAt: number;
+    sourceName: string;
+}
+interface PendingStrayVisitor {
+    breedId: number;
+    source: 'yard' | 'adventure';
+    bringerName?: string;
+}
 interface ShopState { day: number; freeUsed: number; paidUsed: number; maxTime: number; revision: number; slots: ShopSlot[]; }
 interface Save {
     version: number; coins: number; gems: number; xp: number; avatar: number; pets: Pet[];
@@ -81,6 +94,7 @@ interface Save {
     adventureEnd: number; lastSeen: number; shop: ShopState; daily: DailyState; recruit: RecruitState;
     albumClaimed: Record<string, boolean>;
     poops?: YardPoop[];
+    yardDebuffs?: YardDebuff[];
     adventureIdleStart?: number;
     adventureLogs?: AdventureLogEntry[];
     tombstoneInventory?: Record<string, number>;
@@ -228,6 +242,9 @@ export class Main extends Component {
     private draggingFurnitureUid: number | null = null;
     private zzzBubbles: Array<{ node: Node; x: number; y: number; age: number; duration: number; driftX: number }> = [];
     private pendingAlerts: { kind: 'lost' | 'dead'; petId: number; reason: string }[] = [];
+    private pendingVisitors: PendingStrayVisitor[] = [];
+    private nextYardVisitorAt = 0;
+    private debuffBanner: Node | null = null;
     private allDeadPrompted = false;
     private socialBubbles: SocialBubble[] = [];
     private fightClouds: Array<{ node: Node; a: Actor; b: Actor; x: number; z: number; age: number; duration: number; puffs: Node[]; sparks: Node[] }> = [];
@@ -621,6 +638,22 @@ export class Main extends Component {
                 });
             }
             s.poops = validPoops;
+            const validDebuffs: YardDebuff[] = [];
+            const nowDebuff = Date.now();
+            if (Array.isArray((s as any).yardDebuffs)) {
+                ((s as any).yardDebuffs as YardDebuff[]).slice(0, 6).forEach(d => {
+                    if (d && (d.kind === 'health_drain' || d.kind === 'clean_drain' || d.kind === 'multi_drain')
+                        && typeof d.expiresAt === 'number' && Number.isFinite(d.expiresAt) && d.expiresAt > nowDebuff && d.expiresAt <= nowDebuff + 3600000) {
+                        validDebuffs.push({
+                            kind: d.kind,
+                            label: typeof d.label === 'string' && d.label ? d.label : '庭院异常',
+                            expiresAt: d.expiresAt,
+                            sourceName: typeof d.sourceName === 'string' ? d.sourceName : '流浪访客',
+                        });
+                    }
+                });
+            }
+            s.yardDebuffs = validDebuffs;
             s.adventureIdleStart = validInt((s as any).adventureIdleStart, 9000000000000000) ? (s as any).adventureIdleStart : Math.max(0, Date.now() - 10 * 60000);
             s.adventureLogs = Array.isArray((s as any).adventureLogs) ? ((s as any).adventureLogs as AdventureLogEntry[]).slice(0, 40) : [];
             this.advLogNextId = s.adventureLogs.reduce((m, e) => Math.max(m, e.id || 0), 1);
@@ -2065,6 +2098,7 @@ export class Main extends Component {
         this.navCaption(memorial, '纪念角', 2);
         memorial.on(Node.EventType.TOUCH_END, () => this.open('memorial'), this);
         this.refreshMemorialEntry();
+        this.refreshYardDebuffBanner();
         this.refreshTaskRedDots();
 
         // 庭院布置入口：位于左侧上方，与右侧「任务」入口水平对齐
@@ -2423,6 +2457,7 @@ export class Main extends Component {
             this.notice.node.parent?.getComponent(Graphics)?.clear();
         }
         this.layoutNotice();
+        this.refreshYardDebuffBanner();
         this.layoutDialog();
         this.layoutBackground();
         if (this.recruitBackground) {
@@ -3321,6 +3356,7 @@ export class Main extends Component {
         const settingsEntry = this.ui.getChildByName('游戏设置入口');
         if (settingsEntry) settingsEntry.active = page === 'home';
         this.refreshMemorialEntry();
+        this.refreshYardDebuffBanner();
         this.refreshTaskRedDots();
         const hideChrome = page === 'login' || page === 'loading' || (page === 'settings' && this.settingsReturnPage === 'login');
         this.refreshGmEntryVisibility();
@@ -3755,6 +3791,7 @@ export class Main extends Component {
             if (toSpawn.length > 0) this.allDeadPrompted = false;
             this.syncActorVisibility();
             this.refreshMemorialEntry();
+        this.refreshYardDebuffBanner();
         this.refreshTaskRedDots();
             this.renderHeader(); this.updateRecruit();
             const hasHighRarity = added.length > 0 || ids.some(id => BREEDS[id]?.rarity === 'epic' || BREEDS[id]?.rarity === 'legend');
@@ -8457,6 +8494,7 @@ export class Main extends Component {
             if (!this.commitShop(c)) return;
             this.renderHeader();
             this.refreshMemorialEntry();
+        this.refreshYardDebuffBanner();
         this.refreshTaskRedDots();
             this.refreshTombstoneOwnedLabel(id);
             this.toast('限定解锁成功！已获得「' + tomb.name + '」');
@@ -8474,6 +8512,7 @@ export class Main extends Component {
         if (!this.commitShop(c)) return false;
         this.renderHeader();
         this.refreshMemorialEntry();
+        this.refreshYardDebuffBanner();
         this.refreshTaskRedDots();
         this.refreshTombstoneOwnedLabel(id);
         this.showRewardToast([{ kind: 'gems', amount: -tomb.priceGems }], '消耗');
@@ -9182,6 +9221,7 @@ export class Main extends Component {
         }
         this.renderHeader();
         this.refreshMemorialEntry();
+        this.refreshYardDebuffBanner();
         this.refreshTaskRedDots();
         {
             const gained: RewardGrantItem[] = [];
@@ -9196,6 +9236,14 @@ export class Main extends Component {
         } else if (outcome.setDead) {
             this.allDeadPrompted = false;
             this.pendingAlerts.push({ kind: 'dead', petId: pet.id, reason: outcome.deathReason || '冒险途中遭遇猫狗贩子' });
+            this.checkMainCityAlerts();
+        } else if (outcome.bringStray) {
+            const strayBreedId = this.pickStrayBreedId();
+            this.pendingVisitors.push({ breedId: strayBreedId, source: 'adventure', bringerName: name });
+            if (this.page === 'adventure') {
+                const kindLabel = BREEDS[strayBreedId]?.kind === 'dog' ? '流浪狗' : '流浪猫';
+                this.toast(`「${name}」带回一只${kindLabel}，回庭院决定是否领养吧！`);
+            }
             this.checkMainCityAlerts();
         }
     }
@@ -9230,6 +9278,7 @@ export class Main extends Component {
             this.persist();
             this.syncActorVisibility();
             this.refreshMemorialEntry();
+        this.refreshYardDebuffBanner();
         this.refreshTaskRedDots();
             this.renderHeader();
             const names = respawned.slice(0, 2).map(id => this.petDisplayName(id)).join('、');
@@ -9252,11 +9301,253 @@ export class Main extends Component {
             this.showPetCrisisDialog(alert.kind, pet.id, alert.reason);
             return;
         }
+        if (this.pendingVisitors.length) {
+            const visitor = this.pendingVisitors.shift()!;
+            this.showStrayVisitorDialog(visitor);
+            return;
+        }
         // 当庭院所有宠物均已离世或走失且尚无在场存活宠物时，弹出温馨提醒引导玩家前往纪念角立碑/找回复活，或招募新伙伴
         if (!this.allDeadPrompted && this.data.pets.length > 0 && this.data.pets.every(p => p.dead || p.lost)) {
             this.allDeadPrompted = true;
             this.showAllPetsDeadDialog();
         }
+    }
+
+    private pickStrayBreedId(): number {
+        const owned = new Set(this.data.pets.map(p => p.id));
+        const dead = new Set(this.data.pets.filter(p => p.dead).map(p => p.id));
+        const unowned = BREEDS.map((_, i) => i).filter(i => !owned.has(i));
+        if (unowned.length && Math.random() < 0.72) {
+            return unowned[Math.floor(Math.random() * unowned.length)];
+        }
+        const alivePool = BREEDS.map((_, i) => i).filter(i => !dead.has(i));
+        const pool = alivePool.length ? alivePool : BREEDS.map((_, i) => i);
+        return pool[Math.floor(Math.random() * pool.length)];
+    }
+
+    public triggerStrayVisitor(source: 'yard' | 'adventure' = 'yard', breedId?: number, bringerName?: string) {
+        const id = (typeof breedId === 'number' && BREEDS[breedId]) ? breedId : this.pickStrayBreedId();
+        const visitor: PendingStrayVisitor = { breedId: id, source, bringerName };
+        this.pendingVisitors.push(visitor);
+        if (this.page === 'home' && !this.dialog) {
+            this.checkMainCityAlerts();
+        }
+        return visitor;
+    }
+
+    public getActiveYardDebuffs(now = Date.now()): YardDebuff[] {
+        if (!this.data) return [];
+        const list = (this.data.yardDebuffs || []).filter(d => d.expiresAt > now);
+        if ((this.data.yardDebuffs || []).length !== list.length) {
+            this.data.yardDebuffs = list;
+            this.dirty = true;
+        }
+        return list;
+    }
+
+    private applyYardDebuff(kind: YardDebuffKind, label: string, durationMs: number, sourceName: string) {
+        const now = Date.now();
+        const list = this.getActiveYardDebuffs(now).filter(d => d.kind !== kind);
+        list.push({ kind, label, expiresAt: now + durationMs, sourceName });
+        this.data.yardDebuffs = list;
+        this.dirty = true;
+    }
+
+    public refreshYardDebuffBanner() {
+        const active = this.getActiveYardDebuffs();
+        if (this.page !== 'home' || !active.length || !isValid(this.ui, true)) {
+            if (this.debuffBanner && isValid(this.debuffBanner, true)) {
+                this.debuffBanner.active = false;
+            }
+            return;
+        }
+        if (!this.debuffBanner || !isValid(this.debuffBanner, true)) {
+            this.debuffBanner = this.uiNode(this.ui, '庭院异常状态横幅', 0, 0, 680, 56);
+            const g = this.debuffBanner.addComponent(Graphics);
+            g.fillColor = new Color(186, 46, 38, 228);
+            g.roundRect(-340, -28, 680, 56, 28);
+            g.fill();
+            g.lineWidth = 3;
+            g.strokeColor = new Color(255, 232, 184, 240);
+            g.roundRect(-340, -28, 680, 56, 28);
+            g.stroke();
+            const lbl = this.text(this.debuffBanner, '', 0, 0, 640, 38, 22, '#FFF9EC');
+            lbl.isBold = true;
+            lbl.node.name = '异常横幅文字';
+        }
+        this.debuffBanner.active = true;
+        const primary = active[0];
+        const remSec = Math.max(1, Math.ceil((primary.expiresAt - Date.now()) / 1000));
+        const mm = String(Math.floor(remSec / 60)).padStart(2, '0');
+        const ss = String(remSec % 60).padStart(2, '0');
+        const extra = active.length > 1 ? ` 等${active.length}项` : '';
+        const lbl = this.debuffBanner.getChildByName('异常横幅文字')?.getComponent(Label);
+        if (lbl) lbl.string = `⚠ 庭院状态：${primary.label}${extra}（${mm}:${ss}）`;
+        const bounds = this.chromeBounds();
+        const topScale = this.top ? this.top.scale.y : 1;
+        const bannerScale = Math.min(1, (bounds.right - bounds.left - 36) / 680);
+        this.debuffBanner.setScale(bannerScale, bannerScale, 1);
+        const topY = this.top ? this.top.position.y - 114 * topScale - 36 * bannerScale : bounds.top - 160;
+        this.debuffBanner.setPosition((bounds.left + bounds.right) / 2, topY, 0);
+    }
+
+    public showStrayVisitorDialog(visitor: PendingStrayVisitor) {
+        if (this.dialog) this.closeDialog();
+        const breed = BREEDS[visitor.breedId] || BREEDS[0];
+        const kindLabel = breed.kind === 'dog' ? '流浪狗' : '流浪猫';
+        const rarityInfo = RARITY_INFO[breed.rarity];
+        const overlay = this.uiNode(this.ui, '通用弹窗遮罩', 0, 0, this.width, this.height);
+        this.dialog = overlay;
+        overlay.addComponent(Graphics); this.intercept(overlay);
+        const ratio = 900 / 1116;
+        const panel = this.uiNode(overlay, '通用弹窗面板', 0, 0, 900, 904 * ratio);
+        this.intercept(panel);
+        const art = this.uiNode(panel, '弹窗底板', 0, 0, 900, 904 * ratio);
+        const sprite = art.addComponent(Sprite); sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+        resources.load('art/dialog/panel/spriteFrame', SpriteFrame, (error, frame) => {
+            if (!error && frame && isValid(sprite, true)) sprite.spriteFrame = frame;
+        });
+        const content = this.uiNode(panel, '弹窗安全内容', 0, (452 - 572.5) * ratio + 35, 896 * ratio, 395 * ratio);
+        const title = visitor.source === 'adventure' ? '冒险带回流浪伙伴' : '庭院流浪访客';
+        const heading = this.headerText(panel, title, 0, (452 - 226) * ratio, 480 * ratio, 62 * ratio, 36);
+        heading.node.name = '弹窗独立标题';
+
+        // 左侧流浪猫狗头像 + 稀有度标签
+        const avatarBg = this.uiNode(content, '访客头像底', -248, 34, 152, 152);
+        const ag = avatarBg.addComponent(Graphics);
+        ag.fillColor = new Color(255, 245, 224, 255);
+        ag.circle(0, 0, 74); ag.fill();
+        ag.lineWidth = 4; ag.strokeColor = new Color(188, 134, 82, 255);
+        ag.circle(0, 0, 74); ag.stroke();
+        this.petAvatar(avatarBg, visitor.breedId, 0, 0, 132, false);
+        const badge = this.uiNode(content, '访客稀有度', -248, -54, 148, 32);
+        const bg = badge.addComponent(Graphics);
+        bg.fillColor = new Color().fromHEX(rarityInfo.color);
+        bg.roundRect(-74, -16, 148, 32, 16); bg.fill();
+        const bl = this.text(badge, `${rarityInfo.label} · ${breed.kind === 'dog' ? '小狗' : '小猫'}`, 0, 0, 140, 26, 18, '#FFFDF5');
+        bl.isBold = true;
+
+        // 右侧访客故事与风险说明
+        const intro = visitor.source === 'adventure'
+            ? `「${visitor.bringerName || '伙伴'}」冒险回来时，把这只${kindLabel}「${breed.name}」领回了院门口！`
+            : `一只毛发凌乱的${kindLabel}「${breed.name}」悄悄来到庭院门外，可怜巴巴地望着你……`;
+        const introLbl = this.text(content, intro, 88, 66, 480, 96, 24, '#4E2F1A');
+        introLbl.horizontalAlign = Label.HorizontalAlign.LEFT;
+        introLbl.isBold = true;
+
+        const hintLbl = this.text(
+            content,
+            '领养后立刻揭晓：可能健康只是饿了脏了，也可能携带病菌/跳蚤导致庭院全员状态加速下降甚至病危！',
+            88, -20, 480, 78, 19, '#A8442A',
+        );
+        hintLbl.horizontalAlign = Label.HorizontalAlign.LEFT;
+
+        // 底部双按钮：领养它 / 忍痛放弃
+        const adoptBtn = this.shopArt(content, 'buy', -230 * ratio, -160 * ratio, 380 * ratio, 380 * ratio * 120 / 321);
+        adoptBtn.name = '弹窗按钮-领养它';
+        this.headerText(adoptBtn, '领养它', 0, 0, 300 * ratio, 50 * ratio, 28);
+        this.shopButton(adoptBtn, () => this.adoptStrayVisitor(visitor));
+
+        const declineBtn = this.shopArt(content, 'buy', 230 * ratio, -160 * ratio, 380 * ratio, 380 * ratio * 120 / 321);
+        declineBtn.name = '弹窗按钮-忍痛放弃';
+        this.headerText(declineBtn, '忍痛放弃', 0, 0, 300 * ratio, 50 * ratio, 28);
+        this.shopButton(declineBtn, () => this.declineStrayVisitor(visitor));
+
+        const close = this.shopArt(panel, 'close', 480 * ratio, (452 - 270) * ratio, 71 * ratio, 72 * ratio);
+        this.shopButton(close, () => this.declineStrayVisitor(visitor));
+        this.layoutDialog();
+    }
+
+    public adoptStrayVisitor(visitor: PendingStrayVisitor, forcedOutcome?: StrayAdoptOutcome): StrayAdoptOutcome {
+        const breed = BREEDS[visitor.breedId] || BREEDS[0];
+        const kindLabel = breed.kind === 'dog' ? '流浪狗' : '流浪猫';
+        const r = Math.random();
+        const outcome: StrayAdoptOutcome = forcedOutcome
+            || (r < 0.45 ? 'healthy_hungry' : r < 0.70 ? 'sick_contagion' : r < 0.90 ? 'dirty_contagion' : 'multi_drain');
+
+        const existing = this.data.pets.find(p => p.id === visitor.breedId);
+        let grantNote = '';
+        if (!existing) {
+            const np = this.makePet(visitor.breedId, 25, 25, 70, 65, 90);
+            if (outcome === 'healthy_hungry') {
+                np.hunger = 25; np.clean = 25; np.health = 90; np.joy = 75;
+            } else if (outcome === 'sick_contagion') {
+                np.hunger = 40; np.clean = 45; np.health = 35; np.joy = 40; np.injured = true;
+            } else if (outcome === 'dirty_contagion') {
+                np.hunger = 35; np.clean = 10; np.health = 75; np.joy = 45;
+            } else {
+                np.hunger = 15; np.clean = 15; np.health = 22; np.joy = 20; np.injured = true;
+            }
+            this.data.pets.push(np);
+            this.data.recruit.copies[visitor.breedId] = Math.max(1, (this.data.recruit.copies[visitor.breedId] || 0) + 1);
+            this.spawnPet(np);
+            grantNote = `「${breed.name}」正式加入了你的庭院！`;
+        } else {
+            this.data.recruit.copies[visitor.breedId] = (this.data.recruit.copies[visitor.breedId] || 1) + 1;
+            if (!existing.dead && !existing.lost) {
+                if (outcome === 'healthy_hungry') {
+                    existing.hunger = Math.min(existing.hunger, 40);
+                    existing.clean = Math.min(existing.clean, 40);
+                } else if (outcome === 'sick_contagion') {
+                    existing.health = Math.max(25, existing.health - 22);
+                    existing.injured = true;
+                } else if (outcome === 'dirty_contagion') {
+                    existing.clean = Math.min(existing.clean, 15);
+                } else {
+                    existing.health = Math.max(18, existing.health - 28);
+                    existing.clean = Math.min(existing.clean, 15);
+                    existing.hunger = Math.min(existing.hunger, 20);
+                    existing.injured = true;
+                }
+                void this.refreshPetAppearance(existing.id);
+            }
+            grantNote = `已收养同品种「${breed.name}」，获得 1 枚升星本体！`;
+        }
+
+        let resultTitle = '';
+        let resultBody = '';
+        if (outcome === 'healthy_hungry') {
+            this.data.coins = Math.min(100000000, this.data.coins + 30);
+            SoundManager.playSfx('happy');
+            resultTitle = '领养成功 · 暖心好结果';
+            resultBody = `${grantNote}\n检查后它很健康，只是饿坏了也没洗干净！\n快给它喂食洗澡吧（获赠爱心补贴 +30 金币）。`;
+        } else if (outcome === 'sick_contagion') {
+            this.applyYardDebuff('health_drain', '病菌传染·健康加速下降', 180000, breed.name);
+            SoundManager.playSfx('sick');
+            resultTitle = '领养警报 · 携带病菌';
+            resultBody = `${grantNote}\n糟糕！这只${kindLabel}生病了，引发【病菌传染】3分钟：\n全庭院猫狗健康度加速下降，若不及时照料将触发离世！`;
+        } else if (outcome === 'dirty_contagion') {
+            this.applyYardDebuff('clean_drain', '跳蚤脏污·清洁加速下降', 180000, breed.name);
+            SoundManager.playSfx('sick');
+            resultTitle = '领养警报 · 脏污传染';
+            resultBody = `${grantNote}\n哎呀！这只${kindLabel}身上沾满泥垢跳蚤，引发【跳蚤脏污】3分钟：\n全庭院猫狗清洁度加速下降、更易拉便便，过脏会危及健康！`;
+        } else {
+            this.applyYardDebuff('multi_drain', '重度衰弱·全状态加速下降', 150000, breed.name);
+            SoundManager.playSfx('sick');
+            resultTitle = '领养警报 · 严重衰弱';
+            resultBody = `${grantNote}\n大事不好！这只${kindLabel}又病又脏，引发【重度衰弱】2分30秒：\n全庭院饱腹、清洁、心情与健康全线加速下降，请立刻急救照料！`;
+        }
+
+        this.allDeadPrompted = false;
+        this.dirty = true;
+        this.persist();
+        this.syncActorVisibility();
+        this.renderHeader();
+        this.refreshMemorialEntry();
+        this.refreshYardDebuffBanner();
+        this.refreshTaskRedDots();
+        this.closeDialog();
+        this.showDialog(resultTitle, resultBody, [
+            { title: '知道了', run: () => { this.closeDialog(); this.checkMainCityAlerts(); } },
+        ]);
+        return outcome;
+    }
+
+    public declineStrayVisitor(visitor: PendingStrayVisitor) {
+        const breed = BREEDS[visitor.breedId] || BREEDS[0];
+        this.closeDialog();
+        this.toast(`你忍痛放弃了流浪「${breed.name}」，它一步三回头地离开了小院…`);
+        this.checkMainCityAlerts();
     }
 
     public showAllPetsDeadDialog() {
@@ -9342,6 +9633,7 @@ export class Main extends Component {
             this.closeDialog();
             this.renderHeader();
             this.refreshMemorialEntry();
+        this.refreshYardDebuffBanner();
         this.refreshTaskRedDots();
             if (this.page === 'diary' || this.page === 'memorial') {
                 const pg = this.page;
@@ -9672,6 +9964,7 @@ export class Main extends Component {
             this.closeDialog();
             this.renderHeader();
             this.refreshMemorialEntry();
+        this.refreshYardDebuffBanner();
         this.refreshTaskRedDots();
             if (this.sheet && isValid(this.sheet, true)) { this.sheet.removeFromParent(); this.sheet.destroy(); this.sheet = null; }
             this.open('memorial');
@@ -10211,6 +10504,7 @@ export class Main extends Component {
             title: '重病离世', text: `「${this.petDisplayName(pet.id)}」因${reason}离开了庭院……`, resolved: false,
         });
         this.refreshMemorialEntry();
+        this.refreshYardDebuffBanner();
         this.refreshTaskRedDots();
         const actor = this.actors.find(a => a.pet.id === pet.id);
         const inYard = this.page === 'home' || this.page === 'pet';
@@ -10244,36 +10538,71 @@ export class Main extends Component {
         if (this.activeEditCount === 0) {
             const size = view.getVisibleSize(); if (size.width !== this.width || size.height !== this.height) this.layout();
         }
+        const nowTick = Date.now();
+        const activeDebuffs = this.getActiveYardDebuffs(nowTick);
+        if (this.page === 'home' && (activeDebuffs.length > 0 || (this.debuffBanner && isValid(this.debuffBanner, true) && this.debuffBanner.active))) {
+            this.refreshYardDebuffBanner();
+        }
         if (this.elapsed % 20 === 0) {
             const poopCount = (this.data.poops || []).length;
-            const toDie: Pet[] = [];
+            const hasHealthDrain = activeDebuffs.some(d => d.kind === 'health_drain');
+            const hasCleanDrain = activeDebuffs.some(d => d.kind === 'clean_drain');
+            const hasMultiDrain = activeDebuffs.some(d => d.kind === 'multi_drain');
+            const toDie: { pet: Pet; reason: string }[] = [];
             this.data.pets.forEach(p => {
                 if (p.dead) return;
                 const trs = this.getPetTraits(p);
-                const cleanMult = trs.reduce((acc, t) => acc * (t.cleanDecayMult ?? 1), 1);
+                const cleanMult = trs.reduce((acc, t) => acc * (t.cleanDecayMult ?? 1), 1)
+                    * (hasCleanDrain ? 2.6 : 1)
+                    * (hasMultiDrain ? 2.2 : 1);
                 const joyMult = trs.reduce((acc, t) => acc * (t.joyDecayMult ?? 1), 1);
                 const energyMult = trs.reduce((acc, t) => acc * (t.energyDecayMult ?? 1), 1);
-                p.hunger = Math.max(0, p.hunger - 1);
-                // 小院便便越多，清洁度下降越快（3坨及以上触发加速惩罚）。
+                p.hunger = Math.max(0, p.hunger - (1 + (hasMultiDrain ? 1.8 : 0)));
+                // 小院便便越多，清洁度下降越快（3坨及以上触发加速惩罚）；跳蚤/衰弱 debuff 进一步传染加速下降。
                 const poopPenalty = poopCount >= 3 ? poopCount * 1.15 : poopCount * 0.6;
                 p.clean = Math.max(0, p.clean - (0.7 + poopPenalty) * cleanMult);
                 const outfitDef = PET_OUTFITS.find(o => o.id === p.outfit);
                 const coatDef = PET_COATS.find(co => co.id === p.coat);
                 const outfitDecay = (outfitDef?.decayMult ?? 1) * (coatDef?.decayMult ?? 1);
-                p.joy = Math.max(0, p.joy - (0.5 + (p.hunger < 20 ? 0.5 : 0) + (p.clean < 30 ? 0.4 : 0)) * joyMult * outfitDecay);
+                p.joy = Math.max(0, p.joy - (0.5 + (p.hunger < 20 ? 0.5 : 0) + (p.clean < 30 ? 0.4 : 0) + (hasMultiDrain ? 1.5 : 0)) * joyMult * outfitDecay);
                 p.energy = Math.max(0, p.energy - 0.35 * energyMult);
+                let hDrop = 0;
                 if (p.hunger < 20 || p.clean < 30) {
-                    const hDrop = ((p.hunger < 20 ? 1.6 : 0) + (p.clean < 30 ? 1.8 : 0) + (poopCount >= 3 ? 0.6 : 0)) * outfitDecay;
+                    hDrop += ((p.hunger < 20 ? 1.6 : 0) + (p.clean < 30 ? 1.8 : 0) + (poopCount >= 3 ? 0.6 : 0)) * outfitDecay;
+                }
+                if (hasHealthDrain) hDrop += 2.6;
+                if (hasMultiDrain) hDrop += 2.2;
+                if (hasCleanDrain && p.clean < 30) hDrop += 1.0;
+                if (hDrop > 0) {
                     p.health = Math.max(0, p.health - hDrop);
-                    if (p.health <= 0) toDie.push(p);
+                    if (p.health <= 0) {
+                        const deathReason = hasMultiDrain ? '被流浪伙伴传染衰竭' : hasHealthDrain ? '被流浪伙伴传染重病' : hasCleanDrain ? '庭院脏污传染重病' : '饥饿或环境过脏';
+                        toDie.push({ pet: p, reason: deathReason });
+                    }
                 }
             });
-            toDie.forEach(p => this.triggerPetDeath(p));
+            toDie.forEach(({ pet, reason }) => this.triggerPetDeath(pet, reason));
+            // 跳蚤/脏污传染期间额外提高便便生成概率
+            if ((hasCleanDrain || hasMultiDrain) && (this.data.poops || []).length < 5 && Math.random() < 0.35) {
+                const aliveActors = this.actors.filter(a => !a.pet.dead && !a.pet.lost && !a.pet.adventuring && !a.dying && isValid(a.node, true));
+                if (aliveActors.length) {
+                    const chosen = aliveActors[Math.floor(Math.random() * aliveActors.length)];
+                    this.spawnYardPoop(chosen.pet.id, chosen.node.position.x, chosen.node.position.z);
+                }
+            }
             this.dirty = true; if (this.page === 'pet') this.open('pet');
+        }
+        // 庭院随机流浪访客（每 150~210 秒在主城空闲时触发一次）
+        if (this.page === 'home' && !this.dialog && !this.pendingVisitors.length) {
+            if (!this.nextYardVisitorAt) {
+                this.nextYardVisitorAt = nowTick + 120000 + Math.floor(Math.random() * 60000);
+            } else if (nowTick >= this.nextYardVisitorAt) {
+                this.nextYardVisitorAt = nowTick + 150000 + Math.floor(Math.random() * 60000);
+                this.triggerStrayVisitor('yard');
+            }
         }
         // 检查外出冒险的伙伴是否到点归来
         let returnedAny = false;
-        const nowTick = Date.now();
         this.data.pets.forEach(p => {
             if (p.adventuring && p.adventureReturnAt && nowTick >= p.adventureReturnAt) {
                 p.adventuring = false;
