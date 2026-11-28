@@ -227,6 +227,7 @@ export class Main extends Component {
     private yardDragStartPos: Vec2 | null = null;
     private yardDragLastPos: Vec2 | null = null;
     private yardZoomHud: Node | null = null;
+    private lastFurnitureBlockToastAt = 0;
     private socialTime = 0;
     private pairCooldowns = new Map<string, number>();
     private bubbleLayer: Node | null = null;
@@ -6718,6 +6719,37 @@ export class Main extends Component {
         });
     }
 
+    private furnitureMinSpacing(idA: FurnitureId, idB: FurnitureId): number {
+        const rA = findFurniture(idA)?.radius ?? 1.0;
+        const rB = findFurniture(idB)?.radius ?? 1.0;
+        return (rA + rB) * 1.15;
+    }
+
+    private hasFurnitureOverlap(id: FurnitureId, x: number, z: number, ignoreUid?: number): boolean {
+        const list = this.data?.placedFurniture || [];
+        return list.some(f => f.uid !== ignoreUid && Math.hypot(x - f.x, z - f.z) < this.furnitureMinSpacing(id, f.id));
+    }
+
+    private findFreeFurnitureSpot(id: FurnitureId, preferX: number, preferZ: number, ignoreUid?: number): { x: number; z: number } | null {
+        const r = Math.max(0.55, findFurniture(id)?.radius ?? 1.0);
+        const minX = this.yardMinX + r, maxX = this.yardMaxX - r;
+        const minZ = this.yardMinZ + r, maxZ = this.yardMaxZ - r;
+        const clamp = (x: number, z: number) => ({
+            x: Math.max(minX, Math.min(maxX, x)),
+            z: Math.max(minZ, Math.min(maxZ, z)),
+        });
+        const start = clamp(preferX, preferZ);
+        if (!this.hasFurnitureOverlap(id, start.x, start.z, ignoreUid)) return start;
+        for (let dist = 0.6; dist <= 16.0; dist += 0.6) {
+            for (let k = 0; k < 16; k++) {
+                const ang = (k / 16) * Math.PI * 2;
+                const cand = clamp(start.x + Math.cos(ang) * dist, start.z + Math.sin(ang) * dist);
+                if (!this.hasFurnitureOverlap(id, cand.x, cand.z, ignoreUid)) return cand;
+            }
+        }
+        return null;
+    }
+
     public placeFurnitureFromBag(id: FurnitureId): boolean {
         const def = findFurniture(id);
         if (!def) return false;
@@ -6726,9 +6758,13 @@ export class Main extends Component {
             this.toast(`仓库中没有闲置的「${def.name}」，可前往商店「家具」页签购买`);
             return false;
         }
+        const spot = this.findFreeFurnitureSpot(id, this.yardPanX, this.yardPanZ);
+        if (!spot) {
+            this.toast('庭院空位不足，请先收起部分家具后再摆放');
+            return false;
+        }
         const uid = ++this.furnitureNextUid;
-        const x = Math.max(this.yardMinX + 0.5, Math.min(this.yardMaxX - 0.5, (Math.random() - 0.5) * 3.6));
-        const z = Math.max(this.yardMinZ + 0.5, Math.min(this.yardMaxZ - 0.5, (Math.random() - 0.5) * 3.2));
+        const { x, z } = spot;
         const c = this.dailyCandidate();
         c.furnitureInventory = { ...(c.furnitureInventory || {}), [id]: (bag[id] || 1) - 1 };
         c.placedFurniture = [...(c.placedFurniture || []), { uid, id, x, z }];
@@ -6739,7 +6775,7 @@ export class Main extends Component {
         SoundManager.playSfx('place');
         this.syncYardFurniture();
         if (this.page === 'layout') this.renderLayoutPanel();
-        this.toast(`已摆放「${def.name}」，点击草坪任意位置可调整摆放位置`);
+        this.toast(`已摆放「${def.name}」，按住家具拖动或点击空草坪可调整位置`);
         return true;
     }
 
@@ -6747,13 +6783,25 @@ export class Main extends Component {
         const list = this.data.placedFurniture || [];
         const target = list.find(f => f.uid === uid);
         if (!target) return false;
-        const next = list.map(f => f.uid === uid ? { ...f, x, z } : f);
+        const def = findFurniture(target.id);
+        const pad = Math.max(0.55, def?.radius ?? 1.0);
+        const cx = Math.max(this.yardMinX + pad, Math.min(this.yardMaxX - pad, x));
+        const cz = Math.max(this.yardMinZ + pad, Math.min(this.yardMaxZ - pad, z));
+        if (this.hasFurnitureOverlap(target.id, cx, cz, uid)) {
+            const now = Date.now();
+            if (saveNow || now - this.lastFurnitureBlockToastAt > 900) {
+                this.lastFurnitureBlockToastAt = now;
+                this.toast('该位置已有其他家具，不能重叠摆放');
+            }
+            if (saveNow) this.persist();
+            return false;
+        }
+        const next = list.map(f => f.uid === uid ? { ...f, x: cx, z: cz } : f);
         this.data.placedFurniture = next;
         this.dirty = true;
         // 同步更新正在前往或正在该家具中睡觉/吃饭/玩耍的伙伴目标与位置，彻底杜绝停在旧坐标！
-        const def = findFurniture(target.id);
         const off = def?.entryOffset || [0, 0.32];
-        const nx = x + off[0], nz = z + off[1];
+        const nx = cx + off[0], nz = cz + off[1];
         this.actors.forEach(a => {
             if (a.activity?.furnitureUid !== uid) return;
             a.target.set(nx, 0, nz);
