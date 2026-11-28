@@ -211,11 +211,11 @@ export class Main extends Component {
     private advGuestActors: Actor[] = [];
     public petNodeScale = 0.48;
     public petCollisionRadius = 0.54;
-    private readonly yardMinX = -8.4;
-    private readonly yardMaxX = 8.4;
-    private readonly yardMinZ = -7.0;
-    private readonly yardMaxZ = 11.4;
-    private readonly yardWorldScale = 1.38;
+    private readonly yardMinX = -10.0;
+    private readonly yardMaxX = 10.0;
+    private readonly yardMinZ = -8.6;
+    private readonly yardMaxZ = 13.0;
+    private readonly yardWorldScale = 1.60;
     private yardZoom = 1.0;
     private yardPanX = 0;
     private yardPanZ = 0;
@@ -10300,7 +10300,7 @@ export class Main extends Component {
     private yardPoopLayoutKey = '';
 
     private yardUIRects() {
-        const nodes = [this.top, this.bottom, this.sheet,
+        const nodes = [this.top, this.bottom, this.sheet, this.yardZoomHud,
             ...['庭院布置入口', '每日签到入口', '游戏设置入口', '每日任务入口', '冒险日记入口', '后院纪念角入口', 'GM调试入口'].map(name => this.ui.getChildByName(name))];
         return nodes.filter((n): n is Node => !!n && isValid(n, true) && n.activeInHierarchy).map(n => {
             const r = n.getComponent(UITransform)!.getBoundingBoxToWorld();
@@ -10345,6 +10345,41 @@ export class Main extends Component {
             return true;
         };
         const next = new Map<number, { x: number; z: number }>();
+        // 真实可拖动大庭院下：便便保留在小猫小狗实际拉屎的全庭院任意角落（仅避开家具与重叠便便），玩家可拖动/缩放庭院去清理！
+        if (this.worldCamera?.node) {
+            const worldOccupied: { x: number; z: number }[] = [];
+            const worldSafe = (x: number, z: number) => {
+                if (x < this.yardMinX + 0.35 || x > this.yardMaxX - 0.35 || z < this.yardMinZ + 0.35 || z > this.yardMaxZ - 0.35) return false;
+                if (furniture.some(f => Math.hypot(x - f.x, z - f.z) < 1.5)) return false;
+                if (worldOccupied.some(q => Math.hypot(x - q.x, z - q.z) < 1.15)) return false;
+                return true;
+            };
+            for (const poop of list) {
+                let pos = {
+                    x: Math.max(this.yardMinX + 0.35, Math.min(this.yardMaxX - 0.35, poop.x)),
+                    z: Math.max(this.yardMinZ + 0.35, Math.min(this.yardMaxZ - 0.35, poop.z)),
+                };
+                if (!worldSafe(pos.x, pos.z)) {
+                    let best: { x: number; z: number } | null = null, bestD = Infinity;
+                    for (let r = 0.6; r <= 3.6 && !best; r += 0.6) {
+                        for (let k = 0; k < 12; k++) {
+                            const ang = (k / 12) * Math.PI * 2;
+                            const cx = pos.x + Math.cos(ang) * r;
+                            const cz = pos.z + Math.sin(ang) * r;
+                            if (worldSafe(cx, cz)) {
+                                const d = Math.hypot(cx - pos.x, cz - pos.z);
+                                if (d < bestD) { bestD = d; best = { x: cx, z: cz }; }
+                            }
+                        }
+                    }
+                    if (best) pos = best;
+                }
+                next.set(poop.id, pos);
+                worldOccupied.push(pos);
+            }
+            this.yardPoopPositions = next;
+            return;
+        }
         for (const poop of list) {
             let position = this.yardPoopPositions.get(poop.id) || { x: poop.x, z: poop.z };
             if (!safe(position.x, position.z)) {
