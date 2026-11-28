@@ -8,7 +8,8 @@ export type DailyTaskId =
     | 'shopBuy'
     | 'recruit'
     | 'heal'
-    | 'furniture';
+    | 'furniture'
+    | 'strayAdopt';
 
 export interface DailyState {
     day: number;
@@ -29,6 +30,7 @@ export const DAILY_TASKS: readonly { id: DailyTaskId; title: string; icon: strin
     { id: 'recruit', title: '招募伙伴 2 次', icon: 'recruit', currency: 'gems', amount: 30, target: 2 },
     { id: 'heal', title: '治疗伙伴 2 次', icon: 'heal', currency: 'coins', amount: 100, target: 2 },
     { id: 'furniture', title: '布置/摆放家具 2 次', icon: 'furniture', currency: 'gems', amount: 20, target: 2 },
+    { id: 'strayAdopt', title: '领养流浪伙伴 1 次', icon: 'recruit', currency: 'gems', amount: 25, target: 1 },
 ];
 
 export const DAILY_PACK = { food: 2, soap: 1, toy: 1 } as const;
@@ -95,7 +97,8 @@ export type AchievementId =
     | 'shop'
     | 'heal'
     | 'furniture'
-    | 'star';
+    | 'star'
+    | 'strayAdopt';
 
 export interface AchievementDef {
     id: AchievementId;
@@ -113,6 +116,7 @@ export interface AchievementState {
 
 const HIGH_FREQ_TARGETS = [5, 15, 35, 70, 120, 200, 350, 600] as const;
 const MID_FREQ_TARGETS = [3, 10, 25, 50, 90, 150, 250, 400] as const;
+const STRAY_TARGETS = [1, 3, 6, 12, 20, 35, 55, 80] as const;
 const TIER_GEMS = [20, 35, 55, 80, 120, 180, 260, 400] as const;
 
 export const ACHIEVEMENTS: readonly AchievementDef[] = [
@@ -126,6 +130,7 @@ export const ACHIEVEMENTS: readonly AchievementDef[] = [
     { id: 'heal', title: '暖心小兽医', verb: '累计治疗伙伴', icon: 'heal', targets: MID_FREQ_TARGETS, gems: TIER_GEMS },
     { id: 'furniture', title: '庭院建筑师', verb: '累计购买/布置家具', icon: 'furniture', targets: MID_FREQ_TARGETS, gems: TIER_GEMS },
     { id: 'star', title: '星级培育师', verb: '累计伙伴升星', icon: 'star', targets: MID_FREQ_TARGETS, gems: TIER_GEMS },
+    { id: 'strayAdopt', title: '爱心救助站', verb: '累计领养流浪伙伴', icon: 'recruit', targets: STRAY_TARGETS, gems: TIER_GEMS },
 ];
 
 export function newAchievements(): AchievementState {

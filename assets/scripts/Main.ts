@@ -9528,6 +9528,9 @@ export class Main extends Component {
             resultBody = `${grantNote}\n大事不好！这只${kindLabel}又病又脏，引发【重度衰弱】2分30秒：\n全庭院饱腹、清洁、心情与健康全线加速下降，请立刻急救照料！`;
         }
 
+        recordDaily(this.data.daily, 'strayAdopt');
+        if (!this.data.achievements) this.data.achievements = newAchievements();
+        recordAchievement(this.data.achievements, 'strayAdopt');
         this.allDeadPrompted = false;
         this.dirty = true;
         this.persist();
