@@ -9911,20 +9911,20 @@ export class Main extends Component {
         });
 
         const makeSingleInput = (labelText: string, y: number, initVal: string, maxLen: number, ph: string): EditBox => {
-            const lbl = this.text(panel, labelText, -270, y + 48, 220, 30, 22, '#6E4627');
-            lbl.isBold = true; lbl.horizontalAlign = Label.HorizontalAlign.LEFT;
-            const box = this.uiNode(panel, '立碑输入-' + labelText, 0, y, 740, 64);
+            const lbl = this.text(panel, labelText, 0, y + 52, 660, 34, 24, '#6E4627');
+            lbl.isBold = true; lbl.horizontalAlign = Label.HorizontalAlign.CENTER;
+            const box = this.uiNode(panel, '立碑输入-' + labelText, 0, y, 680, 64);
             box.active = false;
             const g = box.addComponent(Graphics);
             g.fillColor = this.color('#FFFDF7'); g.strokeColor = this.color('#B88652'); g.lineWidth = 3;
-            g.roundRect(-370, -32, 740, 64, 16); g.fill(); g.stroke();
-            const tn = this.uiNode(box, 'TEXT_LABEL', -354, 32, 708, 64);
+            g.roundRect(-340, -32, 680, 64, 16); g.fill(); g.stroke();
+            const tn = this.uiNode(box, 'TEXT_LABEL', -324, 32, 648, 64);
             tn.getComponent(UITransform)!.setAnchorPoint(0, 1);
             const tl = tn.addComponent(Label);
             tl.fontSize = 24; tl.lineHeight = 32; tl.color = this.color('#4E2F1A');
             tl.horizontalAlign = Label.HorizontalAlign.CENTER; tl.verticalAlign = Label.VerticalAlign.CENTER;
             tl.overflow = Label.Overflow.CLAMP; tl.enableWrapText = false;
-            const pn = this.uiNode(box, 'PLACEHOLDER_LABEL', -354, 32, 708, 64);
+            const pn = this.uiNode(box, 'PLACEHOLDER_LABEL', -324, 32, 648, 64);
             pn.getComponent(UITransform)!.setAnchorPoint(0, 1);
             const pl = pn.addComponent(Label);
             pl.fontSize = 22; pl.lineHeight = 32; pl.color = this.color('#A99278');
@@ -9938,8 +9938,8 @@ export class Main extends Component {
             return eb;
         };
 
-        const nameEb = makeSingleInput('刻字名字', 16, this.petDisplayName(petId), 10, '输入宠物名字');
-        const epitaphEb = makeSingleInput('纪念墓志铭', -120, '永远记得陪我度过的每一个晴天', 28, '写下想对它说的话');
+        const nameEb = makeSingleInput('刻字名字', -16, this.petDisplayName(petId), 10, '输入宠物名字');
+        const epitaphEb = makeSingleInput('纪念墓志铭', -154, '永远记得陪我度过的每一个晴天', 28, '写下想对它说的话');
 
         const confirmBtn = this.shopArt(panel, 'buy', -160, -390, 270, 270 * 120 / 321);
         confirmBtn.name = '弹窗按钮-确认立碑';
