@@ -1613,40 +1613,43 @@ export class Main extends Component {
             }
         }
 
-        // 3) 高阶限定专属：纤细低位流光细环（管径仅 0.014，位于脚边 y=0.16 轻盈环绕，绝不挡脸、绝不穿模帽子与天使光环）+ 8 颗外围上升星屑
+        // 3) 高阶限定专属：左右外侧双组交替「周期绽放消散」3D 烟花/花爆特效（避开脸部与所有帽饰/天使光环，绽放后轻盈消散再于另一侧轮替重现）
         if (cfg.hasHaloCrown && cfg.haloColor) {
-            const upper = new Node('服装上层流光');
-            upper.layer = Layers.Enum.DEFAULT;
-            root.addChild(upper);
-            upper.setPosition(0, 0.16, 0);
-            upper.setRotationFromEuler(7, 0, -5);
-            let slimMesh = this.meshes.get('coat_slim_torus');
-            if (!slimMesh) {
-                slimMesh = utils.createMesh(primitives.torus(0.92, 0.014, { radialSegments: 10, tubularSegments: 48 }));
-                this.meshes.set('coat_slim_torus', slimMesh);
-            }
-            const ringNode = new Node('服装纤细光环');
-            ringNode.layer = Layers.Enum.DEFAULT;
-            upper.addChild(ringNode);
-            const mr = ringNode.addComponent(MeshRenderer);
-            mr.mesh = slimMesh;
-            const matKey = 'unlit:' + cfg.haloColor;
-            let mat = this.materials.get(matKey);
-            if (!mat) {
-                mat = new Material();
-                mat.initialize({ effectName: 'builtin-unlit' });
-                mat.setProperty('mainColor', this.color(cfg.haloColor));
-                this.materials.set(matKey, mat);
-            }
-            mr.material = mat;
-            mr.shadowCastingMode = 0; mr.receiveShadow = 0;
-            for (let j = 0; j < 8; j++) {
-                const rad = (j / 8) * Math.PI * 2;
-                const pt = new Node('上层光珠-' + j);
-                pt.layer = Layers.Enum.DEFAULT;
-                upper.addChild(pt);
-                pt.setPosition(Math.cos(rad) * 0.96, 0.04 + (j % 4) * 0.16, Math.sin(rad) * 0.96);
-                vfxShape(pt, 'sphere', cfg.particles[j % cfg.particles.length], [0, 0, 0], [0.062, 0.062, 0.062]);
+            const burstRoot = new Node('服装绽放特效');
+            burstRoot.layer = Layers.Enum.DEFAULT;
+            root.addChild(burstRoot);
+            for (let b = 0; b < 2; b++) {
+                const cluster = new Node('绽放簇-' + b);
+                cluster.layer = Layers.Enum.DEFAULT;
+                burstRoot.addChild(cluster);
+                // 中心瞬间闪光核
+                const core = new Node('绽放光核');
+                core.layer = Layers.Enum.DEFAULT;
+                cluster.addChild(core);
+                vfxShape(core, 'sphere', '#FFFFFF', [0, 0, 0], [0.16, 0.16, 0.16]);
+                vfxShape(core, 'box', cfg.haloColor, [0, 0, 0], [0.34, 0.04, 0.04]);
+                vfxShape(core, 'box', cfg.haloColor, [0, 0, 0], [0.04, 0.34, 0.04]);
+                // 8 枚放射状飞散主题粒子（星芒/冰晶/金火/樱瓣）
+                for (let j = 0; j < 8; j++) {
+                    const pNode = new Node('绽放粒-' + j);
+                    pNode.layer = Layers.Enum.DEFAULT;
+                    cluster.addChild(pNode);
+                    const pCol = cfg.particles[(j + b * 2) % cfg.particles.length];
+                    if (cfg.shape === 'star') {
+                        vfxShape(pNode, 'box', pCol, [0, 0, 0], [0.16, 0.036, 0.036]);
+                        vfxShape(pNode, 'box', pCol, [0, 0, 0], [0.036, 0.16, 0.036]);
+                        vfxShape(pNode, 'box', '#FFFFFF', [0, 0, 0], [0.036, 0.036, 0.16]);
+                    } else if (cfg.shape === 'crystal') {
+                        vfxShape(pNode, 'cone', pCol, [0, 0.055, 0], [0.075, 0.11, 0.075]);
+                        vfxShape(pNode, 'cone', pCol, [0, -0.055, 0], [0.075, 0.11, 0.075], [180, 0, 0]);
+                    } else if (cfg.shape === 'orb') {
+                        vfxShape(pNode, 'sphere', pCol, [0, 0, 0], [0.095, 0.095, 0.095]);
+                        vfxShape(pNode, 'box', '#FFF8C8', [0, 0, 0], [0.18, 0.028, 0.028]);
+                        vfxShape(pNode, 'box', '#FFF8C8', [0, 0, 0], [0.028, 0.18, 0.028]);
+                    } else {
+                        vfxShape(pNode, 'sphere', pCol, [0, 0, 0], [0.14, 0.10, 0.04], [20, j * 45, 28]);
+                    }
+                }
             }
         }
         return root;
@@ -1671,19 +1674,62 @@ export class Main extends Component {
                 ch.setPosition(p.x, baseY + Math.sin(t * 2.9 + idx * 0.9) * 0.10, p.z);
             });
         }
-        const upper = coatVfxNode.getChildByName('服装上层流光');
-        if (upper && isValid(upper, true)) {
-            upper.setRotationFromEuler(7 + Math.sin(t * 1.8) * 3, (t * 48) % 360, -5 + Math.cos(t * 1.5) * 3);
-            upper.setPosition(0, 0.16 + Math.sin(t * 2.4) * 0.035, 0);
-            upper.children.forEach((ch, idx) => {
-                if (ch.name.indexOf('上层光珠-') !== 0) return;
-                const phase = (t * 0.55 + idx * 0.125) % 1;
-                const ang = (idx / 8) * Math.PI * 2;
-                const r = 0.94 + Math.sin(phase * Math.PI) * 0.10;
-                ch.setPosition(Math.cos(ang) * r, phase * 0.72, Math.sin(ang) * r);
-                const s = 0.55 + Math.sin(phase * Math.PI) * 0.65;
-                ch.setScale(s, s, s);
-            });
+        const burstRoot = coatVfxNode.getChildByName('服装绽放特效');
+        if (burstRoot && isValid(burstRoot, true)) {
+            // 两组外侧绽放簇交替在左上方/右上方外侧空域爆开并轻盈消散，完全不挡脸、不碰头顶帽饰
+            const anchors: [number, number, number][] = [
+                [-1.12, 1.24, -0.08],
+                [1.14, 1.12, -0.10],
+            ];
+            const cycleSec = 2.4;
+            for (let b = 0; b < 2; b++) {
+                const cluster = burstRoot.getChildByName('绽放簇-' + b);
+                if (!cluster || !isValid(cluster, true)) continue;
+                const phase = ((t / cycleSec) + b * 0.5) % 1; // 0..1
+                // 每次轮回轻微变换一点高度与方位，让绽放更自然灵动
+                const round = Math.floor((t / cycleSec) + b * 0.5);
+                const [ax, ay, az] = anchors[b];
+                const ox = ax + Math.sin(round * 2.1 + b) * 0.10;
+                const oy = ay + Math.cos(round * 1.7 + b) * 0.14;
+                cluster.setPosition(ox, oy, az);
+
+                // 0.00~0.76 活跃绽放与消散，0.76~1.00 静默等待下一次绽放
+                const active = phase < 0.76;
+                cluster.active = active;
+                if (!active) continue;
+                const u = phase / 0.76; // 0..1
+
+                // 中心光核：前 25% 瞬间爆亮后迅速收束消失
+                const core = cluster.getChildByName('绽放光核');
+                if (core && isValid(core, true)) {
+                    const cs = u < 0.12 ? (u / 0.12) * 1.15 : u < 0.30 ? (1 - (u - 0.12) / 0.18) * 1.15 : 0;
+                    core.active = cs > 0.02;
+                    if (core.active) {
+                        core.setScale(cs, cs, cs);
+                        core.setRotationFromEuler(0, 0, u * 180);
+                    }
+                }
+
+                // 8 枚放射粒子：先疾速外扩（easeOutCubic），随后伴随轻微重力飘落并平滑缩小至消失
+                const spread = (1 - Math.pow(1 - Math.min(1, u * 1.15), 3)) * 0.48;
+                const dropY = -0.26 * u * u;
+                const pScale = u < 0.16 ? (u / 0.16) * 1.15 : Math.max(0, (1 - (u - 0.16) / 0.84)) * 1.15;
+                for (let j = 0; j < 8; j++) {
+                    const pNode = cluster.getChildByName('绽放粒-' + j);
+                    if (!pNode || !isValid(pNode, true)) continue;
+                    pNode.active = pScale > 0.02;
+                    if (!pNode.active) continue;
+                    const ang = (j / 8) * Math.PI * 2 + (round % 3) * 0.28;
+                    const radial = spread * (j % 2 === 0 ? 1.0 : 0.72);
+                    pNode.setPosition(
+                        Math.cos(ang) * radial,
+                        Math.sin(ang) * radial + dropY,
+                        Math.sin(ang * 2) * radial * 0.25,
+                    );
+                    pNode.setScale(pScale, pScale, pScale);
+                    pNode.setRotationFromEuler(u * 160 + j * 30, u * 220 + j * 45, u * 120);
+                }
+            }
         }
     }
 
