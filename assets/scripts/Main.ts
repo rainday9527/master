@@ -1108,7 +1108,7 @@ export class Main extends Component {
 
     private petRigKey(breed: { kind: Kind; skin: string }): RigKey {
         if (breed.kind === 'cat') return 'cat';
-        return (breed.skin === 'dog_keji' || breed.skin === 'dog_chaiquan') ? 'dog_upright' : 'dog';
+        return (breed.skin === 'dog_keji' || breed.skin === 'dog_chaiquan' || breed.skin === 'dog_hashiqi' || breed.skin === 'dog_samoye') ? 'dog_upright' : 'dog';
     }
 
     private loadPetRig(rigKey: RigKey): Promise<PetRigAsset | null> {
