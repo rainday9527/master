@@ -10999,8 +10999,8 @@ export class Main extends Component {
                 this.spawnYardPoop(chosen.pet.id, chosen.node.position.x, chosen.node.position.z);
             }
         }
-        // 庭院「猫狗拆家时间」：每隔 60 秒有 60% 概率触发一只在场宠物调皮拆家磨损家具（耐久耗尽直接坏掉消失）
-        if (this.elapsed > 0 && this.elapsed % 60 === 0 && (this.page === 'home' || this.page === 'pet') && Math.random() < 0.60) {
+        // 庭院「猫狗拆家时间」：每隔 40 秒有 75% 概率触发一只在场宠物调皮拆家磨损家具（耐久耗尽直接坏掉消失）
+        if (this.elapsed > 0 && this.elapsed % 40 === 0 && (this.page === 'home' || this.page === 'pet') && Math.random() < 0.75) {
             this.triggerYardWreck();
         }
         // 每隔 45 秒自动触发一次伙伴林间冒险见闻事件，丰富冒险日记并带回食物/玩具/宝藏
@@ -11138,14 +11138,14 @@ export class Main extends Component {
             this.showSocialBubble(b, 1, '好舒服呀♪');
             return;
         }
-        // 2) 小暴脾气 / 胆大 / 双贪吃抢零食 -> 低频趣味触发庭院打架与 3D 滚烟云特效（全局至少间隔 75 秒，避免药品消耗过快）
+        // 2) 小暴脾气 / 胆大 / 双贪吃抢零食 -> 趣味触发庭院打架与 3D 滚烟云特效（全局至少间隔 40 秒）
         const fightProb =
-            (has(ta, 'hothead') || has(tb, 'hothead') ? 0.08 : 0) +
-            (has(ta, 'bold') || has(tb, 'bold') ? 0.04 : 0) +
-            (has(ta, 'glutton') && has(tb, 'glutton') ? 0.05 : 0) +
-            0.01;
+            (has(ta, 'hothead') || has(tb, 'hothead') ? 0.22 : 0) +
+            (has(ta, 'bold') || has(tb, 'bold') ? 0.12 : 0) +
+            (has(ta, 'glutton') && has(tb, 'glutton') ? 0.14 : 0) +
+            0.08;
         if ((this.page === 'home' || this.page === 'pet') && this.fightClouds.length < 1 && this.socialTime >= this.yardFightCooldownUntil && Math.random() < fightProb) {
-            this.yardFightCooldownUntil = this.socialTime + 75;
+            this.yardFightCooldownUntil = this.socialTime + 40;
             this.triggerYardFight(a, b);
             return;
         }

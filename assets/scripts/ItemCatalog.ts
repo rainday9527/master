@@ -31,8 +31,8 @@ export const ITEM_CATALOG: readonly ItemDefinition[] = [
     { id: 'frisbee', name: '软胶飞盘', appliesTo: 'dog', currency: 'coins', price: 220, effects: { joy: 45, energy: -8 }, category: 'toy', weight: 3, limit: 2 },
     { id: 'ball', name: '橡胶小球', appliesTo: 'both', currency: 'coins', price: 150, effects: { joy: 30, energy: -5 }, category: 'toy', weight: 4, limit: 3 },
     { id: 'rope', name: '棉绳结', appliesTo: 'dog', currency: 'gems', price: 25, effects: { joy: 70, energy: -10 }, category: 'toy', weight: 2, limit: 1 },
-    { id: 'shampoo', name: '宠物香波', appliesTo: 'both', currency: 'coins', price: 120, effects: { clean: 40 }, category: 'soap', weight: 4, limit: 3 },
-    { id: 'brush', name: '软毛刷', appliesTo: 'both', currency: 'gems', price: 15, effects: { clean: 30, joy: 20 }, category: 'soap', weight: 2, limit: 1 },
+    { id: 'shampoo', name: '宠物香波', appliesTo: 'both', currency: 'coins', price: 120, effects: { clean: 40 }, category: 'soap', weight: 6, limit: 3 },
+    { id: 'brush', name: '软毛刷', appliesTo: 'both', currency: 'gems', price: 15, effects: { clean: 30, joy: 20 }, category: 'soap', weight: 3, limit: 2 },
 
     // PLACEHOLDER / rationale：组 1 为单份主食与熟肉；金币 100~600 随饱腹及双恢复递增。
     { id: 'kitten_food', name: '柔软猫粮', appliesTo: 'cat', currency: 'coins', price: 100, effects: { hunger: 30 }, category: 'food', weight: 4, limit: 3 },
@@ -71,11 +71,11 @@ export const ITEM_CATALOG: readonly ItemDefinition[] = [
     { id: 'puzzle_feeder', name: '益智食盘', appliesTo: 'both', currency: 'gems', price: 60, effects: { hunger: 70, joy: 80 }, category: 'toy', weight: 1, limit: 1 },
     { id: 'crinkle_fish', name: '响纸鱼', appliesTo: 'cat', currency: 'coins', price: 200, effects: { joy: 40 }, category: 'toy', weight: 3, limit: 2 },
     { id: 'catnip_pillow', name: '猫薄荷枕', appliesTo: 'cat', currency: 'gems', price: 25, effects: { joy: 60, energy: 20 }, category: 'toy', weight: 2, limit: 1 },
-    { id: 'grooming_glove', name: '梳毛手套', appliesTo: 'both', currency: 'coins', price: 300, effects: { clean: 55, joy: 15 }, category: 'soap', weight: 3, limit: 2 },
-    { id: 'pet_wipes', name: '宠物湿巾', appliesTo: 'both', currency: 'coins', price: 100, effects: { clean: 30 }, category: 'soap', weight: 4, limit: 3 },
-    { id: 'bath_foam', name: '免洗泡沫', appliesTo: 'both', currency: 'gems', price: 36, effects: { clean: 100 }, category: 'soap', weight: 2, limit: 1 },
-    { id: 'pet_towel', name: '吸水毛巾', appliesTo: 'both', currency: 'gems', price: 50, effects: { clean: 90, joy: 40 }, category: 'soap', weight: 1, limit: 1 },
-    { id: 'paw_cleaner', name: '洗爪杯', appliesTo: 'both', currency: 'gems', price: 26, effects: { clean: 75, joy: 10 }, category: 'soap', weight: 2, limit: 2 },
+    { id: 'grooming_glove', name: '梳毛手套', appliesTo: 'both', currency: 'coins', price: 300, effects: { clean: 55, joy: 15 }, category: 'soap', weight: 5, limit: 2 },
+    { id: 'pet_wipes', name: '宠物湿巾', appliesTo: 'both', currency: 'coins', price: 100, effects: { clean: 30 }, category: 'soap', weight: 6, limit: 3 },
+    { id: 'bath_foam', name: '免洗泡沫', appliesTo: 'both', currency: 'gems', price: 36, effects: { clean: 100 }, category: 'soap', weight: 3, limit: 2 },
+    { id: 'pet_towel', name: '吸水毛巾', appliesTo: 'both', currency: 'gems', price: 50, effects: { clean: 90, joy: 40 }, category: 'soap', weight: 2, limit: 1 },
+    { id: 'paw_cleaner', name: '洗爪杯', appliesTo: 'both', currency: 'gems', price: 26, effects: { clean: 75, joy: 10 }, category: 'soap', weight: 3, limit: 2 },
 
     // 治疗药品类：用于恢复健康度与治愈生病状态（金币常规品 + 钻石急救高阶品）。
     { id: 'bandage', name: '爱心创可贴', appliesTo: 'both', currency: 'coins', price: 120, effects: { health: 25 }, category: 'medicine', weight: 4, limit: 3 },
@@ -105,10 +105,11 @@ export function drawShopSlots(previous: readonly ShopSlot[] = [], random: () => 
     const dogFood = (item: ItemDefinition) => item.category === 'food' && item.currency === 'coins' && itemApplies(item, 'dog');
     pick(catFood);
     if (!selected.some(dogFood)) pick(dogFood);
-    // 每轮货架保底至少 1 格治疗药品，方便玩家及时购买治病道具。
+    // 每轮货架保底至少 1 格清洁道具 + 1 格治疗药品，方便玩家随时购买洗澡护理与治病补给。
+    pick(item => item.category === 'soap');
     pick(item => item.category === 'medicine');
     // 每轮 6 格货架保底至少 2 格钻石高阶品 + 至少 3 格金币常规品，均衡金币与钻石消费体验。
-    while (selected.filter(item => item.currency === 'gems').length < 2) pick(item => item.currency === 'gems');
+    while (selected.length < 6 && selected.filter(item => item.currency === 'gems').length < 2) pick(item => item.currency === 'gems');
     const coinsNeeded = () => Math.max(0, 3 - selected.filter(item => item.currency === 'coins').length);
     for (const species of ['cat', 'dog', 'both'] as const) {
         if (selected.length < 6 && !selected.some(item => item.appliesTo === species)) {
@@ -122,6 +123,7 @@ export function drawShopSlots(previous: readonly ShopSlot[] = [], random: () => 
     const valid = (items: readonly ItemDefinition[]) =>
         items.filter(item => item.currency === 'coins').length >= 3 &&
         items.filter(item => item.currency === 'gems').length >= 2 && items.some(catFood) && items.some(dogFood) &&
+        items.some(item => item.category === 'soap') &&
         items.some(item => item.category === 'medicine') &&
         ['cat', 'dog', 'both'].every(species => items.some(item => item.appliesTo === species));
     if (selected.every(item => previous.some(slot => slot.id === item.id))) {

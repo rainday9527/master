@@ -9,7 +9,11 @@ export type TombstoneId =
     | 'tomb_sleep'
     | 'tomb_angel'
     | 'tomb_star'
-    | 'tomb_rose';
+    | 'tomb_rose'
+    | 'tomb_sakura'
+    | 'tomb_moon'
+    | 'tomb_rainbow'
+    | 'tomb_crown';
 
 export type SlotBgTheme = 'general' | 'heal' | 'gem' | 'epic' | 'coin' | 'rainbow';
 
@@ -34,6 +38,10 @@ export const TOMBSTONE_CATALOG: readonly TombstoneDef[] = [
     { id: 'tomb_angel', name: '天使羽翼碑', priceGems: 0, unlockMode: 'ad', limited: true, slotTheme: 'rainbow', artKey: 'tomb-angel', desc: '限定 · 洁白羽翼大理石碑与暖灯守望' },
     { id: 'tomb_star', name: '星光水晶罩', priceGems: 0, unlockMode: 'ad', limited: true, slotTheme: 'rainbow', artKey: 'tomb-star', desc: '限定 · 琉璃星愿花境，满载璀璨回忆' },
     { id: 'tomb_rose', name: '玫瑰圣光拱门', priceGems: 0, unlockMode: 'ad', limited: true, slotTheme: 'rainbow', artKey: 'tomb-rose', desc: '限定 · 玫瑰藤蔓拱门与金色光环永恒祝福' },
+    { id: 'tomb_sakura', name: '樱花绯梦碑', priceGems: 0, unlockMode: 'ad', limited: true, slotTheme: 'rainbow', artKey: 'tomb-sakura', desc: '限定 · 落樱漫舞的白石纪念碑，绯色花瓣永恒相伴' },
+    { id: 'tomb_moon', name: '星月琉璃碑', priceGems: 0, unlockMode: 'ad', limited: true, slotTheme: 'rainbow', artKey: 'tomb-moon', desc: '限定 · 弯月云朵环绕的星辉石碑，照亮思念归途' },
+    { id: 'tomb_rainbow', name: '彩虹云桥碑', priceGems: 0, unlockMode: 'ad', limited: true, slotTheme: 'rainbow', artKey: 'tomb-rainbow', desc: '限定 · 彩虹拱桥与云朵守护碑，愿在彩虹桥尽头重逢' },
+    { id: 'tomb_crown', name: '金冠花庭碑', priceGems: 0, unlockMode: 'ad', limited: true, slotTheme: 'rainbow', artKey: 'tomb-crown', desc: '限定 · 皇冠藤蔓与金叶纪念亭，献给最尊贵的小宝贝' },
 ];
 
 export function findTombstone(id: string): TombstoneDef | undefined {
