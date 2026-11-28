@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Camera, Canvas, UITransform, Graphics, Label, Color, Vec3, Vec2, RenderTexture, MeshRenderer, Material, primitives, utils, view, ResolutionPolicy, Layers, input, Input, EventTouch, sys, BlockInputEvents, Sprite, SpriteFrame, resources, DirectionalLight, Vec4, JsonAsset, Texture2D, ImageAsset, isValid, tween, Tween, ScrollView, Mask, UIOpacity, profiler, EditBox, game, director } from 'cc';
+import { _decorator, Component, Node, Camera, Canvas, UITransform, Graphics, Label, Color, Vec3, Vec2, RenderTexture, MeshRenderer, Material, primitives, utils, view, ResolutionPolicy, Layers, input, Input, EventTouch, EventMouse, sys, BlockInputEvents, Sprite, SpriteFrame, resources, DirectionalLight, Vec4, JsonAsset, Texture2D, ImageAsset, isValid, tween, Tween, ScrollView, Mask, UIOpacity, profiler, EditBox, game, director } from 'cc';
 import { DEBUG } from 'cc/env';
 
 import { ITEM_CATALOG, ItemDefinition, ItemCategory, PetStat, ShopSlot, findItem, itemApplies, effectText, drawShopSlots } from './ItemCatalog';
@@ -211,10 +211,22 @@ export class Main extends Component {
     private advGuestActors: Actor[] = [];
     public petNodeScale = 0.48;
     public petCollisionRadius = 0.54;
-    private readonly yardMinX = -6.2;
-    private readonly yardMaxX = 6.2;
-    private readonly yardMinZ = -5.4;
-    private readonly yardMaxZ = 9.2;
+    private readonly yardMinX = -8.4;
+    private readonly yardMaxX = 8.4;
+    private readonly yardMinZ = -7.0;
+    private readonly yardMaxZ = 11.4;
+    private readonly yardWorldScale = 1.38;
+    private yardZoom = 1.0;
+    private yardPanX = 0;
+    private yardPanZ = 0;
+    private yardLodLevel: 'near' | 'mid' | 'far' = 'mid';
+    private yardTouches = new Map<number, Vec2>();
+    private yardPinchStartDist = 0;
+    private yardPinchStartZoom = 1.0;
+    private yardDragMoved = false;
+    private yardDragStartPos: Vec2 | null = null;
+    private yardDragLastPos: Vec2 | null = null;
+    private yardZoomHud: Node | null = null;
     private socialTime = 0;
     private pairCooldowns = new Map<string, number>();
     private bubbleLayer: Node | null = null;
@@ -506,6 +518,8 @@ export class Main extends Component {
         input.on(Input.EventType.TOUCH_START, this.onWorldTouchStart, this);
         input.on(Input.EventType.TOUCH_MOVE, this.onWorldTouchMove, this);
         input.on(Input.EventType.TOUCH_END, this.onWorldTouch, this);
+        input.on(Input.EventType.TOUCH_CANCEL, this.onWorldTouchCancel, this);
+        input.on(Input.EventType.MOUSE_WHEEL, this.onWorldMouseWheel, this);
         this.bindAppLifecycleListeners();
         this.schedule(this.tick, 1);
         if (this.saveWarning) this.toast('存档异常，已安全恢复为初始庭院');
@@ -845,10 +859,126 @@ export class Main extends Component {
         const size = view.getVisibleSize();
         this.background.getComponent(UITransform)!.setContentSize(size.width, size.height);
         this.backgroundCamera.orthoHeight = size.height / 2;
-        const source = this.backgroundSprite.spriteFrame?.originalSize;
-        const width = source?.width || 1080, height = source?.height || 1920;
-        const cover = Math.max(size.width / width, size.height / height);
-        this.backgroundSprite.getComponent(UITransform)!.setContentSize(width * cover, height * cover);
+        this.applyYardCamera();
+    }
+
+    private isYardCameraPage(): boolean {
+        return this.page === 'home' || this.page === 'pet' || this.page === 'layout';
+    }
+
+    public setYardCamera(zoom: number, panX = this.yardPanX, panZ = this.yardPanZ) {
+        this.yardZoom = Math.max(0.92, Math.min(2.6, Number.isFinite(zoom) ? zoom : 1.0));
+        this.yardPanX = Number.isFinite(panX) ? panX : 0;
+        this.yardPanZ = Number.isFinite(panZ) ? panZ : 0;
+        this.applyYardCamera();
+    }
+
+    public resetYardCamera() {
+        this.yardZoom = 1.0;
+        this.yardPanX = 0;
+        this.yardPanZ = 0;
+        this.applyYardCamera();
+    }
+
+    private applyYardCamera() {
+        const size = view?.getVisibleSize ? view.getVisibleSize() : { width: this.width || 1080, height: this.height || 1920 };
+        const w = size.width || this.width || 1080;
+        const h = size.height || this.height || 1920;
+        const baseOrthoH = Math.max(13.0, 13.0 * h / 1920);
+        const activeYard = this.isYardCameraPage();
+        const zoom = activeYard ? this.yardZoom : 1.0;
+        const worldScale = activeYard ? this.yardWorldScale : 1.0;
+
+        const source = this.backgroundSprite?.spriteFrame?.originalSize;
+        const srcW = source?.width || 1080;
+        const srcH = source?.height || 1920;
+        const cover = Math.max(w / srcW, h / srcH) * worldScale * zoom;
+        const bgW = srcW * cover;
+        const bgH = srcH * cover;
+        if (this.backgroundSprite && isValid(this.backgroundSprite.node, true)) {
+            this.backgroundSprite.getComponent(UITransform)?.setContentSize(bgW, bgH);
+        }
+
+        const orthoH = baseOrthoH / zoom;
+        if (this.worldCamera) {
+            this.worldCamera.orthoHeight = orthoH;
+        }
+        const ppu = h / (2 * orthoH);
+        const pitchCos = 32 / Math.hypot(32, 13);
+        const maxPanX = activeYard ? Math.max(0, (bgW - w) / (2 * ppu)) : 0;
+        const maxPanZ = activeYard ? Math.max(0, (bgH - h) / (2 * ppu * pitchCos)) : 0;
+        const panX = activeYard ? Math.max(-maxPanX, Math.min(maxPanX, this.yardPanX)) : 0;
+        const panZ = activeYard ? Math.max(-maxPanZ, Math.min(maxPanZ, this.yardPanZ)) : 0;
+        if (activeYard) {
+            this.yardPanX = panX;
+            this.yardPanZ = panZ;
+        }
+
+        if (this.worldCamera?.node && isValid(this.worldCamera.node, true)) {
+            this.worldCamera.node.setPosition(panX, 32, 14 + panZ);
+            this.worldCamera.node.lookAt(new Vec3(panX, 0, 1.0 + panZ));
+        }
+        if (this.backgroundSprite && isValid(this.backgroundSprite.node, true)) {
+            this.backgroundSprite.node.setPosition(-panX * ppu, panZ * ppu * pitchCos, 0);
+        }
+
+        const nextLod: 'near' | 'mid' | 'far' = zoom >= 1.45 ? 'near' : zoom <= 1.05 ? 'far' : 'mid';
+        if (nextLod !== this.yardLodLevel) {
+            this.yardLodLevel = nextLod;
+            this.applyYardLod();
+        }
+        this.refreshYardZoomHud();
+    }
+
+    private applyYardLod() {
+        // 根据缩放级别动态调节 3D 细节 LOD：拉近赏宠（near）全细节绽放；远景（far）保持清爽与省电流畅
+        const detailScale = this.yardLodLevel === 'near' ? 1.08 : this.yardLodLevel === 'far' ? 0.92 : 1.0;
+        (this.actors || []).forEach(a => {
+            const rig = a.rig;
+            if (!rig || !rig.coatVfxNode || !isValid(rig.coatVfxNode, true)) return;
+            const burst = rig.coatVfxNode.getChildByName('服装绽放特效');
+            if (burst && isValid(burst, true)) burst.setScale(detailScale, detailScale, detailScale);
+        });
+    }
+
+    private refreshYardZoomHud() {
+        if (!this.ui || !isValid(this.ui, true)) return;
+        const show = this.isYardCameraPage() && !this.dialog && !this.gmPanel;
+        if (!show) {
+            if (this.yardZoomHud && isValid(this.yardZoomHud, true)) this.yardZoomHud.active = false;
+            return;
+        }
+        if (!this.yardZoomHud || !isValid(this.yardZoomHud, true)) {
+            const hud = this.uiNode(this.ui, '庭院缩放控制条', 0, 0, 186, 54);
+            this.yardZoomHud = hud;
+            const g = hud.addComponent(Graphics);
+            g.fillColor = new Color(68, 42, 22, 188);
+            g.roundRect(-93, -27, 186, 54, 27); g.fill();
+            g.lineWidth = 2.5; g.strokeColor = new Color(255, 226, 168, 220);
+            g.roundRect(-93, -27, 186, 54, 27); g.stroke();
+
+            const outBtn = this.uiNode(hud, '庭院缩小按钮', -62, 0, 48, 44);
+            this.intercept(outBtn); this.pressVisualFeedback(outBtn);
+            const outLbl = this.text(outBtn, '－', 0, 0, 44, 36, 26, '#FFF7E0'); outLbl.isBold = true;
+            outBtn.on(Node.EventType.TOUCH_END, () => { SoundManager.playSfx('click'); this.setYardCamera(this.yardZoom - 0.30); }, this);
+
+            const resetBtn = this.uiNode(hud, '庭院缩放复位', 0, 0, 74, 44);
+            this.intercept(resetBtn); this.pressVisualFeedback(resetBtn);
+            const valLbl = this.text(resetBtn, '1.0x', 0, 0, 72, 32, 21, '#FFE27A'); valLbl.isBold = true;
+            valLbl.node.name = '庭院缩放数字';
+            resetBtn.on(Node.EventType.TOUCH_END, () => { SoundManager.playSfx('click'); this.resetYardCamera(); }, this);
+
+            const inBtn = this.uiNode(hud, '庭院放大按钮', 62, 0, 48, 44);
+            this.intercept(inBtn); this.pressVisualFeedback(inBtn);
+            const inLbl = this.text(inBtn, '＋', 0, 0, 44, 36, 26, '#FFF7E0'); inLbl.isBold = true;
+            inBtn.on(Node.EventType.TOUCH_END, () => { SoundManager.playSfx('click'); this.setYardCamera(this.yardZoom + 0.30); }, this);
+        }
+        this.yardZoomHud.active = true;
+        const lbl = this.yardZoomHud.getChildByName('庭院缩放复位')?.getChildByName('庭院缩放数字')?.getComponent(Label);
+        if (lbl) lbl.string = `${this.yardZoom.toFixed(1)}x`;
+        const bounds = this.chromeBounds();
+        const bottomOffset = this.page === 'pet' ? 680 : this.page === 'layout' ? 405 : 225;
+        this.yardZoomHud.setPosition(bounds.right - 112, bounds.bottom + bottomOffset, 0);
     }
 
     private makeLighting() {
@@ -2174,6 +2304,7 @@ export class Main extends Component {
         memorial.on(Node.EventType.TOUCH_END, () => this.open('memorial'), this);
         this.refreshMemorialEntry();
         this.refreshYardDebuffBanner();
+        this.applyYardCamera();
         this.refreshTaskRedDots();
 
         // 庭院布置入口：位于左侧上方，与右侧「任务」入口水平对齐
@@ -2539,7 +2670,9 @@ export class Main extends Component {
             const cover = Math.max(this.width / 1080, this.height / 1920);
             this.recruitBackground.getComponent(UITransform)!.setContentSize(1080 * cover, 1920 * cover);
         }
-        this.worldCamera.orthoHeight = Math.max(13.0, 13.0 * this.height / 1920);
+        if (this.worldCamera && !this.worldCamera.node) {
+            this.worldCamera.orthoHeight = Math.max(13.0, 13.0 * this.height / 1920);
+        }
         if (this.sheet) {
             this.sheet.setPosition(
                 0,
@@ -3432,6 +3565,7 @@ export class Main extends Component {
         if (settingsEntry) settingsEntry.active = page === 'home';
         this.refreshMemorialEntry();
         this.refreshYardDebuffBanner();
+        this.applyYardCamera();
         this.refreshTaskRedDots();
         const hideChrome = page === 'login' || page === 'loading' || (page === 'settings' && this.settingsReturnPage === 'login');
         this.refreshGmEntryVisibility();
@@ -3867,6 +4001,7 @@ export class Main extends Component {
             this.syncActorVisibility();
             this.refreshMemorialEntry();
         this.refreshYardDebuffBanner();
+        this.applyYardCamera();
         this.refreshTaskRedDots();
             this.renderHeader(); this.updateRecruit();
             const hasHighRarity = added.length > 0 || ids.some(id => BREEDS[id]?.rarity === 'epic' || BREEDS[id]?.rarity === 'legend');
@@ -8571,6 +8706,7 @@ export class Main extends Component {
             this.renderHeader();
             this.refreshMemorialEntry();
         this.refreshYardDebuffBanner();
+        this.applyYardCamera();
         this.refreshTaskRedDots();
             this.refreshTombstoneOwnedLabel(id);
             this.toast('限定解锁成功！已获得「' + tomb.name + '」');
@@ -8589,6 +8725,7 @@ export class Main extends Component {
         this.renderHeader();
         this.refreshMemorialEntry();
         this.refreshYardDebuffBanner();
+        this.applyYardCamera();
         this.refreshTaskRedDots();
         this.refreshTombstoneOwnedLabel(id);
         this.showRewardToast([{ kind: 'gems', amount: -tomb.priceGems }], '消耗');
@@ -9298,6 +9435,7 @@ export class Main extends Component {
         this.renderHeader();
         this.refreshMemorialEntry();
         this.refreshYardDebuffBanner();
+        this.applyYardCamera();
         this.refreshTaskRedDots();
         {
             const gained: RewardGrantItem[] = [];
@@ -9355,6 +9493,7 @@ export class Main extends Component {
             this.syncActorVisibility();
             this.refreshMemorialEntry();
         this.refreshYardDebuffBanner();
+        this.applyYardCamera();
         this.refreshTaskRedDots();
             this.renderHeader();
             const names = respawned.slice(0, 2).map(id => this.petDisplayName(id)).join('、');
@@ -9614,6 +9753,7 @@ export class Main extends Component {
         this.renderHeader();
         this.refreshMemorialEntry();
         this.refreshYardDebuffBanner();
+        this.applyYardCamera();
         this.refreshTaskRedDots();
         this.closeDialog();
         this.showDialog(resultTitle, resultBody, [
@@ -9713,6 +9853,7 @@ export class Main extends Component {
             this.renderHeader();
             this.refreshMemorialEntry();
         this.refreshYardDebuffBanner();
+        this.applyYardCamera();
         this.refreshTaskRedDots();
             if (this.page === 'diary' || this.page === 'memorial') {
                 const pg = this.page;
@@ -10044,6 +10185,7 @@ export class Main extends Component {
             this.renderHeader();
             this.refreshMemorialEntry();
         this.refreshYardDebuffBanner();
+        this.applyYardCamera();
         this.refreshTaskRedDots();
             if (this.sheet && isValid(this.sheet, true)) { this.sheet.removeFromParent(); this.sheet.destroy(); this.sheet = null; }
             this.open('memorial');
@@ -10185,7 +10327,7 @@ export class Main extends Component {
         const bounds = this.chromeBounds(), rects = this.yardUIRects();
         const list = this.data.poops || [];
         const furniture = this.data.placedFurniture || [];
-        const key = JSON.stringify([this.page, bounds, rects, this.worldCamera.orthoHeight, list, furniture]);
+        const key = JSON.stringify([this.page, bounds, rects, this.worldCamera.orthoHeight, Math.round(this.yardPanX * 10), Math.round(this.yardPanZ * 10), list, furniture]);
         if (key === this.yardPoopLayoutKey) return;
         this.yardPoopLayoutKey = key;
         // 56 为屏幕拾取半径；另留 12 UI 单位，覆盖图像边缘和按下缩放。
@@ -10221,10 +10363,45 @@ export class Main extends Component {
         this.yardPoopPositions = next;
     }
 
+    private onWorldMouseWheel(event: EventMouse) {
+        if (!this.isYardCameraPage() || this.dialog || this.gmPanel) return;
+        const scrollY = event.getScrollY();
+        if (!scrollY) return;
+        this.setYardCamera(this.yardZoom + (scrollY > 0 ? 0.18 : -0.18));
+    }
+
+    private onWorldTouchCancel(event: EventTouch) {
+        const id = typeof event.getID === 'function' ? event.getID() : 0;
+        this.yardTouches.delete(id);
+        if (this.yardTouches.size === 0) {
+            this.yardDragMoved = false;
+            this.yardDragStartPos = null;
+            this.yardDragLastPos = null;
+            this.yardPinchStartDist = 0;
+            this.draggingFurnitureUid = null;
+        }
+    }
+
     private onWorldTouchStart(event: EventTouch) {
-        if (this.page !== 'layout' || this.dialog || this.gmPanel) return;
+        if (this.dialog || this.gmPanel) return;
         const location = event.getLocation();
         if (this.isTouchOnUI(location)) return;
+        const id = typeof event.getID === 'function' ? event.getID() : 0;
+        if (this.isYardCameraPage()) {
+            this.yardTouches.set(id, location.clone());
+            if (this.yardTouches.size === 2) {
+                const pts = Array.from(this.yardTouches.values());
+                this.yardPinchStartDist = Math.max(10, Vec2.distance(pts[0], pts[1]));
+                this.yardPinchStartZoom = this.yardZoom;
+                this.yardDragMoved = true;
+                this.draggingFurnitureUid = null;
+                return;
+            }
+            this.yardDragStartPos = location.clone();
+            this.yardDragLastPos = location.clone();
+            this.yardDragMoved = false;
+        }
+        if (this.page !== 'layout') return;
         // 优先检测是否按中某件已摆放家具（宽松热区 115px），按住即可顺滑直接拖动！
         let hitFurn: PlacedFurniture | null = null, bestD = 115;
         (this.data.placedFurniture || []).forEach(pf => {
@@ -10251,16 +10428,55 @@ export class Main extends Component {
     }
 
     private onWorldTouchMove(event: EventTouch) {
-        if (this.page !== 'layout' || this.draggingFurnitureUid === null) return;
+        if (this.dialog || this.gmPanel) return;
         const location = event.getLocation();
-        if (this.isTouchOnUI(location)) return;
-        const pt = this.screenToYardGround(location);
-        if (pt) this.movePlacedFurniture(this.draggingFurnitureUid, pt.x, pt.z, false);
+        const id = typeof event.getID === 'function' ? event.getID() : 0;
+        if (this.yardTouches.has(id)) {
+            this.yardTouches.set(id, location.clone());
+        }
+        if (this.isYardCameraPage() && this.yardTouches.size >= 2 && this.yardPinchStartDist > 0) {
+            const pts = Array.from(this.yardTouches.values());
+            const dist = Vec2.distance(pts[0], pts[1]);
+            this.yardDragMoved = true;
+            this.setYardCamera(this.yardPinchStartZoom * (dist / this.yardPinchStartDist));
+            return;
+        }
+        if (this.page === 'layout' && this.draggingFurnitureUid !== null) {
+            if (this.isTouchOnUI(location)) return;
+            const pt = this.screenToYardGround(location);
+            if (pt) this.movePlacedFurniture(this.draggingFurnitureUid, pt.x, pt.z, false);
+            return;
+        }
+        if (this.isYardCameraPage() && this.yardDragLastPos && this.yardDragStartPos) {
+            if (!this.yardDragMoved && Vec2.distance(location, this.yardDragStartPos) > 12) {
+                this.yardDragMoved = true;
+            }
+            if (this.yardDragMoved) {
+                const dx = location.x - this.yardDragLastPos.x;
+                const dy = location.y - this.yardDragLastPos.y;
+                const size = view.getVisibleSize();
+                const orthoH = this.worldCamera?.orthoHeight || 13.0;
+                const ppu = (size.height || this.height || 1920) / (2 * orthoH);
+                const pitchCos = 32 / Math.hypot(32, 13);
+                this.setYardCamera(this.yardZoom, this.yardPanX - dx / ppu, this.yardPanZ + dy / (ppu * pitchCos));
+            }
+            this.yardDragLastPos = location.clone();
+        }
     }
 
     private onWorldTouch(event: EventTouch) {
+        const id = typeof event.getID === 'function' ? event.getID() : 0;
+        this.yardTouches.delete(id);
+        const wasDrag = this.yardDragMoved;
+        if (this.yardTouches.size === 0) {
+            this.yardDragMoved = false;
+            this.yardDragStartPos = null;
+            this.yardDragLastPos = null;
+            this.yardPinchStartDist = 0;
+        }
         const location = event.getLocation();
         if (this.dialog || this.gmPanel || Date.now() < this.blockedUntil) return;
+        if (wasDrag && this.draggingFurnitureUid === null) return;
         if (this.page === 'layout') {
             if (this.draggingFurnitureUid !== null) {
                 const pt = this.screenToYardGround(location);
@@ -10584,6 +10800,7 @@ export class Main extends Component {
         });
         this.refreshMemorialEntry();
         this.refreshYardDebuffBanner();
+        this.applyYardCamera();
         this.refreshTaskRedDots();
         const actor = this.actors.find(a => a.pet.id === pet.id);
         const inYard = this.page === 'home' || this.page === 'pet';
@@ -11767,6 +11984,8 @@ export class Main extends Component {
         }
         input.off(Input.EventType.TOUCH_MOVE, this.onWorldTouchMove, this);
         input.off(Input.EventType.TOUCH_END, this.onWorldTouch, this);
+        input.off(Input.EventType.TOUCH_CANCEL, this.onWorldTouchCancel, this);
+        input.off(Input.EventType.MOUSE_WHEEL, this.onWorldMouseWheel, this);
         this.unbindAppLifecycleListeners();
         this.unscheduleAllCallbacks(); if (this.data) this.persist();
         this.socialBubbles.forEach(b => { if (isValid(b.node, true)) b.node.destroy(); });
